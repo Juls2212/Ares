@@ -39,6 +39,9 @@ describe("system service", () => {
       }
     });
     expect(JSON.stringify(result)).not.toContain(technicalError.message);
+    expect(JSON.stringify(result)).not.toContain("stack");
+    expect(JSON.stringify(result)).not.toContain("process.env");
+    expect(JSON.stringify(result)).not.toContain("C:\\\\");
     errorSpy.mockRestore();
   });
 
