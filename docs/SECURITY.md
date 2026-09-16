@@ -26,7 +26,9 @@ Main normalizes and validates every path and permits work only in explicitly sel
 
 ## Application safeguards
 
-Only registered, safely discovered, or explicitly user-registered applications may open. Paths are validated by controlled platform-specific logic. Aliases resolve only to registered entries. AI can identify a requested name but cannot create a path or invoke a generic command. Ares never controls an external application's internals.
+Only registered, safely discovered, or explicitly user-approved applications may open. Launch resolution is limited to: interpreted application name -> registered application ID or registered alias -> validated application record -> validated executable path -> direct launch without command-shell interpretation. Paths are validated by controlled platform-specific logic, and aliases resolve only to registered entries.
+
+AI can identify a requested application name but cannot provide an executable command or arbitrary executable path. Unknown names return a controlled Spanish unavailable message and never fall back to shell execution. Ares does not use `shell: true` and never passes AI-produced text to PowerShell, Command Prompt, or another shell. `child_process` is never exposed to the renderer. Arguments are unsupported unless a later approved action defines and validates an explicit allowlisted argument contract. Opening a terminal application does not authorize executing commands inside it, and Ares never controls an external application's internals.
 
 ## AI containment and validation
 
@@ -38,4 +40,8 @@ Development secrets come only from environment variables and are never committed
 
 ## Voice privacy
 
-The microphone activates only after explicit user interaction. The renderer requests microphone permission and captures audio with constrained browser media APIs; it receives no Node.js, filesystem, process, shell, environment, or unrestricted Electron access. A narrow validated preload/IPC method transfers audio to Main, which owns provider credentials. Transcribed text follows the same validation and confirmation path as typed input. Temporary audio is removed after processing unless a development configuration explicitly authorizes short-lived diagnostic retention after a failure. Level 2 confirmation is visible UI, correlated by an opaque confirmation identifier, and optional spoken output cannot bypass it.
+Manual push-to-talk remains available. Wake-word mode is disabled by default and can operate only after the user explicitly enables it in Settings and explicitly grants microphone permission. While the Ares process is running, including while its window is minimized, the configured local detector may monitor for the activation phrase. Waiting-mode audio remains local, is not persisted, is not sent to OpenAI or another remote provider, and is not included in technical logs. Ares does not listen after its process is closed and this decision does not approve Windows auto-start.
+
+After a local activation event, one bounded command-recording session may begin. The renderer requests and uses microphone access through constrained browser media APIs; it receives no Node.js, filesystem, process, shell, environment, or unrestricted Electron access. A narrow validated preload/IPC method transfers only bounded command audio to Main, which owns provider credentials. If detector state is uncertain, it fails closed and remote capture does not begin. The user has an immediate mute or disable control, and microphone loss or permission denial produces a controlled Spanish state. Temporary command audio is removed after processing unless a development configuration explicitly authorizes short-lived diagnostic retention after a failure.
+
+Wake-word detection only begins capture. It never confirms an action, and voice input never bypasses validation, risk classification, or confirmation. Transcribed text follows the same pipeline as typed input. Level 2 confirmation remains visible UI, correlated by an opaque confirmation identifier; optional spoken output cannot bypass it.

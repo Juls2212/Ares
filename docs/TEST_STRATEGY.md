@@ -13,10 +13,10 @@
 
 - Database tests use isolated PostgreSQL instances or schemas through the approved migration workflow; they never rely on manually altered schemas.
 - Filesystem tests use temporary test directories only. They cover authorization, normalization, collisions, previews, inaccessible paths, and per-item partial outcomes.
-- Application-launch tests assert registered-path validation and adapter calls; they do not open arbitrary programs in automated tests.
+- Application-launch tests assert registered-path validation and direct-launch adapter calls; they do not open arbitrary programs in automated tests. They reject AI-produced commands, arbitrary paths, shell metacharacters, and unsupported arguments; unknown applications never fall back to shell execution.
 - AI tests use fixtures or mocked providers to test structured-output validation, unsupported actions, ambiguity clarification, dependencies, and containment.
-- Voice tests use fixtures or mocked providers for constrained renderer capture boundaries, validated audio transfer, Spanish transcription handoff into `assistant.interpret`, optional Spanish speech output, cleanup of temporary audio, and no confirmation bypass.
-- Security tests verify renderer isolation, absent general Node/Electron APIs, IPC allowlisting, secret redaction, path controls, confirmation identifier correlation, replay protection, and rejection of arbitrary commands.
+- Voice tests use mocked audio fixtures and providers without requiring a live microphone. They verify that wake-word mode is disabled by default; local waiting never invokes a remote provider or persists audio; activation starts only one bounded capture session; false or repeated activation cannot create parallel recordings; timeout returns to local waiting; mute stops detection and capture; permission denial returns a controlled Spanish error; and temporary command audio is removed. They also cover constrained renderer capture boundaries, validated audio transfer, Spanish transcription handoff into `assistant.interpret`, optional Spanish speech output, and no confirmation bypass.
+- Security tests verify renderer isolation, absent general Node/Electron APIs, IPC allowlisting, secret redaction, path controls, confirmation identifier correlation, replay protection, and rejection of arbitrary commands. They verify that wake-word detection cannot trigger or accept Level 2 confirmation and that visible confirmation remains mandatory.
 - Spanish user-facing message tests verify that technical error codes do not surface as raw English errors.
 
 ## Phase 0 acceptance criteria

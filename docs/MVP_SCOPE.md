@@ -2,7 +2,7 @@
 
 ## Purpose and goals
 
-Ares is a supervised Windows desktop productivity assistant. It centralizes personal planning, tasks, events, reminders, productivity-focused file work, known-application launching, action history, system notifications, and typed or manually initiated Spanish voice interaction.
+Ares is a supervised Windows desktop productivity assistant. It centralizes personal planning, tasks, events, reminders, productivity-focused file work, known-application launching, action history, system notifications, and typed, manual push-to-talk, or opt-in local wake-word Spanish voice interaction.
 
 The MVP demonstrates a complete controlled flow: natural-language interpretation, structured action validation, confirmation where required, execution by internal services, persistence or operating-system interaction, and a visible Spanish result. The user remains in control at every stage.
 
@@ -13,13 +13,13 @@ The MVP demonstrates a complete controlled flow: natural-language interpretation
 - Controlled search, folder creation, rename, move, and deterministic extension-based organization for user-authorized locations.
 - Opening only registered or safely discovered known applications.
 - Electron-managed notifications for reminders, upcoming events, and eligible tasks.
-- A future bidirectional Spanish voice path: manually initiated Speech-to-Text, the same action pipeline as text, and optional Text-to-Speech responses.
+- A future bidirectional Spanish voice path: manual push-to-talk and an opt-in local wake-word mode, the same action pipeline as text, and optional Text-to-Speech responses. Wake-word waiting is local only, requires explicit microphone permission and Settings activation, and is available only while the Ares process is running.
 - One primary Electron window with the documented functional sections: Inicio, Ares, Planificador, Archivos, Aplicaciones, and Ajustes.
 
 ## Explicit exclusions
 
 - Destructive file operations in the MVP.
-- Permanent microphone listening, a wake word, autonomous operation, remote control, arbitrary command execution, or generic control of external applications.
+- Unsupervised autonomous operation, arbitrary command execution, generic control of external applications, remote computer control, continuous cloud audio streaming, wake-word processing while the Ares process is closed, or automatic Ares launch when Windows starts.
 - Recurring event behavior.
 - AI content classification and custom organization rules beyond the approved extension rules.
 - Mobile, web, microservice, REST, or independently hosted backend variants.

@@ -15,10 +15,21 @@ Electron Main owns scheduling and delivery of reminders, upcoming events, and el
 ## Bidirectional voice interaction
 
 ```text
-User presses microphone
--> renderer browser permission and constrained audio capture
+Manual push-to-talk
+-> renderer browser permission and bounded command capture
 -> narrow validated audio payload to Main
--> Main-owned Speech-to-Text provider request
+
+or
+
+Opt-in wake-word mode while the Ares process is running
+-> local detector waits only for the configured phrase
+-> local activation event
+-> bounded command capture
+-> narrow validated audio payload to Main
+
+then
+
+Main-owned Speech-to-Text provider request
 -> Spanish transcript
 -> typed-input interpretation pipeline
 -> structured actions and validation
@@ -28,9 +39,15 @@ User presses microphone
 -> optional Spanish Text-to-Speech response
 ```
 
-The renderer captures audio only through constrained browser media APIs after the user explicitly presses the microphone control; it has no privileged filesystem, process, shell, environment, or Electron capability. Main receives only a validated narrow audio payload and owns the provider credentials and request. The Spanish transcript then enters `assistant.interpret`, exactly like typed input. OpenAI is the planned provider for interpretation, Speech-to-Text, and Text-to-Speech, while exact model identifiers remain deferred because availability can change. Text-to-Speech is produced by a narrow Main-owned provider service and played through controlled renderer media using returned audio data or a later-approved narrow mechanism. There is no wake word or permanent listening. Voice uses the same action, risk, and confirmation system as typed input. Level 2 confirmation is a visible UI control correlated to the exact proposal; Ares may read it aloud, but spoken confirmation is not MVP-required. Settings will allow spoken output to be enabled or disabled.
+Manual push-to-talk remains available. Wake-word mode is disabled by default and requires explicit Settings activation and explicit microphone permission. While Ares is running, including when its window is minimized, the detector waits locally only for the configured activation phrase. Waiting-mode audio is not persisted, is not sent to OpenAI or another provider, and must not be present in technical logs. Ares does not listen when its process is completely closed, and automatic launch when Windows starts is not approved.
 
-Temporary audio is removed after processing. Short-lived diagnostic retention is allowed only after a technical failure when explicitly authorized by development configuration. Missing microphone permission, unavailable audio device, transcription failure, or unavailable provider returns a typed failure and a Spanish user-facing explanation.
+The renderer uses constrained browser media APIs and has no privileged filesystem, process, shell, environment, or Electron capability. Main receives only a validated narrow command-audio payload after manual capture or local activation and owns the provider credentials and request. If detector state is uncertain, it fails closed: remote capture does not begin. The Spanish transcript then enters `assistant.interpret`, exactly like typed input. OpenAI is the planned provider for interpretation, Speech-to-Text, and Text-to-Speech, while exact model identifiers remain deferred because availability can change. Text-to-Speech is produced by a narrow Main-owned provider service and played through controlled renderer media using returned audio data or a later-approved narrow mechanism.
+
+The user-facing voice state must visibly distinguish the following states: wake-word disabled (**“Modo de palabra de activación desactivado.”**), local waiting (**“Esperando la palabra de activación.”**), command recording (**“Escuchando tu instrucción.”**), processing (**“Procesando tu instrucción.”**), speaking (**“Ares está respondiendo.”**), and unavailable microphone or denied permission (**“No se puede usar el micrófono. Revisa los permisos.”**). A visible and audible activation acknowledgement occurs only after local detection. The user has an immediate mute or disable control.
+
+Each activation creates at most one command-recording session. That session has inactivity and maximum-duration timeouts, and Ares returns to local waiting after completion, cancellation, timeout, or a controlled failure. Mute stops both local detection and command capture. Microphone loss returns a controlled unavailable state; re-entry to waiting requires a valid enabled preference and available permission/device. Wake-word detection only starts command capture. It never confirms an action. Voice uses the same action, risk, and confirmation system as typed input, and Level 2 confirmation remains a visible UI control correlated to the exact proposal. Ares may read a confirmation request aloud, but spoken confirmation is not MVP-required. Settings will allow spoken output to be enabled or disabled.
+
+Temporary command audio is removed after processing. Short-lived diagnostic retention is allowed only after a technical failure when explicitly authorized by development configuration. Waiting-mode audio is never retained. Technical logs must never contain captured audio or unintended transcripts. Missing microphone permission, unavailable audio device, transcription failure, or unavailable provider returns a typed failure and a Spanish user-facing explanation.
 
 ## Logging, errors, and partial results
 

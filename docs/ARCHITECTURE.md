@@ -46,7 +46,21 @@ Dependencies flow inward: renderer -> preload contracts -> IPC handlers -> servi
 
 **AI:** the AI receives only the minimum request and approved context needed to propose catalog actions. It receives no filesystem, process, shell, credential, or database capability. See [ACTIONS.md](ACTIONS.md) and [SECURITY.md](SECURITY.md).
 
-**Voice:** after explicit user interaction, the renderer uses constrained browser media APIs to request permission and capture audio. A narrow typed preload/IPC boundary transfers that audio to Main, which owns Speech-to-Text credentials and provider communication. The returned Spanish transcript enters the same assistant interpretation pipeline as typed text. Text-to-Speech is requested from a Main-owned provider service; controlled renderer media playback may use returned audio data or a later-approved narrow mechanism. See [OPERATIONS.md](OPERATIONS.md).
+**Voice:** the two approved voice entry paths are manual push-to-talk and opt-in local wake-word activation. The trust path is:
+
+```text
+Renderer-controlled microphone access
+-> local wake-word detector
+-> activation event
+-> bounded command capture
+-> narrow preload/IPC transfer
+-> Main-owned remote Speech-to-Text provider
+-> normal assistant pipeline
+```
+
+Wake-word mode is disabled by default and requires explicit Settings activation and microphone permission. While Ares is running, including with its primary window minimized, waiting-mode audio remains on the device, is neither persisted nor sent to a provider, and the detector fails closed if its state is uncertain. Remote Speech-to-Text begins only after local activation. The renderer continues to use constrained browser media APIs and receives no Node.js, filesystem, process, shell, environment, or unrestricted Electron capability. The final technical placement of the local detector is deferred to the voice implementation phase, but it must remain local and isolated from unrestricted renderer capabilities. The returned Spanish transcript enters the same assistant interpretation pipeline as typed text. Text-to-Speech is requested from a Main-owned provider service; controlled renderer media playback may use returned audio data or a later-approved narrow mechanism. Wake-word detection only begins command capture; it cannot confirm actions or bypass validation, risk classification, or visible Level 2 confirmation. See [OPERATIONS.md](OPERATIONS.md).
+
+**Applications:** application launch follows only this chain: interpreted application name -> registered application ID or registered alias -> validated application record -> validated executable path -> direct launch without command-shell interpretation. AI cannot provide an executable command or arbitrary path. Unknown names never fall back to a shell, and opening a terminal application does not authorize command execution inside it.
 
 **Notifications:** Main schedules and sends Electron notifications; renderer does not invoke unrestricted platform notification APIs.
 
