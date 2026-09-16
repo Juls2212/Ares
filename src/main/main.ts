@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
+import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -27,6 +28,7 @@ const createMainWindow = async (): Promise<void> => {
 };
 
 app.whenReady().then(async () => {
+  registerSystemIpcHandlers();
   await createMainWindow();
 
   app.on("activate", async () => {
