@@ -1,0 +1,33 @@
+{
+  "name": "ares-desktop",
+  "version": "0.1.0",
+  "description": "Ares desktop application technical foundation",
+  "main": ".vite/build/main.js",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && electron-forge package"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-zip": "7.11.2",
+    "@electron-forge/plugin-vite": "7.11.2",
+    "@types/node": "22.15.3",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.4",
+    "@tailwindcss/vite": "4.3.3",
+    "electron": "44.4.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

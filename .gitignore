@@ -1,0 +1,23 @@
+# Dependencies and generated application output
+node_modules/
+.vite/
+out/
+dist/
+coverage/
+
+# Environment files and logs
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+
+# Local editor and operating-system artifacts
+.vscode/
+.idea/
+*.swp
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+Desktop.ini
