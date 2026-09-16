@@ -9,7 +9,12 @@
     "make": "electron-forge make",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "npm run typecheck && electron-forge package"
+    "build": "npm run typecheck && electron-forge package",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:status": "docker compose ps postgres",
+    "db:config": "docker compose config"
   },
   "author": "",
   "license": "UNLICENSED",
