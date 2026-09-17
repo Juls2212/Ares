@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document describes the PostgreSQL development container only. It is not the final Windows production provisioning strategy. Drizzle, database schemas, migrations, application roles, and Electron Main database access are not configured yet.
+This document describes the PostgreSQL development container and Drizzle development tooling only. It is not the final Windows production provisioning strategy. Database schemas, migrations, application roles, and Electron Main database access are not configured yet.
 
 ## Prerequisites
 
@@ -35,10 +35,25 @@ npm run db:logs
 npm run db:down
 ```
 
-`db:up` starts only PostgreSQL in detached mode. `db:status` reports the Compose health status; wait for `healthy` before later database work. `db:logs` follows PostgreSQL logs. `db:down` stops the Compose project without deleting `ares_postgres_data`.
+`db:config` validates and renders the Compose structure without interpolating secret values. `db:up` starts only PostgreSQL in detached mode. `db:status` reports the Compose health status; wait for `healthy` before later database work. `db:logs` follows PostgreSQL logs. `db:down` stops the Compose project without deleting `ares_postgres_data`.
 
 ## Credentials and future work
 
 The initial PostgreSQL user is a local-development bootstrap user and may be used for future migrations during development. It is not the final production credential model. Least-privilege application roles may be refined before production packaging, whose Windows provisioning strategy remains an open decision.
 
-The database URL is for a future Electron Main-owned connection only. It must never be exposed through `window.ares`, Vite variables, preload, or the renderer.
+The database URL is read only by trusted Main configuration and Drizzle Kit tooling. It must never be exposed through `window.ares`, Vite variables, preload, or the renderer. Development tooling reads the root `.env`; the later packaged-production credential strategy remains open.
+
+## Drizzle workflow
+
+Drizzle ORM, the `pg` driver, and Drizzle Kit are configured for PostgreSQL. `drizzle.config.ts` uses the same `DATABASE_URL` as the future Main-owned database client, points to `src/main/database/schema/index.ts`, and will write generated, version-controlled migrations to `drizzle/`.
+
+No application table or migration exists yet. Do not run `db:migrate` until an approved migration exists. Do not use `db:push` because the project uses version-controlled migrations rather than automatic schema push.
+
+```powershell
+npm run db:check
+npm run db:generate
+npm run db:migrate
+npm run db:studio
+```
+
+`db:check` performs Drizzle Kit's non-mutating migration/configuration check. `db:generate` and `db:migrate` are intentionally prepared for later approved schema work and are not part of this setup validation. `db:studio` starts only when requested manually and is never started by Ares.
