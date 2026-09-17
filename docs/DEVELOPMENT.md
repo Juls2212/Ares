@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document describes the PostgreSQL development container and Drizzle development tooling only. It is not the final Windows production provisioning strategy. The TypeScript MVP schema and its initial migration are applied and verified in the development database, but application roles and Electron Main runtime database access are not configured yet.
+This document describes the PostgreSQL development container and Drizzle development tooling only. It is not the final Windows production provisioning strategy. The TypeScript MVP schema and its initial migration are applied and verified in the development database. Electron Main owns the private runtime client; application roles remain a future production concern.
 
 ## Prerequisites
 
@@ -57,3 +57,9 @@ npm run db:studio
 ```
 
 `db:check` performs Drizzle Kit's non-mutating migration/configuration check. `db:generate` creates migration files without connecting to or changing PostgreSQL. `db:migrate` applies approved migrations and must not run before their review. `db:studio` starts only when requested manually and is never started by Ares.
+
+## Database integration tests
+
+Run `npm run test:db` only after `npm run db:up` and `npm run db:status` report a healthy PostgreSQL service. This dedicated suite validates Main-only planner persistence against the local development database and cleans up every row it creates. It is intentionally separate from `npm test`, which never requires Docker or PostgreSQL.
+
+Planner schedule tests use an injected local-calendar clock: today is the half-open local-day interval, and a week runs from Monday through Sunday. This keeps schedule boundaries deterministic and independent of the developer machine's locale in automated tests.
