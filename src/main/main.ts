@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session } from "electron";
 import path from "node:path";
 import { registerDatabaseShutdown } from "./database/register-database-lifecycle";
+import { registerPlannerIpcHandlers } from "./ipc/register-planner-ipc";
 import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -47,6 +48,7 @@ const createMainWindow = async (): Promise<void> => {
 app.whenReady().then(async () => {
   configureSessionSecurity();
   registerSystemIpcHandlers();
+  registerPlannerIpcHandlers();
   registerDatabaseShutdown(app);
   await createMainWindow();
 
