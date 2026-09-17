@@ -14,5 +14,11 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "forge.config.ts", "vite.*.config.ts"]
+  "include": [
+    "src",
+    "tests",
+    "drizzle.config.ts",
+    "forge.config.ts",
+    "vite.*.config.ts"
+  ]
 }
