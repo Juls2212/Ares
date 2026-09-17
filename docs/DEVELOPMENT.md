@@ -41,7 +41,7 @@ npm run db:down
 
 The initial PostgreSQL user is a local-development bootstrap user and may be used for future migrations during development. It is not the final production credential model. Least-privilege application roles may be refined before production packaging, whose Windows provisioning strategy remains an open decision.
 
-The database URL is read only by trusted Main configuration and Drizzle Kit tooling. It must never be exposed through `window.ares`, Vite variables, preload, or the renderer. Development tooling reads the root `.env`; the later packaged-production credential strategy remains open.
+The database URL is read only by trusted Main configuration and Drizzle Kit tooling. Electron Main owns the lazy `pg` connection pool and its typed Drizzle client, then closes the pool during application shutdown. It must never be exposed through `window.ares`, Vite variables, preload, or the renderer. Development tooling reads the root `.env`; the later packaged-production credential strategy remains open. Migrations remain manual development operations: Ares does not generate or apply them during startup.
 
 ## Drizzle workflow
 
