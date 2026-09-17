@@ -12,5 +12,6 @@ describe("temporary renderer messaging", () => {
     expect(appSource).toContain("Consultando estado técnico...");
     expect(appSource).toContain("La comunicación segura está en funcionamiento.");
     expect(appSource).toContain("No se pudo consultar el estado técnico de Ares.");
+    expect(appSource).toContain('"disponible"');
   });
 });
