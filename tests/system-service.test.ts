@@ -45,20 +45,18 @@ describe("system service", () => {
     errorSpy.mockRestore();
   });
 
-  it("reports every future capability as unavailable", () => {
+  it("reports planner available without exposing database access", () => {
     const result = getSystemCapabilitiesResult();
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(Object.values(result.data)).toEqual([
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]);
+      expect(result.data.planner).toBe(true);
+      expect(result.data.database).toBe(false);
+      expect(result.data.files).toBe(false);
+      expect(result.data.applications).toBe(false);
+      expect(result.data.assistant).toBe(false);
+      expect(result.data.voice).toBe(false);
+      expect(result.data.notifications).toBe(false);
     }
   });
 });
