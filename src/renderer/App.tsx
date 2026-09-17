@@ -77,7 +77,7 @@ export const App = () => {
               {(Object.keys(viewState.capabilities) as Array<keyof SystemCapabilities>).map(
                 (capability) => (
                   <li key={capability}>
-                    {capabilityLabels[capability]}: no disponible todavía
+                    {capabilityLabels[capability]}: {viewState.capabilities[capability] ? "disponible" : "no disponible todavía"}
                   </li>
                 )
               )}
