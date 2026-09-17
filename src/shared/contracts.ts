@@ -39,11 +39,39 @@ export type SystemApi = {
 
 export type AresApi = {
   system: SystemApi;
+  planner: PlannerApi;
 };
 
 export const IPC_CHANNELS = {
   system: {
     getStatus: "system:get-status",
     getCapabilities: "system:get-capabilities"
+  },
+  planner: {
+    categories: {
+      create: "planner:categories:create",
+      list: "planner:categories:list",
+      update: "planner:categories:update"
+    },
+    tasks: {
+      create: "planner:tasks:create",
+      list: "planner:tasks:list",
+      update: "planner:tasks:update",
+      complete: "planner:tasks:complete"
+    },
+    events: {
+      create: "planner:events:create",
+      list: "planner:events:list",
+      update: "planner:events:update"
+    },
+    reminders: {
+      create: "planner:reminders:create",
+      list: "planner:reminders:list"
+    },
+    schedule: {
+      getToday: "planner:schedule:get-today",
+      getWeek: "planner:schedule:get-week"
+    }
   }
 } as const;
+import type { PlannerApi } from "./planner-contracts";
