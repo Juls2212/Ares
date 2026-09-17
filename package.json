@@ -9,6 +9,7 @@
     "make": "electron-forge make",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:db": "vitest run --config vitest.database.config.ts",
     "build": "npm run typecheck && electron-forge package",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
