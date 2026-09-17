@@ -14,7 +14,11 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "db:status": "docker compose ps postgres",
-    "db:config": "docker compose config"
+    "db:config": "docker compose config --no-interpolate",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:check": "drizzle-kit check",
+    "db:studio": "drizzle-kit studio"
   },
   "author": "",
   "license": "UNLICENSED",
@@ -22,11 +26,13 @@
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
     "@electron-forge/plugin-vite": "7.11.2",
+    "@tailwindcss/vite": "4.3.3",
     "@types/node": "22.15.3",
+    "@types/pg": "8.23.1",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.1.4",
-    "@tailwindcss/vite": "4.3.3",
+    "drizzle-kit": "0.31.10",
     "electron": "44.4.0",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
@@ -34,6 +40,9 @@
     "vitest": "5.0.1"
   },
   "dependencies": {
+    "dotenv": "17.4.2",
+    "drizzle-orm": "0.45.2",
+    "pg": "8.23.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   }
