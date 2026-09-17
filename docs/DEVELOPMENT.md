@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document describes the PostgreSQL development container and Drizzle development tooling only. It is not the final Windows production provisioning strategy. The TypeScript MVP schema is defined, but migrations, application roles, and Electron Main runtime database access are not configured yet.
+This document describes the PostgreSQL development container and Drizzle development tooling only. It is not the final Windows production provisioning strategy. The TypeScript MVP schema and its initial migration are applied and verified in the development database, but application roles and Electron Main runtime database access are not configured yet.
 
 ## Prerequisites
 
@@ -47,7 +47,7 @@ The database URL is read only by trusted Main configuration and Drizzle Kit tool
 
 Drizzle ORM, the `pg` driver, and Drizzle Kit are configured for PostgreSQL. `drizzle.config.ts` uses the same `DATABASE_URL` as the future Main-owned database client, points to `src/main/database/schema/index.ts`, and will write generated, version-controlled migrations to `drizzle/`.
 
-The definitive MVP schema is defined in `src/main/database/schema/`, but no migration has been generated or applied and no Ares application table exists yet. Do not run `db:migrate` until the initial migration has been reviewed and approved. Do not use `db:push` because the project uses version-controlled migrations rather than automatic schema push.
+The definitive MVP schema is defined in `src/main/database/schema/`. Its initial migration, `drizzle/0000_initial_schema.sql`, has been generated, reviewed, and applied once to the development database. `db:generate` writes version-controlled migration artifacts only and does not modify PostgreSQL. Review generated SQL and Drizzle metadata before running `db:migrate`; apply only an approved migration. Drizzle records applied migrations and a repeated `db:migrate` run is expected to be idempotent. Do not use `db:push` because the project uses version-controlled migrations rather than automatic schema push.
 
 ```powershell
 npm run db:check
@@ -56,4 +56,4 @@ npm run db:migrate
 npm run db:studio
 ```
 
-`db:check` performs Drizzle Kit's non-mutating migration/configuration check. `db:generate` and `db:migrate` are intentionally prepared for later approved schema work and are not part of this setup validation. `db:studio` starts only when requested manually and is never started by Ares.
+`db:check` performs Drizzle Kit's non-mutating migration/configuration check. `db:generate` creates migration files without connecting to or changing PostgreSQL. `db:migrate` applies approved migrations and must not run before their review. `db:studio` starts only when requested manually and is never started by Ares.
