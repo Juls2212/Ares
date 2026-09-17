@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document describes the PostgreSQL development container and Drizzle development tooling only. It is not the final Windows production provisioning strategy. Database schemas, migrations, application roles, and Electron Main database access are not configured yet.
+This document describes the PostgreSQL development container and Drizzle development tooling only. It is not the final Windows production provisioning strategy. The TypeScript MVP schema is defined, but migrations, application roles, and Electron Main runtime database access are not configured yet.
 
 ## Prerequisites
 
@@ -47,7 +47,7 @@ The database URL is read only by trusted Main configuration and Drizzle Kit tool
 
 Drizzle ORM, the `pg` driver, and Drizzle Kit are configured for PostgreSQL. `drizzle.config.ts` uses the same `DATABASE_URL` as the future Main-owned database client, points to `src/main/database/schema/index.ts`, and will write generated, version-controlled migrations to `drizzle/`.
 
-No application table or migration exists yet. Do not run `db:migrate` until an approved migration exists. Do not use `db:push` because the project uses version-controlled migrations rather than automatic schema push.
+The definitive MVP schema is defined in `src/main/database/schema/`, but no migration has been generated or applied and no Ares application table exists yet. Do not run `db:migrate` until the initial migration has been reviewed and approved. Do not use `db:push` because the project uses version-controlled migrations rather than automatic schema push.
 
 ```powershell
 npm run db:check
