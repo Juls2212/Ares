@@ -1,4 +1,4 @@
-# Planned IPC and Preload Contracts
+# IPC and Preload Contracts
 
 ## Contract principles
 
@@ -6,11 +6,34 @@
 
 Normal queries and configuration methods, including `settings.get`, `history.list`, `applications.list`, `system.getStatus`, and `system.getCapabilities`, resolve to `OperationResult<T>` from [ACTIONS.md](ACTIONS.md). Supervised execution methods use `ActionResult`, including action identifiers, terminal status, structured data when available, stable error code when applicable, and Spanish user summary. Lifecycle states (`PROPOSED`, `AWAITING_CONFIRMATION`, `APPROVED`, and `RUNNING`) are non-terminal and remain distinct from the terminal `ActionResult` states defined in [ACTIONS.md](ACTIONS.md). Neither category leaks raw exceptions or stack traces; diagnostics remain in Main logs. Event subscriptions return an unsubscribe function and must be cleaned up when no longer needed.
 
+## Implemented planner API
+
+Phase 3 implements the following narrow planner surface. Every method resolves to a serializable `OperationResult<T>` with stable English error codes and Spanish `userMessage` values. Preload forwards only these fixed channels; Electron Main delegates to the planner service, which remains responsible for validation, scheduling, persistence, and controlled error mapping. No method exposes database connections, SQL, filesystem access, environment values, or generic IPC.
+
+| API method | IPC channel |
+| --- | --- |
+| `planner.categories.create` | `planner:categories:create` |
+| `planner.categories.list` | `planner:categories:list` |
+| `planner.categories.update` | `planner:categories:update` |
+| `planner.tasks.create` | `planner:tasks:create` |
+| `planner.tasks.list` | `planner:tasks:list` |
+| `planner.tasks.update` | `planner:tasks:update` |
+| `planner.tasks.complete` | `planner:tasks:complete` |
+| `planner.events.create` | `planner:events:create` |
+| `planner.events.list` | `planner:events:list` |
+| `planner.events.update` | `planner:events:update` |
+| `planner.reminders.create` | `planner:reminders:create` |
+| `planner.reminders.list` | `planner:reminders:list` |
+| `planner.schedule.getToday` | `planner:schedule:get-today` |
+| `planner.schedule.getWeek` | `planner:schedule:get-week` |
+
+The IPC handler is a thin boundary: it passes the serialized input to the singleton Main-process planner service and returns its result unchanged. An unexpected handler failure returns `PLANNER_IPC_UNAVAILABLE` with the Spanish message `No se pudo procesar la solicitud del planificador.` Raw exceptions, SQL, stack traces, credentials, and database details remain in Main and never cross into the renderer.
+
 ## Planned API groups
 
 | Group | Planned responsibilities and methods |
 | --- | --- |
-| `window.ares.planner` | Create, update, complete, and query tasks, events, and reminders; retrieve local-day and local-week schedules. Planned methods: `createTask`, `updateTask`, `completeTask`, `createEvent`, `updateEvent`, `createReminder`, `getTodaySchedule`, `getWeekSchedule`. |
+| `window.ares.planner` | Implemented as documented above. Categories, tasks, events, reminders, and local-day/local-week schedules use explicit typed methods only. |
 | `window.ares.files` | Search authorized locations, create folders, preview organization, rename, and move. Planned methods: `search`, `createFolder`, `renameFile`, `renameFolder`, `move`, `previewOrganization`, `organize`. |
 | `window.ares.applications` | List registered applications, manage registrations in later Settings work, and open known applications. Planned methods: `list`, `open`, `register`, `updateRegistration`. |
 | `window.ares.actions` | Submit an already validated proposal to the lifecycle, correlate confirmation, cancel pending proposals, and retrieve ordered lifecycle or terminal results. Planned methods: `submit`, `confirm`, `cancel`, `getResult`. Level 1 may proceed from proposal to execution; Level 2 returns `AWAITING_CONFIRMATION`. |
@@ -25,4 +48,4 @@ Normal queries and configuration methods, including `settings.get`, `history.lis
 
 Preload performs no authorization decision. Main validates schemas, identifiers, path authorization, opaque confirmation identifiers, proposal immutability, duplicate requests, bounded audio payloads, and sender-to-operation correlation. A valid Level 2 confirmation must reference the exact pending proposal or batch; replayed confirmation or execution requests cannot run an action twice. Voice events distinguish disabled, local waiting, command recording, processing, speaking, and unavailable states; they carry no waiting-mode audio and subscriptions must return an unsubscribe function. Activation can start at most one bounded capture session and cannot act as confirmation. Events are named for their domain, carry typed minimal payloads, and never expose secrets, raw errors, file contents, or general system handles. The preload API must not expose general Node.js, Electron, filesystem, process, shell, environment, or operating-system APIs.
 
-These are documentation contracts only; no preload API or IPC handler exists in Phase 0.
+The Phase 0 contracts remain the governing design reference. The planner API above is the implemented Phase 3 subset; all other groups remain planned.
