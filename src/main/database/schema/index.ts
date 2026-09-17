@@ -1,3 +1,10 @@
-// Database schema definitions will be added in the Phase 2 schema-design task.
-// This entry intentionally exports no tables or application entities.
-export {};
+export * from "./action-history";
+export * from "./application-aliases";
+export * from "./applications";
+export * from "./categories";
+export * from "./enums";
+export * from "./events";
+export * from "./relations";
+export * from "./reminders";
+export * from "./settings";
+export * from "./tasks";
