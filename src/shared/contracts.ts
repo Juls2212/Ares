@@ -40,6 +40,8 @@ export type SystemApi = {
 export type AresApi = {
   system: SystemApi;
   planner: PlannerApi;
+  actions: ActionApi;
+  applications: ApplicationsApi;
 };
 
 export const IPC_CHANNELS = {
@@ -72,6 +74,21 @@ export const IPC_CHANNELS = {
       getToday: "planner:schedule:get-today",
       getWeek: "planner:schedule:get-week"
     }
+  },
+  actions: {
+    propose: "actions:propose",
+    confirm: "actions:confirm",
+    cancel: "actions:cancel",
+    history: {
+      list: "actions:history:list"
+    }
+  },
+  applications: {
+    register: "applications:register",
+    list: "applications:list",
+    update: "applications:update"
   }
 } as const;
 import type { PlannerApi } from "./planner-contracts";
+import type { ActionApi } from "./action-contracts";
+import type { ApplicationsApi } from "./application-contracts";
