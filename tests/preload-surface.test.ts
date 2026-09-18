@@ -14,7 +14,7 @@ const rendererGlobalSource = readFileSync(
 );
 
 describe("preload surface", () => {
-  it("uses only explicit system and planner channels", () => {
+  it("uses only explicit system, planner, action, and application catalog channels", () => {
     expect(IPC_CHANNELS.system).toEqual({
       getStatus: "system:get-status",
       getCapabilities: "system:get-capabilities"
@@ -45,6 +45,17 @@ describe("preload surface", () => {
         getWeek: "planner:schedule:get-week"
       }
     });
+    expect(IPC_CHANNELS.actions).toEqual({
+      propose: "actions:propose",
+      confirm: "actions:confirm",
+      cancel: "actions:cancel",
+      history: { list: "actions:history:list" }
+    });
+    expect(IPC_CHANNELS.applications).toEqual({
+      register: "applications:register",
+      list: "applications:list",
+      update: "applications:update"
+    });
   });
 
   it("exposes exactly the approved planner method groups", () => {
@@ -56,6 +67,28 @@ describe("preload surface", () => {
     expect(preloadSource).toContain("schedule: {");
     expect(preloadSource).not.toContain("delete:");
     expect(preloadSource).not.toContain("database:");
+  });
+
+  it("exposes exactly the approved action methods", () => {
+    expect(preloadSource).toContain("actions: {");
+    expect(preloadSource).toContain("propose:");
+    expect(preloadSource).toContain("confirm:");
+    expect(preloadSource).toContain("cancel:");
+    expect(preloadSource).toContain("history: {");
+    expect(preloadSource).toContain("list:");
+    expect(preloadSource).not.toContain("execute:");
+    expect(preloadSource).not.toContain("getResult:");
+  });
+
+  it("exposes exactly the approved application catalog methods", () => {
+    expect(preloadSource).toContain("applications: {");
+    expect(preloadSource).toContain("register:");
+    expect(preloadSource).toContain("list:");
+    expect(preloadSource).toContain("update:");
+    expect(preloadSource).not.toContain("open:");
+    expect(preloadSource).not.toContain("launch:");
+    expect(preloadSource).not.toContain("resolveAlias:");
+    expect(preloadSource).not.toContain("executablePath:");
   });
 
   it("uses the same complete Ares API contract in the renderer declaration", () => {
