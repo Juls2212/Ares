@@ -55,6 +55,10 @@ Level 1 actions may move from a validated `PROPOSED` state directly to `RUNNING`
 
 The proposal associated with a confirmation identifier is immutable: it cannot be silently modified before execution. Duplicate confirmation or execution requests must be idempotently rejected or return the original lifecycle/result state; they must not perform the action twice.
 
+### Confirmation expiration
+
+A confirmation-required proposal exists only in Electron Main memory. It expires exactly five minutes after creation unless it is confirmed or cancelled first. An expired proposal must never execute; the user must request the action again. Pending proposals are removed after success, failure, cancellation, expiration, or application shutdown. Expiration is a safety measure against stale confirmation and never triggers automatic execution.
+
 | Result status | Meaning |
 | --- | --- |
 | `SUCCEEDED` | The service completed the action. |
@@ -82,7 +86,7 @@ Required fields are validated after natural-language resolution. All paths must 
 
 | Action | Purpose | Risk and confirmation | Required fields | Optional fields | Validation and execution result | Spanish summary and failure behavior | History |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `OPEN_APPLICATION` | Open a registered known application. | Level 1; no extra confirmation. | `applicationId` or registered `alias` | `requestContext` | Resolve only a validated registration and its validated executable path. AI may identify a requested name but never provides a command or path. Launch directly without shell interpretation; no arguments are supported. Unknown names, shell metacharacters, or arbitrary paths are validation failures and never fall back to PowerShell, Command Prompt, or another shell. | “Se abrió {applicationName}.” Failure: controlled unavailable/not-registered message. | Record success and failure. |
+| `OPEN_APPLICATION` | Open a registered known application. | Level 1; no extra confirmation. | Registered `alias` | None | Resolve only a validated enabled registration by alias. AI may identify a requested name but never provides a command or path. Electron Main revalidates and canonicalizes the stored path, verifies that it is an existing regular `.exe` file, then launches exactly that target with an empty argument array and `shell: false`. Unknown names, shell metacharacters, arbitrary paths, URLs, and arguments are validation failures and never fall back to PowerShell, Command Prompt, PATH lookup, or another shell. | “Se abrió {registeredPublicName}.” Failure: controlled unavailable/not-registered message. | Record only the trusted registered public display name when applicable; never persist aliases, paths, process IDs, commands, or filesystem errors. |
 | `CREATE_FOLDER` | Create a folder in an authorized parent. | Level 1 when explicit; otherwise clarify. | `parentPath`, `name` | `proposedAlternativeName` | Validate parent authorization, name, normalization, and collision. Never silently overwrite. | “Se creó la carpeta {name}.” Failure: explain collision or access in Spanish. | Record result. |
 | `RENAME_FILE` | Rename an existing file. | Level 2; visible confirmation. | `sourcePath`, `newName` | `proposedAlternativeName` | Existing authorized file, valid name, collision detection. | Before: “Se cambiará el nombre de 1 archivo.” After: “Se cambió el nombre del archivo.” | Record result. |
 | `RENAME_FOLDER` | Rename an existing folder. | Level 2; visible confirmation. | `sourcePath`, `newName` | `proposedAlternativeName` | Existing authorized folder, valid name, collision detection. | Before: “Se cambiará el nombre de 1 carpeta.” After: “Se cambió el nombre de la carpeta.” | Record result. |
