@@ -2,6 +2,12 @@ import "dotenv/config";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { eq, inArray, sql } from "drizzle-orm";
 import { closeDatabaseConnection, getDatabase } from "../src/main/database/database-client";
+import { createActionOrchestrator } from "../src/main/actions/action-orchestrator";
+import { createActionExecutor } from "../src/main/actions/action-executor";
+import { createActionHistoryRepository } from "../src/main/actions/action-history-repository";
+import { createActionHistoryService } from "../src/main/actions/action-history-service";
+import { createPlannerActionExecutor } from "../src/main/actions/planner-action-executor";
+import { createApplicationService } from "../src/main/applications/application-service";
 import {
   actionHistory,
   applicationAliases,
@@ -21,6 +27,11 @@ import type {
   ReminderRecord,
   TaskRecord
 } from "../src/shared/planner-contracts";
+import type { ActionHistoryRecord, ActionOperationResult } from "../src/shared/action-contracts";
+import type {
+  ApplicationOperationResult,
+  ApplicationRecord
+} from "../src/shared/application-contracts";
 
 const database = getDatabase();
 const repositories = createPlannerRepositories(database);
@@ -29,6 +40,8 @@ const createdCategoryIds: string[] = [];
 const createdTaskIds: string[] = [];
 const createdEventIds: string[] = [];
 const createdReminderIds: string[] = [];
+const createdActionHistoryIds: string[] = [];
+const createdApplicationIds: string[] = [];
 
 const clock: PlannerClock = {
   getLocalDate: () => "2026-09-17",
@@ -39,6 +52,19 @@ const clock: PlannerClock = {
 };
 
 const service = createPlannerService({ repositories, clock, logError: () => undefined });
+const actionHistoryService = createActionHistoryService({
+  repository: createActionHistoryRepository(database),
+  generateActionId: () => `history-${testSuffix}-${createdActionHistoryIds.length + 1}`,
+  logError: () => undefined
+});
+const actionOrchestrator = createActionOrchestrator({
+  executor: createActionExecutor({
+    plannerExecutor: createPlannerActionExecutor({ plannerService: service, logError: () => undefined })
+  }),
+  historyService: actionHistoryService,
+  logError: () => undefined
+});
+const applicationService = createApplicationService({ logError: () => undefined });
 
 const getSuccessData = <T>(result: PlannerOperationResult<T>): T => {
   expect(result.ok).toBe(true);
@@ -54,6 +80,22 @@ const getFailureCode = <T>(result: PlannerOperationResult<T>): string => {
     throw new Error("Expected integration operation to fail.");
   }
   return result.error.code;
+};
+
+const getHistorySuccess = <T>(result: ActionOperationResult<T>): T => {
+  expect(result.ok).toBe(true);
+  if (!result.ok) {
+    throw new Error(`Expected action history operation to succeed: ${result.error.code}`);
+  }
+  return result.data;
+};
+
+const getApplicationSuccess = <T>(result: ApplicationOperationResult<T>): T => {
+  expect(result.ok).toBe(true);
+  if (!result.ok) {
+    throw new Error(`Expected application operation to succeed: ${result.error.code}`);
+  }
+  return result.data;
 };
 
 const trackCategory = (record: CategoryRecord): CategoryRecord => {
@@ -76,7 +118,20 @@ const trackReminder = (record: ReminderRecord): ReminderRecord => {
   return record;
 };
 
+const trackActionHistory = (record: ActionHistoryRecord): ActionHistoryRecord => {
+  createdActionHistoryIds.push(record.id);
+  return record;
+};
+
+const trackApplication = (record: ApplicationRecord): ApplicationRecord => {
+  createdApplicationIds.push(record.id);
+  return record;
+};
+
 afterEach(async () => {
+  if (createdActionHistoryIds.length > 0) {
+    await database.delete(actionHistory).where(inArray(actionHistory.id, createdActionHistoryIds));
+  }
   if (createdReminderIds.length > 0) {
     await database.delete(reminders).where(inArray(reminders.id, createdReminderIds));
   }
@@ -89,11 +144,16 @@ afterEach(async () => {
   if (createdCategoryIds.length > 0) {
     await database.delete(categories).where(inArray(categories.id, createdCategoryIds));
   }
+  if (createdApplicationIds.length > 0) {
+    await database.delete(applications).where(inArray(applications.id, createdApplicationIds));
+  }
 
   createdReminderIds.length = 0;
+  createdActionHistoryIds.length = 0;
   createdTaskIds.length = 0;
   createdEventIds.length = 0;
   createdCategoryIds.length = 0;
+  createdApplicationIds.length = 0;
 });
 
 afterAll(async () => {
@@ -236,5 +296,171 @@ describe("planner database integration", () => {
     expect(week.weekStart).toBe("2026-09-14");
     expect(week.weekEnd).toBe("2026-09-20");
     expect(week.tasks.map((item) => item.id)).toContain(task.id);
+  });
+
+  it("records terminal action history with sanitized metadata and stable ordering", async () => {
+    const successful = trackActionHistory(
+      getHistorySuccess(
+        await actionHistoryService.recordTerminal({
+          action: "CREATE_TASK",
+          riskLevel: 1,
+          status: "SUCCEEDED",
+          userSummary: "Se creó una tarea.",
+          metadata: {
+            itemCount: 1,
+            scopeKind: "PLANNER",
+            databaseUrl: "postgresql://discarded",
+            sourcePath: "C:\\discarded"
+          },
+          startedAt: "2026-09-17T10:00:00.000Z",
+          finishedAt: "2026-09-17T10:00:01.000Z"
+        })
+      )
+    );
+    const failed = trackActionHistory(
+      getHistorySuccess(
+        await actionHistoryService.recordTerminal({
+          action: "UPDATE_TASK",
+          riskLevel: 2,
+          status: "EXECUTION_FAILED",
+          userSummary: "No se pudo actualizar la tarea.",
+          errorCode: "PLANNER_DATABASE_UNAVAILABLE",
+          startedAt: "2026-09-17T10:01:00.000Z",
+          finishedAt: "2026-09-17T10:01:01.000Z"
+        })
+      )
+    );
+
+    const listed = getHistorySuccess(await actionHistoryService.list({ limit: 10 }));
+
+    expect(successful.metadata).toEqual({ itemCount: 1, scopeKind: "PLANNER" });
+    expect(listed.items.slice(0, 2).map((item) => item.id)).toEqual([failed.id, successful.id]);
+  });
+
+  it("persists only a registered public display name for OPEN_APPLICATION history", async () => {
+    const executablePath = `C:\\Program Files\\Ares Tests\\history-${testSuffix}.exe`;
+    const application = trackApplication(
+      getApplicationSuccess(
+        await applicationService.registerApplication({
+          name: `History application ${testSuffix}`,
+          executablePath,
+          aliases: [`History alias ${testSuffix}`]
+        })
+      ).record
+    );
+
+    const history = trackActionHistory(
+      getHistorySuccess(
+        await actionHistoryService.recordTerminal({
+          action: "OPEN_APPLICATION",
+          riskLevel: 1,
+          status: "SUCCEEDED",
+          userSummary: `Se abrió ${application.name}.`,
+          metadata: {
+            scopeKind: "APPLICATION",
+            resultKind: "SUCCEEDED",
+            applicationDisplayName: application.name,
+            alias: `History alias ${testSuffix}`,
+            executablePath,
+            canonicalPath: executablePath,
+            command: "history.exe",
+            processId: 1234
+          },
+          startedAt: "2026-09-17T10:02:00.000Z",
+          finishedAt: "2026-09-17T10:02:01.000Z"
+        })
+      )
+    );
+
+    expect(history.metadata).toEqual({
+      scopeKind: "APPLICATION",
+      resultKind: "SUCCEEDED",
+      applicationDisplayName: application.name
+    });
+    expect(JSON.stringify(history)).not.toContain(executablePath);
+    expect(JSON.stringify(history)).not.toContain(`History alias ${testSuffix}`);
+  });
+
+  it("persists an orchestrated planner mutation and its terminal history entry", async () => {
+    const result = await actionOrchestrator.propose({
+      action: "CREATE_TASK",
+      input: { title: `Orchestrated task ${testSuffix}`, dueDate: "2026-09-17" }
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok || !("status" in result.data)) {
+      throw new Error("Expected a terminal action outcome.");
+    }
+    expect(result.data.status).toBe("SUCCEEDED");
+
+    const [createdTask] = await database
+      .select()
+      .from(tasks)
+      .where(eq(tasks.title, `Orchestrated task ${testSuffix}`));
+    const [historyEntry] = await database
+      .select()
+      .from(actionHistory)
+      .where(eq(actionHistory.actionId, result.data.actionId));
+
+    expect(createdTask).toBeDefined();
+    expect(historyEntry).toMatchObject({
+      actionName: "CREATE_TASK",
+      resultStatus: "SUCCEEDED",
+      riskLevel: 1
+    });
+    if (createdTask) createdTaskIds.push(createdTask.id);
+    if (historyEntry) createdActionHistoryIds.push(historyEntry.id);
+  });
+
+  it("keeps executable paths Main-only while registering, updating, and resolving aliases", async () => {
+    const executablePath = `C:\\Program Files\\Ares Tests\\catalog-${testSuffix}.exe`;
+    const application = trackApplication(
+      getApplicationSuccess(
+        await applicationService.registerApplication({
+          name: `Catalog application ${testSuffix}`,
+          executablePath,
+          aliases: [`Catalog ${testSuffix}`, `Alias ${testSuffix}`]
+        })
+      ).record
+    );
+
+    expect(JSON.stringify(application)).not.toContain(executablePath);
+    expect(application.aliases.map((alias) => alias.alias)).toContain(`Catalog ${testSuffix}`);
+
+    const resolved = getApplicationSuccess(
+      await applicationService.resolveEnabledApplicationByAlias(` catalog ${testSuffix} `)
+    );
+    expect(resolved.executablePath).toBe(executablePath);
+
+    const listed = getApplicationSuccess(await applicationService.listApplications({ enabled: true }));
+    expect(listed.items.find((item) => item.id === application.id)).toBeDefined();
+    expect(JSON.stringify(listed)).not.toContain(executablePath);
+
+    const duplicateName = await applicationService.registerApplication({
+      name: `  catalog application ${testSuffix}  `,
+      executablePath: `C:\\Program Files\\Ares Tests\\same-name-${testSuffix}.exe`,
+      aliases: [`Different name ${testSuffix}`]
+    });
+    expect(duplicateName).toMatchObject({ ok: false, error: { code: "APPLICATION_CONFLICT" } });
+
+    const duplicate = await applicationService.registerApplication({
+      name: `Duplicate alias ${testSuffix}`,
+      executablePath: `C:\\Program Files\\Ares Tests\\duplicate-${testSuffix}.exe`,
+      aliases: [`  catalog ${testSuffix}  `]
+    });
+    expect(duplicate).toMatchObject({ ok: false, error: { code: "APPLICATION_CONFLICT" } });
+
+    const updated = getApplicationSuccess(
+      await applicationService.updateApplication({
+        applicationId: application.id,
+        aliases: [`Updated ${testSuffix}`],
+        isEnabled: false
+      })
+    ).record;
+    expect(updated.isEnabled).toBe(false);
+    expect(updated.aliases.map((alias) => alias.alias)).toEqual([`Updated ${testSuffix}`]);
+
+    await expect(
+      applicationService.resolveEnabledApplicationByAlias(`Updated ${testSuffix}`)
+    ).resolves.toMatchObject({ ok: false, error: { code: "APPLICATION_DISABLED" } });
   });
 });
