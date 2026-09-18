@@ -7,6 +7,14 @@ import {
   type SystemStatusData
 } from "../shared/contracts";
 import type {
+  ActionHistoryListInput,
+  ActionHistoryRecord,
+  ActionLifecycleResult,
+  ActionOperationResult,
+  ActionOutcome,
+  ActionSubmission
+} from "../shared/action-contracts";
+import type {
   CategoryListInput,
   CategoryRecord,
   CompleteTaskInput,
@@ -31,6 +39,14 @@ import type {
   UpdateTaskInput,
   WeekScheduleData
 } from "../shared/planner-contracts";
+import type {
+  ApplicationListData,
+  ApplicationListInput,
+  ApplicationMutationData,
+  ApplicationOperationResult,
+  RegisterApplicationInput,
+  UpdateApplicationInput
+} from "../shared/application-contracts";
 
 const aresApi = {
   system: {
@@ -110,6 +126,40 @@ const aresApi = {
           PlannerOperationResult<WeekScheduleData>
         >
     }
+  },
+  actions: {
+    propose: (submission: ActionSubmission) =>
+      ipcRenderer.invoke(IPC_CHANNELS.actions.propose, submission) as Promise<
+        ActionOperationResult<ActionLifecycleResult>
+      >,
+    confirm: (confirmationId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.actions.confirm, confirmationId) as Promise<
+        ActionOperationResult<ActionOutcome>
+      >,
+    cancel: (confirmationId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.actions.cancel, confirmationId) as Promise<
+        ActionOperationResult<ActionOutcome>
+      >,
+    history: {
+      list: (input: ActionHistoryListInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.actions.history.list, input) as Promise<
+          ActionOperationResult<{ items: ActionHistoryRecord[]; total: number }>
+      >
+    }
+  },
+  applications: {
+    register: (input: RegisterApplicationInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.applications.register, input) as Promise<
+        ApplicationOperationResult<ApplicationMutationData>
+      >,
+    list: (input: ApplicationListInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.applications.list, input) as Promise<
+        ApplicationOperationResult<ApplicationListData>
+      >,
+    update: (input: UpdateApplicationInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.applications.update, input) as Promise<
+        ApplicationOperationResult<ApplicationMutationData>
+      >
   }
 } satisfies AresApi;
 
