@@ -45,7 +45,7 @@ describe("system service", () => {
     errorSpy.mockRestore();
   });
 
-  it("reports planner available without exposing database access", () => {
+  it("reports planner and application catalog availability without exposing database access", () => {
     const result = getSystemCapabilitiesResult();
 
     expect(result.ok).toBe(true);
@@ -53,7 +53,7 @@ describe("system service", () => {
       expect(result.data.planner).toBe(true);
       expect(result.data.database).toBe(false);
       expect(result.data.files).toBe(false);
-      expect(result.data.applications).toBe(false);
+      expect(result.data.applications).toBe(true);
       expect(result.data.assistant).toBe(false);
       expect(result.data.voice).toBe(false);
       expect(result.data.notifications).toBe(false);
