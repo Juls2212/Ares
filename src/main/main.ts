@@ -1,6 +1,8 @@
 import { app, BrowserWindow, session } from "electron";
 import path from "node:path";
 import { registerDatabaseShutdown } from "./database/register-database-lifecycle";
+import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
+import { registerApplicationIpcHandlers } from "./ipc/register-application-ipc";
 import { registerPlannerIpcHandlers } from "./ipc/register-planner-ipc";
 import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
 
@@ -49,6 +51,8 @@ app.whenReady().then(async () => {
   configureSessionSecurity();
   registerSystemIpcHandlers();
   registerPlannerIpcHandlers();
+  registerActionIpcHandlers();
+  registerApplicationIpcHandlers();
   registerDatabaseShutdown(app);
   await createMainWindow();
 
