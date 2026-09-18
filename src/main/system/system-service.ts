@@ -46,7 +46,7 @@ export const getSystemCapabilitiesResult = (): OperationResult<SystemCapabilitie
     database: false,
     planner: true,
     files: false,
-    applications: false,
+    applications: true,
     assistant: false,
     voice: false,
     notifications: false
