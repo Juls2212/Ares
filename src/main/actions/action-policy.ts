@@ -28,10 +28,10 @@ const policyDefinitions: Record<ActionName, PolicyDefinition> = {
     }
   },
   CREATE_FOLDER: {
-    riskLevel: 1,
-    availability: "DEFERRED",
+    riskLevel: 2,
+    availability: "IMPLEMENTED",
     confirmation: {
-      required: false,
+      required: true,
       summary: "Se creará una carpeta autorizada.",
       affectedItemCount: 1,
       scopeSummary: "Carpeta autorizada"
@@ -39,7 +39,7 @@ const policyDefinitions: Record<ActionName, PolicyDefinition> = {
   },
   RENAME_FILE: {
     riskLevel: 2,
-    availability: "DEFERRED",
+    availability: "IMPLEMENTED",
     confirmation: {
       required: true,
       summary: "Se cambiará el nombre de 1 archivo.",
@@ -49,7 +49,7 @@ const policyDefinitions: Record<ActionName, PolicyDefinition> = {
   },
   RENAME_FOLDER: {
     riskLevel: 2,
-    availability: "DEFERRED",
+    availability: "IMPLEMENTED",
     confirmation: {
       required: true,
       summary: "Se cambiará el nombre de 1 carpeta.",
@@ -59,17 +59,17 @@ const policyDefinitions: Record<ActionName, PolicyDefinition> = {
   },
   MOVE_FILE: {
     riskLevel: 2,
-    availability: "DEFERRED",
+    availability: "IMPLEMENTED",
     confirmation: {
       required: true,
-      summary: "Se moverán archivos autorizados.",
-      affectedItemCount: null,
-      scopeSummary: "Archivos y destino autorizados"
+      summary: "Se moverá 1 archivo autorizado.",
+      affectedItemCount: 1,
+      scopeSummary: "Archivo y destino autorizados"
     }
   },
   SEARCH_FILES: {
     riskLevel: 1,
-    availability: "DEFERRED",
+    availability: "IMPLEMENTED",
     confirmation: {
       required: false,
       summary: "Se buscarán archivos en ubicaciones autorizadas.",
@@ -79,7 +79,7 @@ const policyDefinitions: Record<ActionName, PolicyDefinition> = {
   },
   ORGANIZE_FILES: {
     riskLevel: 2,
-    availability: "DEFERRED",
+    availability: "IMPLEMENTED",
     confirmation: {
       required: true,
       summary: "Se organizarán archivos autorizados tras revisar la vista previa.",
