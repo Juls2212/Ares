@@ -63,3 +63,7 @@ npm run db:studio
 Run `npm run test:db` only after `npm run db:up` and `npm run db:status` report a healthy PostgreSQL service. This dedicated suite validates Main-only planner persistence against the local development database and cleans up every row it creates. It is intentionally separate from `npm test`, which never requires Docker or PostgreSQL.
 
 Planner schedule tests use an injected local-calendar clock: today is the half-open local-day interval, and a week runs from Monday through Sunday. This keeps schedule boundaries deterministic and independent of the developer machine's locale in automated tests.
+
+## Windows native no-replace bridge
+
+The Main-only file-mutation service uses a small Windows N-API bridge for the final no-replace file or directory rename/move operation. It is not exposed through IPC, preload, or the renderer. The bridge requires MSVC x64 C++ tools, a Windows SDK, and Python 3. Run `npm run native:build` to compile it against the Electron version pinned by this project, and `npm run test:native` for its isolated temporary-directory tests. The build uses an ignored local Electron-header cache and does not copy a machine-specific binary into source control. Electron Forge packages the resulting `.node` file as a resource outside ASAR.
