@@ -24,6 +24,7 @@ export type SystemStatusData = {
 
 export type SystemCapabilities = {
   database: boolean;
+  dashboard: boolean;
   planner: boolean;
   files: boolean;
   applications: boolean;
@@ -39,6 +40,7 @@ export type SystemApi = {
 
 export type AresApi = {
   system: SystemApi;
+  dashboard: DashboardApi;
   planner: PlannerApi;
   actions: ActionApi;
   applications: ApplicationsApi;
@@ -87,8 +89,12 @@ export const IPC_CHANNELS = {
     register: "applications:register",
     list: "applications:list",
     update: "applications:update"
+  },
+  dashboard: {
+    getTodaySummary: "dashboard:get-today-summary"
   }
 } as const;
 import type { PlannerApi } from "./planner-contracts";
 import type { ActionApi } from "./action-contracts";
 import type { ApplicationsApi } from "./application-contracts";
+import type { DashboardApi } from "./dashboard-contracts";
