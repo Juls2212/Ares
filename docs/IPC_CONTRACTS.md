@@ -29,6 +29,16 @@ Phase 3 implements the following narrow planner surface. Every method resolves t
 
 The IPC handler is a thin boundary: it passes the serialized input to the singleton Main-process planner service and returns its result unchanged. An unexpected handler failure returns `PLANNER_IPC_UNAVAILABLE` with the Spanish message `No se pudo procesar la solicitud del planificador.` Raw exceptions, SQL, stack traces, credentials, and database details remain in Main and never cross into the renderer.
 
+## Implemented dashboard API
+
+The dashboard exposes one read-only, bounded summary for the future Inicio screen. The Main-only service reuses planner local-day boundaries, uses an injected clock for deterministic upcoming windows, and returns at most five safe public records in each section. It does not mutate planner, reminder, or history data.
+
+| API method | IPC channel | Main delegation |
+| --- | --- | --- |
+| `dashboard.getTodaySummary` | `dashboard:get-today-summary` | Singleton Main-process dashboard service |
+
+The result contains today’s schedule, pending tasks, events and pending reminders from the current instant through the next seven days, recent terminal action history, and an ISO-8601 generation timestamp. Unexpected handler failures return `DASHBOARD_IPC_UNAVAILABLE` with the Spanish message `No se pudo cargar el resumen de inicio.` No database, SQL, filesystem, process, environment, credential, or raw error data crosses the boundary.
+
 ## Implemented action API
 
 Phase 4 implements the supervised action boundary below. Every method resolves to a serializable `OperationResult<T>`; successful `propose` calls return either an `AWAITING_CONFIRMATION` lifecycle record or a terminal action outcome. `confirm` and `cancel` accept only the opaque confirmation identifier returned by Main. `history.list` returns bounded, terminal-only history records. Unexpected handler failures return `ACTION_IPC_UNAVAILABLE` with the Spanish message `No se pudo procesar la solicitud de acción.`
@@ -40,7 +50,7 @@ Phase 4 implements the supervised action boundary below. Every method resolves t
 | `actions.cancel` | `actions:cancel` | Singleton action orchestrator |
 | `actions.history.list` | `actions:history:list` | Singleton action-history service |
 
-Confirmation-required proposals remain only in Electron Main memory and expire exactly five minutes after creation. Expired, cancelled, failed, completed, or application-shutdown proposals are removed and cannot execute. Expiration never executes an action; the user must submit a new request.
+Confirmation-required proposals remain only in Electron Main memory and expire exactly five minutes after creation. Expired, cancelled, failed, completed, or application-shutdown proposals are removed and cannot execute. Expiration never executes an action; it is recorded as a safe terminal cancellation, and the user must submit a new request.
 
 ## Implemented application catalog API
 
@@ -59,12 +69,12 @@ Opening an application is intentionally absent from `window.ares.applications`. 
 | Group | Planned responsibilities and methods |
 | --- | --- |
 | `window.ares.planner` | Implemented as documented above. Categories, tasks, events, reminders, and local-day/local-week schedules use explicit typed methods only. |
-| `window.ares.files` | Search authorized locations, create folders, preview organization, rename, and move. Planned methods: `search`, `createFolder`, `renameFile`, `renameFolder`, `move`, `previewOrganization`, `organize`. |
+| `window.ares.files` | No direct file API is exposed. `SEARCH_FILES`, `CREATE_FOLDER`, `RENAME_FILE`, `RENAME_FOLDER`, `MOVE_FILE`, and `ORGANIZE_FILES` are submitted only through `window.ares.actions.propose` using typed root-relative inputs and controlled action results. Search is Level 1; each mutation and organization plan is Level 2 and requires the existing proposal-correlated confirmation. `ORGANIZE_FILES` returns a Main-generated preview and executes only its stored plan. Results expose no absolute or canonical paths, content, or filesystem details. |
 | `window.ares.applications` | Implemented safe catalog management only: `register`, `list`, and `update`. Opening remains exclusively under `window.ares.actions.propose` with the alias-only `OPEN_APPLICATION` action. |
 | `window.ares.actions` | Implemented as documented above. Only `propose`, `confirm`, `cancel`, and terminal `history.list` are exposed. Level 1 may proceed to execution; Level 2 returns `AWAITING_CONFIRMATION`. |
 | `window.ares.assistant` | Interpret typed Spanish text only. `interpret(instruction, context?)` returns either a clarification request or a validated action proposal; it never executes an action. The definitive frontend may orchestrate `interpret` followed by `actions.propose`, but cannot bypass Main validation. |
 | `window.ares.voice` | Receive one bounded command-audio payload for provider transcription only after manual capture or a local wake-word activation; request Main-owned Spanish synthesis; expose typed voice state; and support immediate mute or disable behavior. Planned responsibilities include wake-word preference, activation notification, bounded capture state, permission/device errors, `transcribe(audioPayload)`, `synthesize(spanishText)`, `getState`, `mute`, and `stopSpeaking` only if required by the later-approved playback mechanism. Renderer-local browser capture is not a privileged `window.ares` method, and no unrestricted continuous-audio channel is exposed. |
-| `window.ares.notifications` | Read notification settings and receive approved notification-related events. Planned methods: `getPreferences`, `updatePreferences`, `onNotificationEvent`. Sending is owned by Main. |
+| `window.ares.notifications` | No notification API is exposed in the current phase. Reminder delivery is a local Electron Main scheduler concern only; it creates no renderer event stream, web-notification capability, or generic notification channel. Future settings or event contracts require separate approval. |
 | `window.ares.history` | Read filtered action-history records. Planned methods: `list`, `getById`. |
 | `window.ares.settings` | Read and update non-secret user preferences, including voice-output preference, opt-in wake-word preference, and recognized applications. Planned methods: `get`, `update`. |
 | `window.ares.system` | Expose minimal non-privileged state needed by the UI, such as application version or capability availability. Planned methods: `getStatus`, `getCapabilities`. |
