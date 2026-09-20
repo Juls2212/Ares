@@ -1,10 +1,12 @@
 import { app, BrowserWindow, session } from "electron";
 import path from "node:path";
-import { registerDatabaseShutdown } from "./database/register-database-lifecycle";
 import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
 import { registerApplicationIpcHandlers } from "./ipc/register-application-ipc";
+import { registerDashboardIpcHandlers } from "./ipc/register-dashboard-ipc";
 import { registerPlannerIpcHandlers } from "./ipc/register-planner-ipc";
 import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
+import { getReminderDeliveryScheduler } from "./reminders/reminder-composition";
+import { registerReminderDeliveryShutdown } from "./reminders/register-reminder-delivery-lifecycle";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -53,7 +55,9 @@ app.whenReady().then(async () => {
   registerPlannerIpcHandlers();
   registerActionIpcHandlers();
   registerApplicationIpcHandlers();
-  registerDatabaseShutdown(app);
+  registerDashboardIpcHandlers();
+  registerReminderDeliveryShutdown(app);
+  getReminderDeliveryScheduler().start();
   await createMainWindow();
 
   app.on("activate", async () => {
