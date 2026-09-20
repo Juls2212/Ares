@@ -10,7 +10,7 @@ Technical logs, error codes, contracts, and implementation identifiers are Engli
 
 ## Notifications
 
-Electron Main owns scheduling and delivery of reminders, upcoming events, and eligible task notifications. Notification recovery after the application is closed is an open packaging decision. Unavailable notification capability returns a typed failure and Spanish explanation; it must not be silently ignored.
+Electron Main owns local scheduling and delivery of reminder notifications. When Ares is running, the scheduler performs one bounded catch-up check after Electron is ready, then checks due `PENDING` reminders every 30 seconds. It conditionally claims each due reminder as `TRIGGERED` with `deliveredAt` before showing one Electron desktop notification. This provides at-most-once delivery across scheduler ticks, restarts, and concurrent Main instances; overdue pending reminders are eligible after startup, while `TRIGGERED` and `CANCELLED` reminders are never redelivered. If local notification display fails after a successful claim, Ares records a controlled Main-only technical failure and does not reset or retry the reminder, avoiding duplicate alerts. Delivery stops during Main shutdown before the database pool is closed. There is no renderer notification API, web notification, remote push, or persistent microphone processing. Ares cannot deliver reminders while its process is closed.
 
 ## Bidirectional voice interaction
 
