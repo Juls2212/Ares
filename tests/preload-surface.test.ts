@@ -14,7 +14,7 @@ const rendererGlobalSource = readFileSync(
 );
 
 describe("preload surface", () => {
-  it("uses only explicit system, planner, action, and application catalog channels", () => {
+  it("uses only explicit system, dashboard, planner, action, and application catalog channels", () => {
     expect(IPC_CHANNELS.system).toEqual({
       getStatus: "system:get-status",
       getCapabilities: "system:get-capabilities"
@@ -56,6 +56,16 @@ describe("preload surface", () => {
       list: "applications:list",
       update: "applications:update"
     });
+    expect(IPC_CHANNELS.dashboard).toEqual({
+      getTodaySummary: "dashboard:get-today-summary"
+    });
+  });
+
+  it("exposes only the approved dashboard summary method", () => {
+    expect(preloadSource).toContain("dashboard: {");
+    expect(preloadSource).toContain("getTodaySummary:");
+    expect(preloadSource).not.toContain("dashboard: {\n    list:");
+    expect(preloadSource).not.toContain("dashboard: {\n    getDatabase:");
   });
 
   it("exposes exactly the approved planner method groups", () => {
@@ -78,6 +88,7 @@ describe("preload surface", () => {
     expect(preloadSource).toContain("list:");
     expect(preloadSource).not.toContain("execute:");
     expect(preloadSource).not.toContain("getResult:");
+    expect(preloadSource).not.toContain("files:");
   });
 
   it("exposes exactly the approved application catalog methods", () => {
