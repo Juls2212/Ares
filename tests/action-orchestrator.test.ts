@@ -10,6 +10,7 @@ import type {
   ExecutableActionProposal,
   PlannerActionProposal
 } from "../src/shared/action-contracts";
+import type { FileOrganizationPlan } from "../src/shared/file-contracts";
 
 const identifiers = [
   "11111111-1111-4111-8111-111111111111",
@@ -35,7 +36,7 @@ const historyRecord: ActionHistoryRecord = {
 const createSuccessOutcome = (proposal: ExecutableActionProposal): ActionOutcome => ({
   actionId: proposal.actionId,
   action: proposal.action,
-  riskLevel: proposal.action === "UPDATE_TASK" || proposal.action === "COMPLETE_TASK" || proposal.action === "UPDATE_EVENT" ? 2 : 1,
+  riskLevel: ["UPDATE_TASK", "COMPLETE_TASK", "UPDATE_EVENT", "CREATE_FOLDER", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES"].includes(proposal.action) ? 2 : 1,
   status: "SUCCEEDED",
   ...(proposal.action === "OPEN_APPLICATION"
     ? { data: { applicationName: "Microsoft Word" } }
@@ -81,29 +82,66 @@ const createOrchestrator = (
 };
 
 describe("action orchestrator", () => {
-  it("executes a Level 1 planner action directly and records its terminal result", async () => {
-    const { orchestrator, executor, historyService } = createOrchestrator();
+  it("executes SEARCH_FILES as a Level 1 action and records only safe aggregate metadata", async () => {
+    const executor: ActionExecutor = {
+      execute: vi.fn(async (proposal: ExecutableActionProposal): Promise<ActionOutcome> => ({
+        actionId: proposal.actionId,
+        action: proposal.action,
+        riskLevel: 1,
+        status: "SUCCEEDED",
+        data: {
+          items: [
+            {
+              rootId: "DOCUMENTS",
+              relativePath: "Private\\Report.txt",
+              name: "Report.txt",
+              entryType: "FILE",
+              extension: "txt",
+              size: 1,
+              lastModified: "2026-09-17T10:00:00.000Z"
+            }
+          ],
+          total: 1,
+          truncated: false,
+          skippedEntryCount: 2
+        },
+        userSummary: "Se completó la búsqueda de archivos autorizados."
+      }))
+    };
+    const { orchestrator, historyService } = createOrchestrator(executor);
 
-    const result = await orchestrator.propose({ action: "CREATE_TASK", input: { title: "Informe" } });
+    const result = await orchestrator.propose({
+      action: "SEARCH_FILES",
+      input: { rootId: "DOCUMENTS", query: "report" }
+    });
 
-    expect(result).toMatchObject({ ok: true, data: { status: "SUCCEEDED", action: "CREATE_TASK" } });
+    expect(result).toMatchObject({ ok: true, data: { status: "SUCCEEDED", action: "SEARCH_FILES" } });
     expect(executor.execute).toHaveBeenCalledTimes(1);
     expect(historyService.recordTerminal).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: "CREATE_TASK",
+        action: "SEARCH_FILES",
         riskLevel: 1,
         status: "SUCCEEDED",
-        metadata: { scopeKind: "PLANNER", resultKind: "SUCCEEDED" }
+        metadata: {
+          scopeKind: "FILES",
+          resultKind: "SUCCEEDED",
+          itemCount: 1,
+          skippedCount: 2,
+          partial: false
+        }
       })
+    );
+    expect(JSON.stringify(vi.mocked(historyService.recordTerminal).mock.calls)).not.toContain(
+      "Private\\Report.txt"
     );
   });
 
-  it("does not execute a Level 2 planner action before its exact confirmation", async () => {
+  it("does not execute a Level 2 file mutation before its exact confirmation", async () => {
     const { orchestrator, executor } = createOrchestrator();
 
     const proposed = await orchestrator.propose({
-      action: "UPDATE_TASK",
-      input: { taskId: "550e8400-e29b-41d4-a716-446655440000", title: "Informe final" }
+      action: "RENAME_FILE",
+      input: { source: { rootId: "DOCUMENTS", relativePath: "Work\\Report.txt" }, newName: "Summary.txt" }
     });
 
     expect(proposed).toMatchObject({
@@ -111,20 +149,98 @@ describe("action orchestrator", () => {
       data: {
         lifecycleState: "AWAITING_CONFIRMATION",
         confirmationId: identifiers[1],
-        action: "UPDATE_TASK",
+        action: "RENAME_FILE",
         riskLevel: 2
       }
     });
     expect(executor.execute).not.toHaveBeenCalled();
   });
 
-  it("executes a confirmed proposal once and rejects concurrent replay", async () => {
+  it("stores a Main-generated organization plan and executes it only after one confirmation", async () => {
+    const organizationPlan: FileOrganizationPlan = {
+      rootId: "DOCUMENTS",
+      folder: { rootId: "DOCUMENTS", relativePath: "Inbox" },
+      items: [],
+      plannedCount: 0,
+      skippedCount: 0,
+      conflictCount: 0,
+      categoryCounts: { DOCUMENTS: 0, IMAGES: 0, AUDIO: 0, VIDEOS: 0, ARCHIVES: 0, OTHER: 0 },
+      skipped: [],
+      mixedContent: false,
+      empty: true
+    };
+    const executor = createExecutor();
+    executor.prepareOrganization = vi.fn(async () => ({ ok: true as const, data: organizationPlan }));
+    const { orchestrator } = createOrchestrator(executor);
+
+    const proposed = await orchestrator.propose({
+      action: "ORGANIZE_FILES",
+      input: { folder: { rootId: "DOCUMENTS", relativePath: "Inbox" } }
+    });
+    expect(proposed).toMatchObject({
+      ok: true,
+      data: { lifecycleState: "AWAITING_CONFIRMATION", action: "ORGANIZE_FILES", preview: organizationPlan }
+    });
+    expect(executor.execute).not.toHaveBeenCalled();
+    if (!proposed.ok || !("confirmationId" in proposed.data)) throw new Error("Expected confirmation.");
+
+    await Promise.all([orchestrator.confirm(proposed.data.confirmationId), orchestrator.confirm(proposed.data.confirmationId)]);
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    expect(executor.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "ORGANIZE_FILES", plan: organizationPlan }),
+      getActionPolicy("ORGANIZE_FILES")
+    );
+  });
+
+  it("cancels and expires organization previews without executing stored plans", async () => {
+    const organizationPlan: FileOrganizationPlan = {
+      rootId: "DOCUMENTS",
+      folder: { rootId: "DOCUMENTS", relativePath: "Inbox" },
+      items: [],
+      plannedCount: 0,
+      skippedCount: 0,
+      conflictCount: 0,
+      categoryCounts: { DOCUMENTS: 0, IMAGES: 0, AUDIO: 0, VIDEOS: 0, ARCHIVES: 0, OTHER: 0 },
+      skipped: [],
+      mixedContent: false,
+      empty: true
+    };
+    const executor = createExecutor();
+    executor.prepareOrganization = vi.fn(async () => ({ ok: true as const, data: organizationPlan }));
+    const historyService = createHistoryService();
+    let currentTime = new Date("2026-09-17T10:00:00.000Z");
+    const generateIdentifier = vi.fn();
+    identifiers.forEach((identifier) => generateIdentifier.mockReturnValueOnce(identifier));
+    const orchestrator = createActionOrchestrator({
+      executor,
+      historyService,
+      generateIdentifier,
+      now: () => currentTime,
+      logError: vi.fn()
+    });
+    const input = { action: "ORGANIZE_FILES" as const, input: { folder: { rootId: "DOCUMENTS" as const, relativePath: "Inbox" } } };
+
+    const cancelled = await orchestrator.propose(input);
+    if (!cancelled.ok || !("confirmationId" in cancelled.data)) throw new Error("Expected confirmation.");
+    await orchestrator.cancel(cancelled.data.confirmationId);
+
+    const expired = await orchestrator.propose(input);
+    if (!expired.ok || !("confirmationId" in expired.data)) throw new Error("Expected confirmation.");
+    currentTime = new Date("2026-09-17T10:05:00.000Z");
+    await expect(orchestrator.confirm(expired.data.confirmationId)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "ACTION_CONFIRMATION_UNAVAILABLE" }
+    });
+    expect(executor.execute).not.toHaveBeenCalled();
+  });
+
+  it("executes a confirmed file move once and rejects concurrent replay", async () => {
     const { orchestrator, executor, historyService } = createOrchestrator();
     const proposed = await orchestrator.propose({
-      action: "COMPLETE_TASK",
+      action: "MOVE_FILE",
       input: {
-        taskId: "550e8400-e29b-41d4-a716-446655440000",
-        completedAt: "2026-09-17T10:00:00.000Z"
+        source: { rootId: "DOCUMENTS", relativePath: "Work\\Report.txt" },
+        destinationDirectory: { rootId: "DOWNLOADS", relativePath: "Archive" }
       }
     });
     if (!proposed.ok || !("confirmationId" in proposed.data)) {
@@ -148,11 +264,11 @@ describe("action orchestrator", () => {
     expect(historyService.recordTerminal).toHaveBeenCalledTimes(1);
   });
 
-  it("cancels a pending proposal without execution and records the cancellation", async () => {
+  it("cancels a pending file mutation without execution and records the cancellation", async () => {
     const { orchestrator, executor, historyService } = createOrchestrator();
     const proposed = await orchestrator.propose({
-      action: "UPDATE_EVENT",
-      input: { eventId: "550e8400-e29b-41d4-a716-446655440000", title: "Reunión" }
+      action: "CREATE_FOLDER",
+      input: { parentDirectory: { rootId: "DOCUMENTS", relativePath: "Work" }, name: "Archive" }
     });
     if (!proposed.ok || !("confirmationId" in proposed.data)) {
       throw new Error("Expected an awaiting confirmation result.");
@@ -163,7 +279,7 @@ describe("action orchestrator", () => {
     expect(result).toMatchObject({ ok: true, data: { status: "CANCELLED" } });
     expect(executor.execute).not.toHaveBeenCalled();
     expect(historyService.recordTerminal).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "UPDATE_EVENT", status: "CANCELLED" })
+      expect.objectContaining({ action: "CREATE_FOLDER", status: "CANCELLED", metadata: { scopeKind: "FILES", resultKind: "CANCELLED" } })
     );
   });
 
@@ -182,8 +298,8 @@ describe("action orchestrator", () => {
     });
 
     const proposed = await orchestrator.propose({
-      action: "UPDATE_TASK",
-      input: { taskId: "550e8400-e29b-41d4-a716-446655440000", title: "Informe final" }
+      action: "RENAME_FOLDER",
+      input: { source: { rootId: "DOCUMENTS", relativePath: "Work\\Archive" }, newName: "Archive 2026" }
     });
     if (!proposed.ok || !("confirmationId" in proposed.data)) {
       throw new Error("Expected an awaiting confirmation result.");
@@ -200,7 +316,14 @@ describe("action orchestrator", () => {
       }
     });
     expect(executor.execute).not.toHaveBeenCalled();
-    expect(historyService.recordTerminal).not.toHaveBeenCalled();
+    expect(historyService.recordTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "RENAME_FOLDER",
+        riskLevel: 2,
+        status: "CANCELLED",
+        metadata: { scopeKind: "FILES", resultKind: "CANCELLED" }
+      })
+    );
   });
 
   it("executes an alias-only OPEN_APPLICATION proposal and records only safe application metadata", async () => {
@@ -231,12 +354,12 @@ describe("action orchestrator", () => {
     expect(JSON.stringify(vi.mocked(historyService.recordTerminal).mock.calls)).not.toContain("C:\\");
   });
 
-  it("rejects deferred, malformed, and unavailable proposals without execution", async () => {
+  it("rejects malformed and unavailable proposals without execution", async () => {
     const { orchestrator, executor } = createOrchestrator();
 
-    await expect(orchestrator.propose({ action: "CREATE_FOLDER" })).resolves.toEqual({
+    await expect(orchestrator.propose({ action: "ORGANIZE_FILES" })).resolves.toEqual({
       ok: false,
-      error: { code: "ACTION_DEFERRED", userMessage: "Esta acción todavía no está disponible." }
+      error: { code: "ACTION_PROPOSAL_INVALID", userMessage: "La propuesta de acción no es válida." }
     });
     await expect(
       orchestrator.propose({ action: "OPEN_APPLICATION", input: { alias: "Word", executablePath: "C:\\unsafe.exe" } })
