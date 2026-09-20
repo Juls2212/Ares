@@ -4,6 +4,8 @@ node_modules/
 out/
 dist/
 coverage/
+native/**/build/
+native/**/.native-node-gyp-cache/
 
 # Environment files and logs
 .env
