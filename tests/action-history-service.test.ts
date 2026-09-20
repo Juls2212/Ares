@@ -158,6 +158,27 @@ describe("action history service", () => {
     ).toEqual({ itemCount: 2, resultKind: "PARTIAL_SUCCESS" });
   });
 
+  it("keeps organization history limited to aggregate numeric metadata", () => {
+    expect(sanitizeActionHistoryMetadata({
+      plannedCount: 4,
+      movedCount: 3,
+      skippedCount: 1,
+      conflictCount: 1,
+      documentsCount: 2,
+      imagesCount: 1,
+      source: "Inbox\\private.pdf",
+      destination: "C:\\private\\Documentos\\private.pdf",
+      nativeError: "MoveFileW failure"
+    })).toEqual({
+      plannedCount: 4,
+      movedCount: 3,
+      skippedCount: 1,
+      conflictCount: 1,
+      documentsCount: 2,
+      imagesCount: 1
+    });
+  });
+
   it("retains only a safe registered application display name for OPEN_APPLICATION history", async () => {
     const repository = createRepository();
     const service = createActionHistoryService({ repository, logError: () => undefined });
