@@ -47,6 +47,10 @@ import type {
   RegisterApplicationInput,
   UpdateApplicationInput
 } from "../shared/application-contracts";
+import type {
+  DashboardOperationResult,
+  DashboardTodaySummary
+} from "../shared/dashboard-contracts";
 
 const aresApi = {
   system: {
@@ -57,6 +61,12 @@ const aresApi = {
     getCapabilities: () =>
       ipcRenderer.invoke(IPC_CHANNELS.system.getCapabilities) as Promise<
         OperationResult<SystemCapabilities>
+      >
+  },
+  dashboard: {
+    getTodaySummary: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.dashboard.getTodaySummary) as Promise<
+        DashboardOperationResult<DashboardTodaySummary>
       >
   },
   planner: {
