@@ -20,6 +20,9 @@ import {
 } from "../src/main/database/schema";
 import { createPlannerRepositories } from "../src/main/planner/planner-repositories";
 import { createPlannerService, type PlannerClock } from "../src/main/planner/planner-service";
+import { createReminderDeliveryRepository } from "../src/main/reminders/reminder-delivery-repository";
+import { createDashboardRepository } from "../src/main/dashboard/dashboard-repository";
+import { createDashboardService, type DashboardClock } from "../src/main/dashboard/dashboard-service";
 import type {
   CategoryRecord,
   EventRecord,
@@ -35,6 +38,7 @@ import type {
 
 const database = getDatabase();
 const repositories = createPlannerRepositories(database);
+const reminderDeliveryRepository = createReminderDeliveryRepository(database);
 const testSuffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const createdCategoryIds: string[] = [];
 const createdTaskIds: string[] = [];
@@ -52,6 +56,14 @@ const clock: PlannerClock = {
 };
 
 const service = createPlannerService({ repositories, clock, logError: () => undefined });
+const dashboardClock: DashboardClock = {
+  now: () => new Date("2026-09-17T12:00:00.000Z"),
+  getLocalDate: () => "2026-09-17",
+  getRangeBounds: (startDate, days) => ({
+    startAt: `${startDate}T05:00:00.000Z`,
+    endAt: days === 1 ? "2026-09-18T05:00:00.000Z" : "2026-09-24T05:00:00.000Z"
+  })
+};
 const actionHistoryService = createActionHistoryService({
   repository: createActionHistoryRepository(database),
   generateActionId: () => `history-${testSuffix}-${createdActionHistoryIds.length + 1}`,
@@ -179,6 +191,60 @@ afterAll(async () => {
 });
 
 describe("planner database integration", () => {
+  it("builds a bounded read-only dashboard summary from safe planner and history records", async () => {
+    const category = trackCategory(
+      getSuccessData(await service.createCategory({ name: `Dashboard category ${testSuffix}` })).record
+    );
+    const todayTask = trackTask(
+      getSuccessData(await service.createTask({
+        title: `Dashboard task ${testSuffix}`,
+        dueDate: "2026-09-17",
+        dueTime: "09:00",
+        categoryId: category.id
+      })).record
+    );
+    const upcomingEvent = trackEvent(
+      getSuccessData(await service.createEvent({
+        title: `Dashboard event ${testSuffix}`,
+        startAt: "2026-09-18T15:00:00.000Z",
+        categoryId: category.id
+      })).record
+    );
+    const todayReminder = trackReminder(
+      getSuccessData(await service.createReminder({
+        title: `Dashboard reminder ${testSuffix}`,
+        remindAt: "2026-09-17T16:00:00.000Z",
+        taskId: todayTask.id
+      })).record
+    );
+    const history = trackActionHistory(getHistorySuccess(await actionHistoryService.recordTerminal({
+      actionId: `dashboard-action-${testSuffix}`,
+      action: "CREATE_TASK",
+      riskLevel: 1,
+      status: "SUCCEEDED",
+      userSummary: "Se creó una tarea de prueba.",
+      startedAt: "2026-09-17T11:00:00.000Z",
+      finishedAt: "2026-09-17T11:01:00.000Z",
+      metadata: { itemCount: 1, sourcePath: "C:\\private" }
+    })));
+    const dashboard = createDashboardService({
+      repository: createDashboardRepository(database),
+      historyService: actionHistoryService,
+      clock: dashboardClock,
+      logError: () => undefined
+    });
+
+    const result = await dashboard.getTodaySummary();
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected dashboard summary.");
+    expect(result.data.today.localDate).toBe("2026-09-17");
+    expect(result.data.today.tasks.map((record) => record.id)).toContain(todayTask.id);
+    expect(result.data.today.reminders.map((record) => record.id)).toContain(todayReminder.id);
+    expect(result.data.upcomingEvents.map((record) => record.id)).toContain(upcomingEvent.id);
+    expect(result.data.recentActivity.map((record) => record.id)).toContain(history.id);
+    expect(JSON.stringify(result.data.recentActivity)).not.toContain("C:\\private");
+  });
+
   it("persists and reads categories, tasks, events, and reminders", async () => {
     const category = trackCategory(
       getSuccessData(await service.createCategory({ name: `Integration category ${testSuffix}` })).record
@@ -296,6 +362,33 @@ describe("planner database integration", () => {
     expect(week.weekStart).toBe("2026-09-14");
     expect(week.weekEnd).toBe("2026-09-20");
     expect(week.tasks.map((item) => item.id)).toContain(task.id);
+  });
+
+  it("atomically claims a due pending reminder once across concurrent delivery attempts", async () => {
+    const reminder = trackReminder(
+      getSuccessData(
+        await service.createReminder({
+          title: `Atomic reminder ${testSuffix}`,
+          remindAt: "2026-09-17T10:00:00.000Z"
+        })
+      ).record
+    );
+    const deliveryTime = new Date("2026-09-18T12:00:00.000Z");
+
+    const due = await reminderDeliveryRepository.listDuePending(deliveryTime, 10);
+    const [firstClaim, secondClaim] = await Promise.all([
+      reminderDeliveryRepository.claimPending(reminder.id, deliveryTime),
+      reminderDeliveryRepository.claimPending(reminder.id, deliveryTime)
+    ]);
+    const successfulClaims = [firstClaim, secondClaim].filter((claim) => claim !== undefined);
+    const [persisted] = await database.select().from(reminders).where(eq(reminders.id, reminder.id));
+
+    expect(due.map((item) => item.id)).toContain(reminder.id);
+    expect(successfulClaims).toHaveLength(1);
+    expect(persisted).toMatchObject({ status: "TRIGGERED", deliveredAt: deliveryTime });
+    await expect(reminderDeliveryRepository.listDuePending(deliveryTime, 10)).resolves.not.toContainEqual(
+      expect.objectContaining({ id: reminder.id })
+    );
   });
 
   it("records terminal action history with sanitized metadata and stable ordering", async () => {
