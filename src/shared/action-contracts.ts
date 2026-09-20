@@ -15,6 +15,18 @@ import type {
   WeekScheduleData,
   EventRecord
 } from "./planner-contracts";
+import type {
+  CreateFolderInput,
+  FileSearchData,
+  FileSearchInput,
+  FileOrganizationExecutionData,
+  FileOrganizationPlan,
+  MoveFileInput,
+  OrganizeFilesInput,
+  RenameFileInput,
+  RenameFolderInput,
+  SafeFileMutationRecord
+} from "./file-contracts";
 
 export const ACTION_NAMES = [
   "OPEN_APPLICATION",
@@ -80,7 +92,23 @@ export type OpenApplicationActionProposal = ActionProposalBase & {
   input: OpenApplicationInput;
 };
 
-export type ExecutableActionProposal = PlannerActionProposal | OpenApplicationActionProposal;
+export type FileActionProposal =
+  | (ActionProposalBase & { action: "SEARCH_FILES"; input: FileSearchInput })
+  | (ActionProposalBase & { action: "CREATE_FOLDER"; input: CreateFolderInput })
+  | (ActionProposalBase & { action: "RENAME_FILE"; input: RenameFileInput })
+  | (ActionProposalBase & { action: "RENAME_FOLDER"; input: RenameFolderInput })
+  | (ActionProposalBase & { action: "MOVE_FILE"; input: MoveFileInput })
+  | (ActionProposalBase & {
+      action: "ORGANIZE_FILES";
+      input: OrganizeFilesInput;
+      /** Generated only in Electron Main before a Level 2 proposal is stored. */
+      plan?: FileOrganizationPlan;
+    });
+
+export type ExecutableActionProposal =
+  | PlannerActionProposal
+  | OpenApplicationActionProposal
+  | FileActionProposal;
 
 export type DeferredActionName = Exclude<ActionName, ExecutableActionProposal["action"]>;
 
@@ -106,6 +134,14 @@ export type OpenApplicationActionSubmission = {
   input: OpenApplicationInput;
 };
 
+export type FileActionSubmission =
+  | { action: "SEARCH_FILES"; input: FileSearchInput }
+  | { action: "CREATE_FOLDER"; input: CreateFolderInput }
+  | { action: "RENAME_FILE"; input: RenameFileInput }
+  | { action: "RENAME_FOLDER"; input: RenameFolderInput }
+  | { action: "MOVE_FILE"; input: MoveFileInput }
+  | { action: "ORGANIZE_FILES"; input: OrganizeFilesInput };
+
 export type DeferredActionSubmission = {
   action: DeferredActionName;
 };
@@ -114,6 +150,7 @@ export type DeferredActionSubmission = {
 export type ActionSubmission =
   | PlannerActionSubmission
   | OpenApplicationActionSubmission
+  | FileActionSubmission
   | DeferredActionSubmission;
 
 export type ActionConfirmationRequirement = {
@@ -161,7 +198,12 @@ export type OpenApplicationActionData = {
   applicationName: string;
 };
 
-export type ActionData = PlannerActionData | OpenApplicationActionData;
+export type FileActionData =
+  | FileSearchData
+  | SafeFileMutationRecord
+  | FileOrganizationExecutionData;
+
+export type ActionData = PlannerActionData | OpenApplicationActionData | FileActionData;
 
 export type ActionOutcome = {
   actionId: string;
@@ -180,6 +222,8 @@ export type AwaitingActionConfirmation = {
   riskLevel: ActionRiskLevel;
   confirmationId: string;
   confirmation: ActionConfirmationRequirement;
+  /** Present only for a Main-generated organization proposal preview. */
+  preview?: FileOrganizationPlan;
 };
 
 export type ActionLifecycleResult = ActionOutcome | AwaitingActionConfirmation;
