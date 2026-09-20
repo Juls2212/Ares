@@ -12,6 +12,7 @@ type ViewState =
 
 const capabilityLabels: Record<keyof SystemCapabilities, string> = {
   database: "Base de datos",
+  dashboard: "Inicio",
   planner: "Planificador",
   files: "Archivos",
   applications: "Aplicaciones",
