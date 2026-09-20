@@ -9,6 +9,8 @@ import {
   type ActionSubmission,
   type AwaitingActionConfirmation,
   type ExecutableActionProposal,
+  type FileActionProposal,
+  type FileActionData,
   type PlannerActionProposal,
   type SafeHistoryMetadata
 } from "../../shared/action-contracts";
@@ -84,7 +86,18 @@ const isOpenApplicationSubmission = (
   submission.input !== null &&
   !Array.isArray(submission.input) &&
   Object.keys(submission.input).length === 1 &&
-  typeof (submission.input as { alias?: unknown }).alias === "string";
+    typeof (submission.input as { alias?: unknown }).alias === "string";
+
+const isFileAction = (action: ActionSubmission["action"]): action is FileActionProposal["action"] =>
+  ["SEARCH_FILES", "CREATE_FOLDER", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES"].includes(
+    action as FileActionProposal["action"]
+  );
+
+const isFileActionSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: FileActionProposal["action"]; input: Record<string, unknown> } =>
+  isFileAction(submission.action as ActionSubmission["action"]) &&
+  isRecord(submission.input);
 
 const isOpaqueIdentifier = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
@@ -95,7 +108,10 @@ const toAwaitingConfirmation = (pending: PendingProposal): AwaitingActionConfirm
   action: pending.proposal.action,
   riskLevel: pending.policy.riskLevel,
   confirmationId: pending.confirmationId,
-  confirmation: pending.policy.confirmation
+  confirmation: pending.policy.confirmation,
+  ...(pending.proposal.action === "ORGANIZE_FILES" && pending.proposal.plan
+    ? { preview: pending.proposal.plan }
+    : {})
 });
 
 const historyFailureOutcome = (outcome: ActionOutcome): ActionOutcome => {
@@ -115,7 +131,12 @@ const historyFailureOutcome = (outcome: ActionOutcome): ActionOutcome => {
 
 const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
   const metadata: SafeHistoryMetadata = {
-    scopeKind: outcome.action === "OPEN_APPLICATION" ? "APPLICATION" : "PLANNER",
+    scopeKind:
+      outcome.action === "OPEN_APPLICATION"
+        ? "APPLICATION"
+        : isFileAction(outcome.action)
+          ? "FILES"
+          : "PLANNER",
     resultKind: outcome.status
   };
   if (
@@ -126,6 +147,28 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
     typeof outcome.data.applicationName === "string"
   ) {
     metadata.applicationDisplayName = outcome.data.applicationName;
+  }
+  if (isFileAction(outcome.action) && outcome.status === "SUCCEEDED" && outcome.data !== undefined) {
+    if ("items" in outcome.data && Array.isArray(outcome.data.items)) {
+      metadata.itemCount = outcome.data.items.length;
+      metadata.skippedCount = outcome.data.skippedEntryCount;
+      metadata.partial = outcome.data.truncated;
+    } else if ("operation" in outcome.data) {
+      metadata.itemCount = 1;
+    } else if ("plannedCount" in outcome.data) {
+      const organization = outcome.data as Extract<FileActionData, { plannedCount: number }>;
+      metadata.plannedCount = organization.plannedCount;
+      metadata.movedCount = organization.movedCount;
+      metadata.skippedCount = organization.skippedCount;
+      metadata.conflictCount = organization.conflictCount;
+      metadata.partial = organization.partial;
+      metadata.documentsCount = organization.categoryCounts.DOCUMENTS;
+      metadata.imagesCount = organization.categoryCounts.IMAGES;
+      metadata.audioCount = organization.categoryCounts.AUDIO;
+      metadata.videosCount = organization.categoryCounts.VIDEOS;
+      metadata.archivesCount = organization.categoryCounts.ARCHIVES;
+      metadata.otherCount = organization.categoryCounts.OTHER;
+    }
   }
   return metadata;
 };
@@ -190,6 +233,19 @@ export const createActionOrchestrator = (
     return recordTerminalOutcome(outcome, startedAt);
   };
 
+  const recordExpiredProposal = async (pending: PendingProposal): Promise<void> => {
+    await recordTerminalOutcome(
+      {
+        actionId: pending.proposal.actionId,
+        action: pending.proposal.action,
+        riskLevel: pending.policy.riskLevel,
+        status: "CANCELLED",
+        userSummary: "La confirmación de la acción expiró."
+      },
+      pending.startedAt
+    );
+  };
+
   return {
     propose: async (submission) => {
       const policyResult = evaluateActionProposal(submission);
@@ -199,7 +255,11 @@ export const createActionOrchestrator = (
       }
 
       const policy = getActionPolicy(submission.action);
-      if (!isPlannerAction(submission.action) && !isOpenApplicationSubmission(submission)) {
+      if (
+        !isPlannerAction(submission.action) &&
+        !isOpenApplicationSubmission(submission) &&
+        !isFileActionSubmission(submission)
+      ) {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
       }
 
@@ -209,14 +269,61 @@ export const createActionOrchestrator = (
         return createFailure(ACTION_ERROR_CODES.executionUnavailable);
       }
 
-      const proposal: ExecutableActionProposal = isOpenApplicationSubmission(submission)
+      let proposal: ExecutableActionProposal = isOpenApplicationSubmission(submission)
         ? { actionId, action: "OPEN_APPLICATION", input: { alias: submission.input.alias } }
-        : {
-            actionId,
-            action: submission.action as PlannerActionProposal["action"],
-            input: submission.input as never
-          };
+        : isFileActionSubmission(submission)
+          ? {
+              actionId,
+              action: submission.action,
+              input: submission.input as FileActionProposal["input"]
+            } as FileActionProposal
+          : {
+              actionId,
+              action: submission.action as PlannerActionProposal["action"],
+              input: submission.input as never
+            };
       const startedAt = dependencies.now();
+
+      if (proposal.action === "ORGANIZE_FILES") {
+        let planResult;
+        try {
+          planResult = dependencies.executor.prepareOrganization
+            ? await dependencies.executor.prepareOrganization(proposal)
+            : {
+                ok: false as const,
+                error: {
+                  code: "FILE_ORGANIZATION_UNAVAILABLE",
+                  userMessage: "No se pudo analizar la carpeta autorizada."
+                }
+              };
+        } catch {
+          dependencies.logError("File organization proposal preparation failed.");
+          planResult = {
+            ok: false as const,
+            error: {
+              code: "FILE_ORGANIZATION_UNAVAILABLE",
+              userMessage: "No se pudo analizar la carpeta autorizada."
+            }
+          };
+        }
+        if (!planResult.ok) {
+          return {
+            ok: true,
+            data: await recordTerminalOutcome(
+              {
+                actionId: proposal.actionId,
+                action: proposal.action,
+                riskLevel: policy.riskLevel,
+                status: "VALIDATION_FAILED",
+                errorCode: planResult.error.code,
+                userSummary: planResult.error.userMessage
+              },
+              startedAt
+            )
+          };
+        }
+        proposal = { ...proposal, plan: planResult.data };
+      }
 
       if (!policy.confirmation.required) {
         return { ok: true, data: await execute(proposal, policy, startedAt) };
@@ -247,6 +354,9 @@ export const createActionOrchestrator = (
       const pending = pendingProposals.get(confirmationId);
       if (!pending || pending.state !== "AWAITING_CONFIRMATION" || pending.expiresAt <= dependencies.now()) {
         pendingProposals.delete(confirmationId);
+        if (pending && pending.state === "AWAITING_CONFIRMATION") {
+          await recordExpiredProposal(pending);
+        }
         return createFailure(ACTION_ERROR_CODES.confirmationUnavailable);
       }
 
@@ -262,6 +372,9 @@ export const createActionOrchestrator = (
       const pending = pendingProposals.get(confirmationId);
       if (!pending || pending.state !== "AWAITING_CONFIRMATION" || pending.expiresAt <= dependencies.now()) {
         pendingProposals.delete(confirmationId);
+        if (pending && pending.state === "AWAITING_CONFIRMATION") {
+          await recordExpiredProposal(pending);
+        }
         return createFailure(ACTION_ERROR_CODES.confirmationUnavailable);
       }
 
