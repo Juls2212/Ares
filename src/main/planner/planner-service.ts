@@ -139,7 +139,7 @@ const isMonday = (date: string): boolean => {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 1;
 };
 
-const defaultClock: PlannerClock = {
+export const createDefaultPlannerClock = (): PlannerClock => ({
   getLocalDate: () => formatLocalDate(new Date()),
   getRangeBounds: (startDate, days) => {
     const start = parseCalendarDate(startDate);
@@ -147,7 +147,9 @@ const defaultClock: PlannerClock = {
     end.setDate(end.getDate() + days);
     return { startAt: start.toISOString(), endAt: end.toISOString() };
   }
-};
+});
+
+const defaultClock = createDefaultPlannerClock();
 
 const toListData = <T>(items: T[]): PlannerListData<T> => ({ items, total: items.length });
 
