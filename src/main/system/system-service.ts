@@ -44,11 +44,12 @@ export const getSystemCapabilitiesResult = (): OperationResult<SystemCapabilitie
   ok: true,
   data: {
     database: false,
+    dashboard: true,
     planner: true,
-    files: false,
+    files: true,
     applications: true,
     assistant: false,
     voice: false,
-    notifications: false
+    notifications: true
   }
 });
