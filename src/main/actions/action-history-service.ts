@@ -106,9 +106,18 @@ const normalizeErrorCode = (value: unknown): string | undefined => {
 
 const safeMetadataKeys = {
   itemCount: "number",
+  plannedCount: "number",
+  movedCount: "number",
   succeededCount: "number",
   failedCount: "number",
   skippedCount: "number",
+  conflictCount: "number",
+  documentsCount: "number",
+  imagesCount: "number",
+  audioCount: "number",
+  videosCount: "number",
+  archivesCount: "number",
+  otherCount: "number",
   partial: "boolean",
   hasError: "boolean",
   scopeKind: "identifier",
