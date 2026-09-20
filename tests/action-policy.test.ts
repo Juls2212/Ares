@@ -12,7 +12,7 @@ import {
 
 const expectedRiskLevels: Record<ActionName, ActionRiskLevel> = {
   OPEN_APPLICATION: 1,
-  CREATE_FOLDER: 1,
+  CREATE_FOLDER: 2,
   RENAME_FILE: 2,
   RENAME_FOLDER: 2,
   MOVE_FILE: 2,
@@ -59,29 +59,29 @@ describe("action policy", () => {
     }
   });
 
-  it("marks planner actions and the registered application action as currently implemented", () => {
+  it("marks implemented planner, application, and approved file actions as available", () => {
     expect(getActionPolicy("CREATE_TASK").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("GET_WEEK_SCHEDULE").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("OPEN_APPLICATION").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("ORGANIZE_FILES").availability).toBe("DEFERRED");
+    expect(getActionPolicy("SEARCH_FILES").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("CREATE_FOLDER").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("RENAME_FILE").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("RENAME_FOLDER").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("MOVE_FILE").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("ORGANIZE_FILES").availability).toBe("IMPLEMENTED");
   });
 
-  it("rejects unknown and deferred proposals without executing them", () => {
+  it("rejects unknown proposals without executing them", () => {
     const unknown = evaluateActionProposal({
       action: "DELETE_FILE",
       command: "Remove-Item C:\\private"
     });
-    const deferred = evaluateActionProposal({ action: "CREATE_FOLDER", actionId: "proposal-1" });
 
     expect(unknown).toEqual({
       ok: false,
       error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." }
     });
     expect(JSON.stringify(unknown)).not.toContain("Remove-Item");
-    expect(deferred).toEqual({
-      ok: false,
-      error: { code: "ACTION_DEFERRED", userMessage: "Esta acción todavía no está disponible." }
-    });
   });
 
   it("keeps planner proposal payloads typed and applies confirmation only to Level 2 actions", () => {
@@ -108,5 +108,23 @@ describe("action policy", () => {
       ok: true,
       data: { action: "OPEN_APPLICATION", riskLevel: 1, availability: "IMPLEMENTED" }
     });
+  });
+
+  it("keeps SEARCH_FILES at Level 1 and each single-item mutation at Level 2", () => {
+    expect(requiresActionConfirmation({
+      actionId: "proposal-4",
+      action: "SEARCH_FILES",
+      input: { rootId: "DOCUMENTS", query: "report" }
+    })).toBe(false);
+    expect(requiresActionConfirmation({
+      actionId: "proposal-5",
+      action: "CREATE_FOLDER",
+      input: { parentDirectory: { rootId: "DOCUMENTS", relativePath: "Work" }, name: "Archive" }
+    })).toBe(true);
+    expect(requiresActionConfirmation({
+      actionId: "proposal-6",
+      action: "ORGANIZE_FILES",
+      input: { folder: { rootId: "DOCUMENTS", relativePath: "Inbox" } }
+    })).toBe(true);
   });
 });
