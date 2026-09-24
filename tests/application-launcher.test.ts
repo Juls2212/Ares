@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApplicationLauncher } from "../src/main/applications/application-launcher";
+import { resolveTrustedWebDestination } from "../src/main/applications/trusted-web-destinations";
 import type { ApplicationService } from "../src/main/applications/application-service";
 import type { ResolvedApplicationTarget } from "../src/main/applications/application-repositories";
 import type { OperationResult } from "../src/shared/contracts";
@@ -96,6 +97,24 @@ describe("application launcher", () => {
     expect(JSON.stringify(result)).not.toContain(executablePath);
     expect(JSON.stringify(result)).not.toContain(canonicalPath);
     expect(JSON.stringify(result)).not.toContain("pid");
+  });
+
+  it("launches a trusted browser target with only the fixed catalog URL and no fallback", async () => {
+    const { launcher, spawn } = createLauncher();
+    const destination = resolveTrustedWebDestination("YOUTUBE");
+    if (!destination) throw new Error("Expected trusted destination.");
+
+    const result = await launcher.launchResolvedBrowserTarget(target, destination);
+
+    expect(spawn).toHaveBeenCalledWith(canonicalPath, ["https://www.youtube.com/"], {
+      detached: true,
+      shell: false,
+      stdio: "ignore",
+      windowsHide: true
+    });
+    expect(result).toEqual({ ok: true, data: { applicationName: target.name } });
+    expect(JSON.stringify(result)).not.toContain("youtube.com");
+    expect(JSON.stringify(result)).not.toContain(canonicalPath);
   });
 
   it("returns controlled alias and disabled failures without filesystem or process access", async () => {
