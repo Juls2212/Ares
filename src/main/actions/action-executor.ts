@@ -2,7 +2,9 @@ import type {
   ActionOutcome,
   ActionPolicy,
   ExecutableActionProposal,
-  FileActionProposal
+  FileActionProposal,
+  OpenApplicationActionProposal,
+  OpenWebPageActionProposal
 } from "../../shared/action-contracts";
 import type { FileOperationResult, FileOrganizationPlan } from "../../shared/file-contracts";
 import {
@@ -30,6 +32,11 @@ const isFileAction = (proposal: ExecutableActionProposal): proposal is FileActio
     proposal.action as FileActionProposal["action"]
   ) || proposal.action === "ORGANIZE_FILES";
 
+const isApplicationAction = (
+  proposal: ExecutableActionProposal
+): proposal is OpenApplicationActionProposal | OpenWebPageActionProposal =>
+  proposal.action === "OPEN_APPLICATION" || proposal.action === "OPEN_WEB_PAGE";
+
 export const createActionExecutor = (
   overrides: Partial<ActionExecutorDependencies> = {}
 ): ActionExecutor => {
@@ -40,7 +47,7 @@ export const createActionExecutor = (
   return {
     prepareOrganization: fileExecutor.prepareOrganization,
     execute: (proposal, policy) =>
-      proposal.action === "OPEN_APPLICATION"
+      isApplicationAction(proposal)
         ? applicationExecutor.execute(proposal, policy)
         : isFileAction(proposal)
           ? fileExecutor.execute(proposal, policy)
