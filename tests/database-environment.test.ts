@@ -1,10 +1,15 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import dotenv from "dotenv";
+import { describe, expect, it, vi } from "vitest";
 import {
   MainConfigurationError,
   getDatabaseUrl
 } from "../src/main/config/database-environment";
+
+vi.mock("dotenv", () => ({
+  default: { config: vi.fn() }
+}));
 
 const readSourceFiles = (directory: string): string[] =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -41,6 +46,24 @@ describe("Main database environment", () => {
     const databaseUrl = "postgresql://ares:local-password@127.0.0.1:5433/ares_development";
 
     expect(getDatabaseUrl({ DATABASE_URL: databaseUrl })).toBe(databaseUrl);
+  });
+
+  it("loads the trusted local environment only for the default Main-process environment", () => {
+    const originalDatabaseUrl = process.env.DATABASE_URL;
+    const databaseUrl = "postgresql://ares:local-password@127.0.0.1:5433/ares_development";
+    vi.mocked(dotenv.config).mockClear();
+    process.env.DATABASE_URL = databaseUrl;
+
+    try {
+      expect(getDatabaseUrl()).toBe(databaseUrl);
+      expect(dotenv.config).toHaveBeenCalledWith({ quiet: true });
+    } finally {
+      if (originalDatabaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = originalDatabaseUrl;
+      }
+    }
   });
 
   it("does not expose a supplied password through configuration errors", () => {
