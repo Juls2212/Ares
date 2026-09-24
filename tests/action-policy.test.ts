@@ -12,6 +12,7 @@ import {
 
 const expectedRiskLevels: Record<ActionName, ActionRiskLevel> = {
   OPEN_APPLICATION: 1,
+  OPEN_WEB_PAGE: 1,
   CREATE_FOLDER: 2,
   RENAME_FILE: 2,
   RENAME_FOLDER: 2,
@@ -32,6 +33,7 @@ describe("action policy", () => {
   it("contains the complete approved MVP action catalog", () => {
     expect(ACTION_NAMES).toEqual([
       "OPEN_APPLICATION",
+      "OPEN_WEB_PAGE",
       "CREATE_FOLDER",
       "RENAME_FILE",
       "RENAME_FOLDER",
@@ -63,6 +65,7 @@ describe("action policy", () => {
     expect(getActionPolicy("CREATE_TASK").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("GET_WEEK_SCHEDULE").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("OPEN_APPLICATION").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("OPEN_WEB_PAGE").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("SEARCH_FILES").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("CREATE_FOLDER").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("RENAME_FILE").availability).toBe("IMPLEMENTED");
