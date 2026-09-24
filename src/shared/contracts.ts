@@ -44,6 +44,7 @@ export type AresApi = {
   planner: PlannerApi;
   actions: ActionApi;
   applications: ApplicationsApi;
+  assistant: AssistantApi;
 };
 
 export const IPC_CHANNELS = {
@@ -86,15 +87,20 @@ export const IPC_CHANNELS = {
     }
   },
   applications: {
+    registerChrome: "applications:register-chrome",
     register: "applications:register",
     list: "applications:list",
     update: "applications:update"
   },
   dashboard: {
     getTodaySummary: "dashboard:get-today-summary"
+  },
+  assistant: {
+    interpret: "assistant:interpret"
   }
 } as const;
 import type { PlannerApi } from "./planner-contracts";
 import type { ActionApi } from "./action-contracts";
 import type { ApplicationsApi } from "./application-contracts";
 import type { DashboardApi } from "./dashboard-contracts";
+import type { AssistantApi } from "./assistant-contracts";
