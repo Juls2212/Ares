@@ -8,6 +8,7 @@ import { validateExecutablePath } from "./application-validation";
 import { getApplicationService } from "./application-composition";
 import type { ApplicationService } from "./application-service";
 import type { ResolvedApplicationTarget } from "./application-repositories";
+import type { TrustedWebDestination } from "./trusted-web-destinations";
 
 type PathStats = {
   isFile: () => boolean;
@@ -47,6 +48,10 @@ export type ApplicationLauncher = {
   launchResolvedTarget: (
     target: ResolvedApplicationTarget
   ) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
+  launchResolvedBrowserTarget: (
+    target: ResolvedApplicationTarget,
+    destination: TrustedWebDestination
+  ) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
 };
 
 const launcherMessages = {
@@ -71,10 +76,11 @@ const hasExecutableExtension = (path: string): boolean => /\.exe$/iu.test(path);
 
 const startDetachedProcess = (
   executablePath: string,
+  argumentsList: readonly string[],
   dependencies: ApplicationLauncherDependencies
 ): Promise<boolean> => {
   try {
-    const child = dependencies.spawn(executablePath, [], {
+    const child = dependencies.spawn(executablePath, argumentsList, {
       detached: true,
       shell: false,
       stdio: "ignore",
@@ -120,7 +126,8 @@ export const createApplicationLauncher = (
   };
 
   const launchResolvedTarget = async (
-    target: ResolvedApplicationTarget
+    target: ResolvedApplicationTarget,
+    argumentsList: readonly string[]
   ): Promise<ApplicationOperationResult<ApplicationLaunchData>> => {
     if (!target.isEnabled) return createFailure(APPLICATION_ERROR_CODES.disabled);
 
@@ -149,7 +156,7 @@ export const createApplicationLauncher = (
       return createFailure("APPLICATION_EXECUTABLE_NOT_FOUND");
     }
 
-    if (!(await startDetachedProcess(canonicalPath, dependencies))) {
+    if (!(await startDetachedProcess(canonicalPath, argumentsList, dependencies))) {
       dependencies.logError("Registered application process launch failed.");
       return createFailure("APPLICATION_LAUNCH_FAILED");
     }
@@ -161,8 +168,9 @@ export const createApplicationLauncher = (
     launchByAlias: async (alias) => {
       const resolved = await dependencies.applicationService.resolveEnabledApplicationByAlias(alias);
       if (!resolved.ok) return resolved;
-      return launchResolvedTarget(resolved.data);
+      return launchResolvedTarget(resolved.data, []);
     },
-    launchResolvedTarget
+    launchResolvedTarget: (target) => launchResolvedTarget(target, []),
+    launchResolvedBrowserTarget: (target, destination) => launchResolvedTarget(target, [destination.url])
   };
 };
