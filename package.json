@@ -8,8 +8,9 @@
     "package": "npm run native:build && electron-forge package",
     "make": "npm run native:build && electron-forge make",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude manual-tests/**",
     "test:db": "vitest run --config vitest.database.config.ts",
+    "test:assistant:live": "node -e \"if (process.env.ARES_LIVE_ASSISTANT_CHECK !== '1') { console.error('Set ARES_LIVE_ASSISTANT_CHECK=1 to allow a live OpenAI request.'); process.exit(1); }\" && vitest run --config vitest.assistant-live.config.ts",
     "build": "npm run typecheck && npm run native:build && electron-forge package",
     "native:build": "node ./node_modules/node-gyp/bin/node-gyp.js rebuild --directory native/atomic-no-replace --devdir=./.native-node-gyp-cache --target=44.4.0 --arch=x64 --dist-url=https://electronjs.org/headers",
     "test:native": "npm run native:build && vitest run tests/windows-atomic-move.integration.test.ts",
@@ -46,6 +47,7 @@
   "dependencies": {
     "dotenv": "17.4.2",
     "drizzle-orm": "0.45.2",
+    "openai": "^7.20.0",
     "pg": "8.23.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
