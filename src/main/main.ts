@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session } from "electron";
 import path from "node:path";
 import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
+import { registerAssistantIpcHandlers } from "./ipc/register-assistant-ipc";
 import { registerApplicationIpcHandlers } from "./ipc/register-application-ipc";
 import { registerDashboardIpcHandlers } from "./ipc/register-dashboard-ipc";
 import { registerPlannerIpcHandlers } from "./ipc/register-planner-ipc";
@@ -54,6 +55,7 @@ app.whenReady().then(async () => {
   registerSystemIpcHandlers();
   registerPlannerIpcHandlers();
   registerActionIpcHandlers();
+  registerAssistantIpcHandlers();
   registerApplicationIpcHandlers();
   registerDashboardIpcHandlers();
   registerReminderDeliveryShutdown(app);
