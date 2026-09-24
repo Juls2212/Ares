@@ -139,6 +139,42 @@ describe("Main-only assistant interpreter", () => {
     });
   });
 
+  it("prepares exactly the registered Chrome application and fixed YouTube drafts", async () => {
+    const result = await interpreterFor(
+      ready([
+        { action: "OPEN_APPLICATION", input: { alias: "chrome" } },
+        { action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } }
+      ])
+    ).interpret({ instruction: "Abre Google Chrome y YouTube en Chrome" }, reference);
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        state: "READY",
+        summary: "Preparé los borradores solicitados.",
+        drafts: [
+          { action: "OPEN_APPLICATION", input: { alias: "chrome" } },
+          { action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } }
+        ],
+        clarifications: []
+      }
+    });
+    expect(JSON.stringify(result)).not.toContain("executablePath");
+  });
+
+  it("clarifies application and web drafts when Chrome is not an enabled trusted alias", async () => {
+    const noChromeReference = { ...reference, knownApplicationAliases: [], knownApplications: [] };
+    const applicationResult = await interpreterFor(
+      ready([{ action: "OPEN_APPLICATION", input: { alias: "chrome" } }])
+    ).interpret({ instruction: "Abre Google Chrome" }, noChromeReference);
+    const webResult = await interpreterFor(
+      ready([{ action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } }])
+    ).interpret({ instruction: "Abre YouTube en Chrome" }, noChromeReference);
+
+    expect(applicationResult).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
+    expect(webResult).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
+  });
+
   it("rejects untrusted web-page drafts without interpreting a browser alias", async () => {
     for (const output of [
       ready([{ action: "OPEN_WEB_PAGE", input: { destination: "https://www.youtube.com/", browser: "CHROME" } }]),

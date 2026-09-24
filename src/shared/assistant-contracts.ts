@@ -9,6 +9,12 @@ export type AssistantInterpretationState = "READY" | "NEEDS_CLARIFICATION" | "RE
 export type AssistantClarification = { question: string };
 export type AssistantActionDraft = ActionSubmission;
 
+/** Main-only trusted catalog context; it contains no executable target or database identifier. */
+export type TrustedApplicationReference = {
+  displayName: string;
+  alias: string;
+};
+
 export type AssistantInterpretation = {
   state: AssistantInterpretationState;
   summary: string;
@@ -25,6 +31,7 @@ export type AssistantInterpretationReference = {
   now: string;
   timeZone: string;
   knownApplicationAliases?: string[];
+  knownApplications?: TrustedApplicationReference[];
   knownFileReferences?: SafeFileReference[];
 };
 

@@ -128,6 +128,7 @@ const createReference = (
   ...(overrides?.knownApplicationAliases
     ? { knownApplicationAliases: overrides.knownApplicationAliases }
     : {}),
+  ...(overrides?.knownApplications ? { knownApplications: overrides.knownApplications } : {}),
   ...(overrides?.knownFileReferences ? { knownFileReferences: overrides.knownFileReferences } : {})
 });
 
@@ -266,6 +267,12 @@ const validateDraft = (
         !WEB_BROWSERS.includes(input.browser as (typeof WEB_BROWSERS)[number])
       ) {
         return null;
+      }
+      const hasRegisteredChrome = reference.knownApplicationAliases?.some(
+        (alias) => alias.trim().toLocaleLowerCase("en-US") === "chrome"
+      );
+      if (!hasRegisteredChrome) {
+        return draftClarification("Google Chrome necesita estar registrado y habilitado.");
       }
       return { action, input: { destination: "YOUTUBE", browser: "CHROME" } };
     }

@@ -3,6 +3,8 @@ import {
   type AssistantInterpretation,
   type AssistantOperationResult
 } from "../../shared/assistant-contracts";
+import type { ApplicationService } from "../applications/application-service";
+import { getApplicationService } from "../applications/application-composition";
 import { createAssistantInterpreter } from "./assistant-interpreter";
 
 export type AssistantInterpreter = ReturnType<typeof createAssistantInterpreter>;
@@ -13,7 +15,10 @@ export type AssistantInterpretationService = {
 
 type AssistantInterpretationServiceDependencies = {
   getInterpreter: () => AssistantInterpreter;
+  getApplicationService: () => Pick<ApplicationService, "listApplications">;
 };
+
+const maximumTrustedApplicationReferences = 100;
 
 const unavailable = (
   code: "ASSISTANT_BUSY" | "ASSISTANT_IPC_UNAVAILABLE"
@@ -64,7 +69,23 @@ export const createAssistantInterpretationService = (
 
       inFlight = true;
       try {
-        return await dependencies.getInterpreter().interpret(normalizedInput);
+        const applications = await dependencies.getApplicationService().listApplications({
+          enabled: true,
+          limit: 100
+        });
+        if (!applications.ok) return unavailable(ASSISTANT_ERROR_CODES.ipcUnavailable);
+
+        const trustedApplications = applications.data.items
+          .flatMap((record) =>
+            record.aliases.map((entry) => ({ displayName: record.name, alias: entry.alias }))
+          )
+          .slice(0, maximumTrustedApplicationReferences);
+        const knownApplicationAliases = trustedApplications.map((entry) => entry.alias);
+
+        return await dependencies.getInterpreter().interpret(normalizedInput, {
+          knownApplicationAliases,
+          knownApplications: trustedApplications
+        });
       } catch {
         return unavailable(ASSISTANT_ERROR_CODES.ipcUnavailable);
       } finally {
@@ -78,7 +99,8 @@ let assistantInterpretationService: AssistantInterpretationService | undefined;
 
 export const getAssistantInterpretationService = (): AssistantInterpretationService => {
   assistantInterpretationService ??= createAssistantInterpretationService({
-    getInterpreter: createAssistantInterpreter
+    getInterpreter: createAssistantInterpreter,
+    getApplicationService
   });
   return assistantInterpretationService;
 };
