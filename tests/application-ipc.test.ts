@@ -8,6 +8,7 @@ import {
   type ApplicationIpcHandlerRegistrar
 } from "../src/main/ipc/register-application-ipc";
 import type { ApplicationService } from "../src/main/applications/application-service";
+import type { ChromeRegistrationService } from "../src/main/applications/chrome-registration-service";
 import { IPC_CHANNELS, type OperationResult } from "../src/shared/contracts";
 
 const successResult: OperationResult<never> = { ok: true, data: undefined as never };
@@ -15,13 +16,18 @@ const successResult: OperationResult<never> = { ok: true, data: undefined as nev
 const createService = (): {
   service: ApplicationService;
   methods: Record<"registerApplication" | "listApplications" | "updateApplication", ReturnType<typeof vi.fn>>;
+  chromeService: ChromeRegistrationService;
 } => {
   const methods = {
     registerApplication: vi.fn(async () => successResult),
     listApplications: vi.fn(async () => successResult),
     updateApplication: vi.fn(async () => successResult)
   };
-  return { service: methods as unknown as ApplicationService, methods };
+  return {
+    service: methods as unknown as ApplicationService,
+    methods,
+    chromeService: { registerChrome: vi.fn(async () => successResult) } as unknown as ChromeRegistrationService
+  };
 };
 
 const channelDelegations: ReadonlyArray<{
@@ -45,10 +51,11 @@ const channelDelegations: ReadonlyArray<{
 describe("application catalog IPC registration", () => {
   it("registers exactly the three approved application catalog channels once", () => {
     const handlers = new Map<string, ApplicationIpcHandler>();
-    const { service } = createService();
+    const { service, chromeService } = createService();
     const register = createApplicationIpcRegistration({
       registerHandler: (channel, handler) => handlers.set(channel, handler),
       getService: () => service,
+      getChromeRegistrationService: () => chromeService,
       logError: vi.fn()
     });
 
@@ -56,20 +63,22 @@ describe("application catalog IPC registration", () => {
     register();
 
     expect(IPC_CHANNELS.applications).toEqual({
+      registerChrome: "applications:register-chrome",
       register: "applications:register",
       list: "applications:list",
       update: "applications:update"
     });
-    expect([...handlers.keys()]).toEqual(channelDelegations.map(({ channel }) => channel));
-    expect(handlers.size).toBe(3);
+    expect([...handlers.keys()]).toEqual(["applications:register-chrome", ...channelDelegations.map(({ channel }) => channel)]);
+    expect(handlers.size).toBe(4);
   });
 
   it.each(channelDelegations)("delegates $channel only to $method", async ({ channel, method, input }) => {
     const handlers = new Map<string, ApplicationIpcHandler>();
-    const { service, methods } = createService();
+    const { service, methods, chromeService } = createService();
     createApplicationIpcRegistration({
       registerHandler: (registeredChannel, handler) => handlers.set(registeredChannel, handler),
       getService: () => service,
+      getChromeRegistrationService: () => chromeService,
       logError: vi.fn()
     })();
 
@@ -81,13 +90,14 @@ describe("application catalog IPC registration", () => {
 
   it("maps unexpected handler failures without leaking application details", async () => {
     const handlers = new Map<string, ApplicationIpcHandler>();
-    const { service, methods } = createService();
+    const { service, methods, chromeService } = createService();
     const secret = "C:\\private\\application.exe";
     methods.registerApplication.mockRejectedValueOnce(new Error(secret));
     const logError = vi.fn();
     createApplicationIpcRegistration({
       registerHandler: (channel, handler) => handlers.set(channel, handler),
       getService: () => service,
+      getChromeRegistrationService: () => chromeService,
       logError
     })();
 
@@ -102,5 +112,38 @@ describe("application catalog IPC registration", () => {
     });
     expect(JSON.stringify(result)).not.toContain(secret);
     expect(logError).toHaveBeenCalledWith("Application catalog IPC handler failed.");
+  });
+
+  it("delegates the input-free Chrome registration channel without a generic picker payload", async () => {
+    const handlers = new Map<string, ApplicationIpcHandler>();
+    const { service, chromeService } = createService();
+    createApplicationIpcRegistration({
+      registerHandler: (channel, handler) => handlers.set(channel, handler),
+      getService: () => service,
+      getChromeRegistrationService: () => chromeService,
+      logError: vi.fn()
+    })();
+
+    await expect(handlers.get(IPC_CHANNELS.applications.registerChrome)?.({ executablePath: "forbidden" })).resolves.toEqual(successResult);
+    expect(chromeService.registerChrome).toHaveBeenCalledWith();
+  });
+
+  it("maps Chrome registration handler failures without leaking selection details", async () => {
+    const handlers = new Map<string, ApplicationIpcHandler>();
+    const { service, chromeService } = createService();
+    const secret = "C:\\private\\chrome.exe";
+    vi.mocked(chromeService.registerChrome).mockRejectedValueOnce(new Error(secret));
+    const logError = vi.fn();
+    createApplicationIpcRegistration({
+      registerHandler: (channel, handler) => handlers.set(channel, handler),
+      getService: () => service,
+      getChromeRegistrationService: () => chromeService,
+      logError
+    })();
+
+    const result = await handlers.get(IPC_CHANNELS.applications.registerChrome)?.(undefined);
+    expect(result).toMatchObject({ ok: false, error: { code: "APPLICATION_IPC_UNAVAILABLE" } });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(logError).toHaveBeenCalledWith("Chrome registration IPC handler failed.");
   });
 });
