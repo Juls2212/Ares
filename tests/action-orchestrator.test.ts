@@ -40,10 +40,14 @@ const createSuccessOutcome = (proposal: ExecutableActionProposal): ActionOutcome
   status: "SUCCEEDED",
   ...(proposal.action === "OPEN_APPLICATION"
     ? { data: { applicationName: "Microsoft Word" } }
+    : proposal.action === "OPEN_WEB_PAGE"
+      ? { data: { applicationName: "Google Chrome", destination: "YOUTUBE" as const } }
     : {}),
   userSummary:
     proposal.action === "OPEN_APPLICATION"
       ? "Se abrió Microsoft Word."
+      : proposal.action === "OPEN_WEB_PAGE"
+        ? "Se abrió YouTube en Google Chrome."
       : "La acción del planificador se completó."
 });
 
@@ -352,6 +356,34 @@ describe("action orchestrator", () => {
       "word-alias"
     );
     expect(JSON.stringify(vi.mocked(historyService.recordTerminal).mock.calls)).not.toContain("C:\\");
+  });
+
+  it("executes the Level 1 fixed web-page proposal and records no URL, alias, or launch details", async () => {
+    const { orchestrator, executor, historyService } = createOrchestrator();
+
+    const result = await orchestrator.propose({
+      action: "OPEN_WEB_PAGE",
+      input: { destination: "YOUTUBE", browser: "CHROME" }
+    });
+
+    expect(result).toMatchObject({ ok: true, data: { status: "SUCCEEDED", action: "OPEN_WEB_PAGE", riskLevel: 1 } });
+    expect(executor.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } }),
+      getActionPolicy("OPEN_WEB_PAGE")
+    );
+    expect(historyService.recordTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "OPEN_WEB_PAGE",
+        metadata: {
+          scopeKind: "APPLICATION",
+          resultKind: "SUCCEEDED",
+          applicationDisplayName: "Google Chrome"
+        }
+      })
+    );
+    const historyInput = JSON.stringify(vi.mocked(historyService.recordTerminal).mock.calls);
+    expect(historyInput).not.toContain("http");
+    expect(historyInput).not.toContain("chrome");
   });
 
   it("rejects malformed and unavailable proposals without execution", async () => {
