@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+
 export class MainConfigurationError extends Error {
   public readonly code: string;
 
@@ -14,6 +16,12 @@ const isPostgresProtocol = (protocol: string): boolean =>
 export const getDatabaseUrl = (
   environment: NodeJS.ProcessEnv = process.env
 ): string => {
+  // Development secrets are read only when trusted Main code first needs the database.
+  // Explicit environments keep configuration tests and callers fully deterministic.
+  if (environment === process.env) {
+    dotenv.config({ quiet: true });
+  }
+
   const databaseUrl = environment.DATABASE_URL;
 
   if (!databaseUrl) {
