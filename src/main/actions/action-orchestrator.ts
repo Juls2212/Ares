@@ -11,6 +11,7 @@ import {
   type ExecutableActionProposal,
   type FileActionProposal,
   type FileActionData,
+  type OpenWebPageActionProposal,
   type PlannerActionProposal,
   type SafeHistoryMetadata
 } from "../../shared/action-contracts";
@@ -88,6 +89,18 @@ const isOpenApplicationSubmission = (
   Object.keys(submission.input).length === 1 &&
     typeof (submission.input as { alias?: unknown }).alias === "string";
 
+const isOpenWebPageSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: "OPEN_WEB_PAGE"; input: { destination: "YOUTUBE"; browser: "CHROME" } } =>
+  submission.action === "OPEN_WEB_PAGE" &&
+  isRecord(submission.input) &&
+  Object.keys(submission.input).length === 2 &&
+  submission.input.destination === "YOUTUBE" &&
+  submission.input.browser === "CHROME";
+
+const isApplicationAction = (action: ActionSubmission["action"]): boolean =>
+  action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE";
+
 const isFileAction = (action: ActionSubmission["action"]): action is FileActionProposal["action"] =>
   ["SEARCH_FILES", "CREATE_FOLDER", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES"].includes(
     action as FileActionProposal["action"]
@@ -132,7 +145,7 @@ const historyFailureOutcome = (outcome: ActionOutcome): ActionOutcome => {
 const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
   const metadata: SafeHistoryMetadata = {
     scopeKind:
-      outcome.action === "OPEN_APPLICATION"
+      isApplicationAction(outcome.action)
         ? "APPLICATION"
         : isFileAction(outcome.action)
           ? "FILES"
@@ -140,7 +153,7 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
     resultKind: outcome.status
   };
   if (
-    outcome.action === "OPEN_APPLICATION" &&
+    isApplicationAction(outcome.action) &&
     outcome.status === "SUCCEEDED" &&
     outcome.data !== undefined &&
     "applicationName" in outcome.data &&
@@ -258,6 +271,7 @@ export const createActionOrchestrator = (
       if (
         !isPlannerAction(submission.action) &&
         !isOpenApplicationSubmission(submission) &&
+        !isOpenWebPageSubmission(submission) &&
         !isFileActionSubmission(submission)
       ) {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
@@ -271,6 +285,12 @@ export const createActionOrchestrator = (
 
       let proposal: ExecutableActionProposal = isOpenApplicationSubmission(submission)
         ? { actionId, action: "OPEN_APPLICATION", input: { alias: submission.input.alias } }
+        : isOpenWebPageSubmission(submission)
+          ? {
+              actionId,
+              action: "OPEN_WEB_PAGE",
+              input: { destination: "YOUTUBE", browser: "CHROME" }
+            } as OpenWebPageActionProposal
         : isFileActionSubmission(submission)
           ? {
               actionId,
