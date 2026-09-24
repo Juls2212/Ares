@@ -4,7 +4,11 @@ import {
   APPLICATION_ERROR_CODES,
   type ApplicationOperationResult
 } from "../../shared/application-contracts";
-import { getApplicationService } from "../applications/application-composition";
+import {
+  getApplicationService,
+  getChromeRegistrationService
+} from "../applications/application-composition";
+import type { ChromeRegistrationService } from "../applications/chrome-registration-service";
 import type { ApplicationService } from "../applications/application-service";
 
 export type ApplicationIpcHandler = (input: unknown) => Promise<OperationResult<unknown>>;
@@ -16,6 +20,7 @@ export type ApplicationIpcHandlerRegistrar = (
 type ApplicationIpcDependencies = {
   registerHandler: ApplicationIpcHandlerRegistrar;
   getService: () => ApplicationService;
+  getChromeRegistrationService: () => ChromeRegistrationService;
   logError: (message: string) => void;
 };
 
@@ -40,6 +45,18 @@ const createHandler = <T>(
   }
 };
 
+const createChromeRegistrationHandler = (
+  getService: () => ChromeRegistrationService,
+  logError: (message: string) => void
+): ApplicationIpcHandler => async () => {
+  try {
+    return await getService().registerChrome();
+  } catch {
+    logError("Chrome registration IPC handler failed.");
+    return createUnexpectedFailure();
+  }
+};
+
 export const createApplicationIpcRegistration = (
   dependencies: ApplicationIpcDependencies
 ): (() => void) => {
@@ -47,6 +64,11 @@ export const createApplicationIpcRegistration = (
 
   return (): void => {
     if (registered) return;
+
+    dependencies.registerHandler(
+      IPC_CHANNELS.applications.registerChrome,
+      createChromeRegistrationHandler(dependencies.getChromeRegistrationService, dependencies.logError)
+    );
 
     dependencies.registerHandler(
       IPC_CHANNELS.applications.register,
@@ -84,6 +106,7 @@ const registerElectronHandler: ApplicationIpcHandlerRegistrar = (channel, handle
 export const registerApplicationIpcHandlers = createApplicationIpcRegistration({
   registerHandler: registerElectronHandler,
   getService: getApplicationService,
+  getChromeRegistrationService,
   logError: (message) => {
     console.error(message);
   }
