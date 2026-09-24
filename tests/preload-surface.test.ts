@@ -14,7 +14,7 @@ const rendererGlobalSource = readFileSync(
 );
 
 describe("preload surface", () => {
-  it("uses only explicit system, dashboard, planner, action, and application catalog channels", () => {
+  it("uses only explicit system, dashboard, planner, action, application catalog, and assistant channels", () => {
     expect(IPC_CHANNELS.system).toEqual({
       getStatus: "system:get-status",
       getCapabilities: "system:get-capabilities"
@@ -52,12 +52,16 @@ describe("preload surface", () => {
       history: { list: "actions:history:list" }
     });
     expect(IPC_CHANNELS.applications).toEqual({
+      registerChrome: "applications:register-chrome",
       register: "applications:register",
       list: "applications:list",
       update: "applications:update"
     });
     expect(IPC_CHANNELS.dashboard).toEqual({
       getTodaySummary: "dashboard:get-today-summary"
+    });
+    expect(IPC_CHANNELS.assistant).toEqual({
+      interpret: "assistant:interpret"
     });
   });
 
@@ -89,10 +93,14 @@ describe("preload surface", () => {
     expect(preloadSource).not.toContain("execute:");
     expect(preloadSource).not.toContain("getResult:");
     expect(preloadSource).not.toContain("files:");
+    expect(preloadSource).not.toContain("openWebPage:");
+    expect(preloadSource).not.toContain("openUrl:");
+    expect(preloadSource).not.toContain("browser:");
   });
 
   it("exposes exactly the approved application catalog methods", () => {
     expect(preloadSource).toContain("applications: {");
+    expect(preloadSource).toContain("registerChrome:");
     expect(preloadSource).toContain("register:");
     expect(preloadSource).toContain("list:");
     expect(preloadSource).toContain("update:");
@@ -100,6 +108,17 @@ describe("preload surface", () => {
     expect(preloadSource).not.toContain("launch:");
     expect(preloadSource).not.toContain("resolveAlias:");
     expect(preloadSource).not.toContain("executablePath:");
+    expect(preloadSource).not.toContain("showOpenDialog:");
+  });
+
+  it("exposes exactly one assistant interpretation method", () => {
+    expect(preloadSource).toContain("assistant: {");
+    expect(preloadSource).toContain("interpret:");
+    expect(preloadSource).not.toContain("assistant: {\n    execute:");
+    expect(preloadSource).not.toContain("assistant: {\n    propose:");
+    expect(preloadSource).not.toContain("assistant: {\n    confirm:");
+    expect(preloadSource).not.toContain("OPENAI_API_KEY");
+    expect(preloadSource).not.toContain("openai");
   });
 
   it("uses the same complete Ares API contract in the renderer declaration", () => {
