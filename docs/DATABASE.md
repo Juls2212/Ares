@@ -64,6 +64,10 @@ History metadata is optional and must not store credentials, file contents, raw 
 
 `settings` stores an internal lower-snake-case English key, JSONB preference value, and timestamps. It may later hold non-secret preferences such as appearance mode, voice-output enabled, wake-word enabled, selected device names, or notification preferences. It must not store plaintext OpenAI credentials, database passwords, captured audio, or other secrets. Future services validate each known key and value.
 
+### Event notification deliveries
+
+`event_notification_deliveries` is a narrow durable claim table for local event-start notifications. It stores a UUID identifier, the referenced event, the exact scheduled start instant, and the claim time. The composite unique index on `(event_id, scheduled_at)` guarantees that an event can be claimed at most once for each exact start instant across ticks, restarts, and concurrent Main processes. Its event foreign key cascades only when the event itself is removed. The table deliberately stores no event title, notification body, raw error, filesystem path, credential, or notification payload. If an event is moved to a new start instant, that new pair may be claimed once.
+
 ## Relationships and foreign-key behavior
 
 | Relationship | Cardinality | Delete behavior |
@@ -72,6 +76,7 @@ History metadata is optional and must not store credentials, file contents, raw 
 | Category to events | One-to-many | Deleting a category sets `events.category_id` to null. |
 | Task to reminders | One-to-many, optional from a reminder | Deleting a task sets `reminders.task_id` to null and preserves the reminder. |
 | Event to reminders | One-to-many, optional from a reminder | Deleting an event sets `reminders.event_id` to null and preserves the reminder. |
+| Event to notification deliveries | One-to-many | Deleting an event cascades only to its durable event-notification delivery records. |
 | Application to aliases | One-to-many | Deleting an application cascades only to its aliases, which have no independent meaning. |
 
 Drizzle relations mirror these cardinalities. A reminder's two optional associations are mutually exclusive through the database check and service validation.
@@ -89,6 +94,7 @@ The database stores only application executable-path references. Ares does not s
 - Trimmed, case-insensitive unique lookup for category names, registered executable paths, and application aliases.
 - Task status, due-date, and category filtering.
 - Event start-time range queries and category filtering.
+- Unique durable event-notification claims by event and exact start instant.
 - Pending reminder scheduling by `remind_at`, plus task and event association lookup.
 - Favorite and enabled application filtering.
 - Unique action-correlation lookup, history ordering by start time, action-name filtering, and terminal-result filtering.
