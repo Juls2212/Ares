@@ -30,6 +30,7 @@ import type {
 
 export const ACTION_NAMES = [
   "OPEN_APPLICATION",
+  "OPEN_WEB_PAGE",
   "CREATE_FOLDER",
   "RENAME_FILE",
   "RENAME_FOLDER",
@@ -87,9 +88,25 @@ export type OpenApplicationInput = {
   alias: string;
 };
 
+/** A fixed Main-owned website identifier, never a caller-provided URL. */
+export const WEB_DESTINATIONS = ["YOUTUBE"] as const;
+export const WEB_BROWSERS = ["CHROME"] as const;
+export type WebDestination = (typeof WEB_DESTINATIONS)[number];
+export type WebBrowser = (typeof WEB_BROWSERS)[number];
+
+export type OpenWebPageInput = {
+  destination: WebDestination;
+  browser: WebBrowser;
+};
+
 export type OpenApplicationActionProposal = ActionProposalBase & {
   action: "OPEN_APPLICATION";
   input: OpenApplicationInput;
+};
+
+export type OpenWebPageActionProposal = ActionProposalBase & {
+  action: "OPEN_WEB_PAGE";
+  input: OpenWebPageInput;
 };
 
 export type FileActionProposal =
@@ -108,6 +125,7 @@ export type FileActionProposal =
 export type ExecutableActionProposal =
   | PlannerActionProposal
   | OpenApplicationActionProposal
+  | OpenWebPageActionProposal
   | FileActionProposal;
 
 export type DeferredActionName = Exclude<ActionName, ExecutableActionProposal["action"]>;
@@ -134,6 +152,11 @@ export type OpenApplicationActionSubmission = {
   input: OpenApplicationInput;
 };
 
+export type OpenWebPageActionSubmission = {
+  action: "OPEN_WEB_PAGE";
+  input: OpenWebPageInput;
+};
+
 export type FileActionSubmission =
   | { action: "SEARCH_FILES"; input: FileSearchInput }
   | { action: "CREATE_FOLDER"; input: CreateFolderInput }
@@ -150,6 +173,7 @@ export type DeferredActionSubmission = {
 export type ActionSubmission =
   | PlannerActionSubmission
   | OpenApplicationActionSubmission
+  | OpenWebPageActionSubmission
   | FileActionSubmission
   | DeferredActionSubmission;
 
@@ -198,12 +222,17 @@ export type OpenApplicationActionData = {
   applicationName: string;
 };
 
+export type OpenWebPageActionData = {
+  applicationName: string;
+  destination: WebDestination;
+};
+
 export type FileActionData =
   | FileSearchData
   | SafeFileMutationRecord
   | FileOrganizationExecutionData;
 
-export type ActionData = PlannerActionData | OpenApplicationActionData | FileActionData;
+export type ActionData = PlannerActionData | OpenApplicationActionData | OpenWebPageActionData | FileActionData;
 
 export type ActionOutcome = {
   actionId: string;
