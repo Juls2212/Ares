@@ -44,6 +44,7 @@ import type {
   ApplicationListInput,
   ApplicationMutationData,
   ApplicationOperationResult,
+  ChromeRegistrationData,
   RegisterApplicationInput,
   UpdateApplicationInput
 } from "../shared/application-contracts";
@@ -51,6 +52,11 @@ import type {
   DashboardOperationResult,
   DashboardTodaySummary
 } from "../shared/dashboard-contracts";
+import type {
+  AssistantInterpretRequest,
+  AssistantInterpretation,
+  AssistantOperationResult
+} from "../shared/assistant-contracts";
 
 const aresApi = {
   system: {
@@ -158,6 +164,10 @@ const aresApi = {
     }
   },
   applications: {
+    registerChrome: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.applications.registerChrome) as Promise<
+        ApplicationOperationResult<ChromeRegistrationData>
+      >,
     register: (input: RegisterApplicationInput) =>
       ipcRenderer.invoke(IPC_CHANNELS.applications.register, input) as Promise<
         ApplicationOperationResult<ApplicationMutationData>
@@ -169,6 +179,12 @@ const aresApi = {
     update: (input: UpdateApplicationInput) =>
       ipcRenderer.invoke(IPC_CHANNELS.applications.update, input) as Promise<
         ApplicationOperationResult<ApplicationMutationData>
+      >
+  },
+  assistant: {
+    interpret: (input: AssistantInterpretRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.assistant.interpret, input) as Promise<
+        AssistantOperationResult<AssistantInterpretation>
       >
   }
 } satisfies AresApi;
