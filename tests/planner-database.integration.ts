@@ -13,6 +13,7 @@ import {
   applicationAliases,
   applications,
   categories,
+  eventNotificationDeliveries,
   events,
   reminders,
   settings,
@@ -21,6 +22,9 @@ import {
 import { createPlannerRepositories } from "../src/main/planner/planner-repositories";
 import { createPlannerService, type PlannerClock } from "../src/main/planner/planner-service";
 import { createReminderDeliveryRepository } from "../src/main/reminders/reminder-delivery-repository";
+import { createReminderDeliveryService } from "../src/main/reminders/reminder-delivery-service";
+import { createEventDeliveryRepository } from "../src/main/events/event-delivery-repository";
+import { createEventDeliveryService } from "../src/main/events/event-delivery-service";
 import { createDashboardRepository } from "../src/main/dashboard/dashboard-repository";
 import { createDashboardService, type DashboardClock } from "../src/main/dashboard/dashboard-service";
 import type {
@@ -39,6 +43,7 @@ import type {
 const database = getDatabase();
 const repositories = createPlannerRepositories(database);
 const reminderDeliveryRepository = createReminderDeliveryRepository(database);
+const eventDeliveryRepository = createEventDeliveryRepository(database);
 const testSuffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 const createdCategoryIds: string[] = [];
 const createdTaskIds: string[] = [];
@@ -141,6 +146,11 @@ const trackApplication = (record: ApplicationRecord): ApplicationRecord => {
 };
 
 afterEach(async () => {
+  if (createdEventIds.length > 0) {
+    await database
+      .delete(eventNotificationDeliveries)
+      .where(inArray(eventNotificationDeliveries.eventId, createdEventIds));
+  }
   if (createdActionHistoryIds.length > 0) {
     await database.delete(actionHistory).where(inArray(actionHistory.id, createdActionHistoryIds));
   }
@@ -174,6 +184,7 @@ afterAll(async () => {
       categories,
       tasks,
       events,
+      eventNotificationDeliveries,
       reminders,
       applications,
       applicationAliases,
@@ -191,6 +202,84 @@ afterAll(async () => {
 });
 
 describe("planner database integration", () => {
+  it("claims each event start atomically once, supports a changed start instant, and ignores old starts", async () => {
+    const deliveryNow = new Date();
+    const firstStart = new Date(deliveryNow.getTime() - 60_000);
+    const event = trackEvent(
+      getSuccessData(
+        await service.createEvent({
+          title: `Delivery event ${testSuffix}`,
+          startAt: firstStart.toISOString()
+        })
+      ).record
+    );
+
+    const [firstClaim, duplicateClaim] = await Promise.all([
+      eventDeliveryRepository.claimEventStart(event.id, firstStart, deliveryNow),
+      eventDeliveryRepository.claimEventStart(event.id, firstStart, deliveryNow)
+    ]);
+    expect([firstClaim, duplicateClaim].filter(Boolean)).toHaveLength(1);
+
+    const restartedRepository = createEventDeliveryRepository(database);
+    await expect(
+      restartedRepository.claimEventStart(event.id, firstStart, deliveryNow)
+    ).resolves.toBe(false);
+
+    const secondStart = new Date(deliveryNow.getTime() - 30_000);
+    getSuccessData(
+      await service.updateEvent({ eventId: event.id, startAt: secondStart.toISOString() })
+    );
+    await expect(
+      eventDeliveryRepository.claimEventStart(event.id, secondStart, deliveryNow)
+    ).resolves.toBe(true);
+
+    const staleEvent = trackEvent(
+      getSuccessData(
+        await service.createEvent({
+          title: `Stale delivery event ${testSuffix}`,
+          startAt: new Date(deliveryNow.getTime() - 2 * 60_000).toISOString()
+        })
+      ).record
+    );
+    const staleCandidate = (await eventDeliveryRepository.listDueUnclaimed(
+      new Date(deliveryNow.getTime() - 5 * 60_000),
+      deliveryNow,
+      20
+    )).find((candidate) => candidate.id === staleEvent.id);
+    expect(staleCandidate).toBeDefined();
+    const movedStart = new Date(deliveryNow.getTime() - 15_000);
+    getSuccessData(
+      await service.updateEvent({ eventId: staleEvent.id, startAt: movedStart.toISOString() })
+    );
+    await expect(
+      eventDeliveryRepository.claimEventStart(staleEvent.id, staleCandidate!.startAt, deliveryNow)
+    ).resolves.toBe(false);
+
+    const oldEvent = trackEvent(
+      getSuccessData(
+        await service.createEvent({
+          title: `Old delivery event ${testSuffix}`,
+          startAt: new Date(deliveryNow.getTime() - 6 * 60_000).toISOString()
+        })
+      ).record
+    );
+    const due = await eventDeliveryRepository.listDueUnclaimed(
+      new Date(deliveryNow.getTime() - 5 * 60_000),
+      deliveryNow,
+      20
+    );
+    expect(due.map((record) => record.id)).not.toContain(oldEvent.id);
+
+    const deliveryRecords = await database
+      .select()
+      .from(eventNotificationDeliveries)
+      .where(eq(eventNotificationDeliveries.eventId, event.id));
+    expect(deliveryRecords).toHaveLength(2);
+    expect(deliveryRecords.map((record) => record.scheduledAt.getTime()).sort()).toEqual(
+      [firstStart.getTime(), secondStart.getTime()].sort()
+    );
+  });
+
   it("builds a bounded read-only dashboard summary from safe planner and history records", async () => {
     const category = trackCategory(
       getSuccessData(await service.createCategory({ name: `Dashboard category ${testSuffix}` })).record
@@ -389,6 +478,71 @@ describe("planner database integration", () => {
     await expect(reminderDeliveryRepository.listDuePending(deliveryTime, 10)).resolves.not.toContainEqual(
       expect.objectContaining({ id: reminder.id })
     );
+  });
+
+  it("runs the due reminder and event delivery queries through PostgreSQL", async () => {
+    const deliveryTime = new Date();
+    const reminder = trackReminder(
+      getSuccessData(
+        await service.createReminder({
+          title: `Scheduler reminder ${testSuffix}`,
+          remindAt: new Date(deliveryTime.getTime() - 60_000).toISOString()
+        })
+      ).record
+    );
+    const event = trackEvent(
+      getSuccessData(
+        await service.createEvent({
+          title: `Scheduler event ${testSuffix}`,
+          startAt: new Date(deliveryTime.getTime() - 60_000).toISOString()
+        })
+      ).record
+    );
+    let reminderNotificationCount = 0;
+    let eventNotificationCount = 0;
+    const reminderDelivery = createReminderDeliveryService({
+      repository: createReminderDeliveryRepository(database),
+      now: () => deliveryTime,
+      notificationFactory: () => ({
+        show: () => {
+          reminderNotificationCount += 1;
+        }
+      }),
+      logError: () => undefined
+    });
+    const eventDelivery = createEventDeliveryService({
+      repository: createEventDeliveryRepository(database),
+      now: () => deliveryTime,
+      notificationFactory: () => ({
+        show: () => {
+          eventNotificationCount += 1;
+        }
+      }),
+      logError: () => undefined
+    });
+
+    await expect(reminderDelivery.deliverDueReminders()).resolves.toMatchObject({
+      ok: true,
+      data: { claimedCount: 1, notifiedCount: 1 }
+    });
+    await expect(eventDelivery.deliverDueEvents()).resolves.toMatchObject({
+      ok: true,
+      data: { claimedCount: 1, notifiedCount: 1 }
+    });
+
+    const [persistedReminder] = await database
+      .select({ status: reminders.status, deliveredAt: reminders.deliveredAt })
+      .from(reminders)
+      .where(eq(reminders.id, reminder.id));
+    const deliveries = await database
+      .select({ eventId: eventNotificationDeliveries.eventId })
+      .from(eventNotificationDeliveries)
+      .where(eq(eventNotificationDeliveries.eventId, event.id));
+
+    expect(persistedReminder).toMatchObject({ status: "TRIGGERED", deliveredAt: deliveryTime });
+    expect(deliveries).toEqual([{ eventId: event.id }]);
+    expect(reminderNotificationCount).toBe(1);
+    expect(eventNotificationCount).toBe(1);
   });
 
   it("records terminal action history with sanitized metadata and stable ordering", async () => {
