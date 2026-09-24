@@ -57,6 +57,11 @@ export type ApplicationListData = {
   total: number;
 };
 
+/** Result of the dedicated native Chrome registration flow; it never includes a path. */
+export type ChromeRegistrationData =
+  | { status: "REGISTERED" | "ALREADY_REGISTERED"; record: ApplicationRecord }
+  | { status: "CANCELLED" };
+
 export const APPLICATION_ERROR_CODES = {
   inputInvalid: "APPLICATION_INPUT_INVALID",
   unknownField: "APPLICATION_UNKNOWN_FIELD",
@@ -77,7 +82,9 @@ export const APPLICATION_ERROR_CODES = {
   disabled: "APPLICATION_DISABLED",
   conflict: "APPLICATION_CONFLICT",
   databaseUnavailable: "APPLICATION_DATABASE_UNAVAILABLE",
-  ipcUnavailable: "APPLICATION_IPC_UNAVAILABLE"
+  ipcUnavailable: "APPLICATION_IPC_UNAVAILABLE",
+  chromeSelectionInvalid: "APPLICATION_CHROME_SELECTION_INVALID",
+  chromePickerUnavailable: "APPLICATION_CHROME_PICKER_UNAVAILABLE"
 } as const;
 
 export type ApplicationErrorCode =
@@ -86,6 +93,8 @@ export type ApplicationErrorCode =
 export type ApplicationOperationResult<T> = OperationResult<T>;
 
 export type ApplicationsApi = {
+  /** Opens a Main-owned native picker and registers only a validated chrome.exe. */
+  registerChrome: () => Promise<ApplicationOperationResult<ChromeRegistrationData>>;
   register: (
     input: RegisterApplicationInput
   ) => Promise<ApplicationOperationResult<ApplicationMutationData>>;
