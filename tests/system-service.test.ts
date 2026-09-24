@@ -55,7 +55,7 @@ describe("system service", () => {
       expect(result.data.dashboard).toBe(true);
       expect(result.data.files).toBe(true);
       expect(result.data.applications).toBe(true);
-      expect(result.data.assistant).toBe(false);
+      expect(result.data.assistant).toBe(true);
       expect(result.data.voice).toBe(false);
       expect(result.data.notifications).toBe(true);
     }
