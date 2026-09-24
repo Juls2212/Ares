@@ -27,6 +27,16 @@ const policyDefinitions: Record<ActionName, PolicyDefinition> = {
       scopeSummary: "Aplicación registrada"
     }
   },
+  OPEN_WEB_PAGE: {
+    riskLevel: 1,
+    availability: "IMPLEMENTED",
+    confirmation: {
+      required: false,
+      summary: "Se abrirá YouTube en el navegador Chrome registrado.",
+      affectedItemCount: 1,
+      scopeSummary: "Página web autorizada"
+    }
+  },
   CREATE_FOLDER: {
     riskLevel: 2,
     availability: "IMPLEMENTED",
