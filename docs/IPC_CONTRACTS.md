@@ -52,17 +52,30 @@ Phase 4 implements the supervised action boundary below. Every method resolves t
 
 Confirmation-required proposals remain only in Electron Main memory and expire exactly five minutes after creation. Expired, cancelled, failed, completed, or application-shutdown proposals are removed and cannot execute. Expiration never executes an action; it is recorded as a safe terminal cancellation, and the user must submit a new request.
 
+## Implemented assistant API
+
+The assistant surface has exactly one typed method. `assistant.interpret({ text })` sends one typed-text request to the lazy Main-only interpreter composition. The composition permits one in-flight request at a time; an additional request returns a controlled Spanish unavailable result and does not create another provider request. The interpreter returns only safe `READY`, `NEEDS_CLARIFICATION`, `REJECTED`, or `UNAVAILABLE` data with validated drafts. It exposes no provider response, prompt, model, token usage, configuration, credential, environment, or generic IPC capability.
+
+| API method | IPC channel | Main delegation |
+| --- | --- | --- |
+| `assistant.interpret` | `assistant:interpret` | Singleton, single-flight Main interpreter service |
+
+Interpretation never proposes, executes, confirms, cancels, or persists an action. The renderer must make a separate explicit `actions.propose(draft)` request for each draft, and, when returned, a separate explicit `actions.confirm` or `actions.cancel` request for the opaque confirmation. There is no `assistant.execute`, streaming, history, or conversation-memory API.
+
 ## Implemented application catalog API
 
 The catalog API exposes only safe registration management through serializable `OperationResult<T>` values. It never returns executable paths, canonical paths, commands, process data, database details, or a direct launcher method. Unexpected handler failures return `APPLICATION_IPC_UNAVAILABLE` with the Spanish message `No se pudo procesar la solicitud de aplicaciones.`
 
 | API method | IPC channel | Main delegation |
 | --- | --- | --- |
+| `applications.registerChrome` | `applications:register-chrome` | Main-owned native picker and fixed Chrome registration service |
 | `applications.register` | `applications:register` | Singleton application catalog service |
 | `applications.list` | `applications:list` | Singleton application catalog service |
 | `applications.update` | `applications:update` | Singleton application catalog service |
 
 Opening an application is intentionally absent from `window.ares.applications`. It remains available only through the supervised action boundary, using `actions.propose({ action: "OPEN_APPLICATION", input: { alias } })`.
+
+`applications.registerChrome()` accepts no renderer input. It opens one Electron Main native file picker, accepts only a canonical regular file named `chrome.exe`, and registers the fixed public name `Google Chrome`, alias `chrome`, Windows platform, and enabled state. Cancellation writes nothing. Its safe result contains only a status and, when applicable, the existing public application record; it never contains a selected or executable path. It is an idempotent technical setup path, not a generic picker or launcher.
 
 ## Planned API groups
 
@@ -70,11 +83,11 @@ Opening an application is intentionally absent from `window.ares.applications`. 
 | --- | --- |
 | `window.ares.planner` | Implemented as documented above. Categories, tasks, events, reminders, and local-day/local-week schedules use explicit typed methods only. |
 | `window.ares.files` | No direct file API is exposed. `SEARCH_FILES`, `CREATE_FOLDER`, `RENAME_FILE`, `RENAME_FOLDER`, `MOVE_FILE`, and `ORGANIZE_FILES` are submitted only through `window.ares.actions.propose` using typed root-relative inputs and controlled action results. Search is Level 1; each mutation and organization plan is Level 2 and requires the existing proposal-correlated confirmation. `ORGANIZE_FILES` returns a Main-generated preview and executes only its stored plan. Results expose no absolute or canonical paths, content, or filesystem details. |
-| `window.ares.applications` | Implemented safe catalog management only: `register`, `list`, and `update`. Opening remains exclusively under `window.ares.actions.propose` with the alias-only `OPEN_APPLICATION` action. |
+| `window.ares.applications` | Implemented safe catalog management only: the dedicated input-free `registerChrome`, plus the existing `register`, `list`, and `update` methods. Opening remains exclusively under `window.ares.actions.propose` with the alias-only `OPEN_APPLICATION` action. |
 | `window.ares.actions` | Implemented as documented above. Only `propose`, `confirm`, `cancel`, and terminal `history.list` are exposed. Level 1 may proceed to execution; Level 2 returns `AWAITING_CONFIRMATION`. |
-| `window.ares.assistant` | Interpret typed Spanish text only. `interpret(instruction, context?)` returns either a clarification request or a validated action proposal; it never executes an action. The definitive frontend may orchestrate `interpret` followed by `actions.propose`, but cannot bypass Main validation. |
+| `window.ares.assistant` | Implemented with only `interpret({ text })`. It returns safe, validated drafts or controlled clarification, rejection, or unavailable data. It never executes an action; each draft requires a separate explicit `actions.propose` request and Level 2 still requires separate visible confirmation. |
 | `window.ares.voice` | Receive one bounded command-audio payload for provider transcription only after manual capture or a local wake-word activation; request Main-owned Spanish synthesis; expose typed voice state; and support immediate mute or disable behavior. Planned responsibilities include wake-word preference, activation notification, bounded capture state, permission/device errors, `transcribe(audioPayload)`, `synthesize(spanishText)`, `getState`, `mute`, and `stopSpeaking` only if required by the later-approved playback mechanism. Renderer-local browser capture is not a privileged `window.ares` method, and no unrestricted continuous-audio channel is exposed. |
-| `window.ares.notifications` | No notification API is exposed in the current phase. Reminder delivery is a local Electron Main scheduler concern only; it creates no renderer event stream, web-notification capability, or generic notification channel. Future settings or event contracts require separate approval. |
+| `window.ares.notifications` | No notification API is exposed. Reminder and event-start delivery are local Electron Main scheduler concerns only; they create no renderer event stream, web-notification capability, or generic notification channel. Future settings or event contracts require separate approval. |
 | `window.ares.history` | Read filtered action-history records. Planned methods: `list`, `getById`. |
 | `window.ares.settings` | Read and update non-secret user preferences, including voice-output preference, opt-in wake-word preference, and recognized applications. Planned methods: `get`, `update`. |
 | `window.ares.system` | Expose minimal non-privileged state needed by the UI, such as application version or capability availability. Planned methods: `getStatus`, `getCapabilities`. |
