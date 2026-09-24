@@ -13,6 +13,8 @@ import {
   categories,
   categoriesRelations,
   events,
+  eventNotificationDeliveries,
+  eventNotificationDeliveriesRelations,
   eventsRelations,
   reminderStatusEnum,
   reminders,
@@ -71,11 +73,12 @@ const getNamedIndexSql = (
 };
 
 describe("Ares MVP database schema", () => {
-  it("exports the eight approved PostgreSQL tables with their expected names", () => {
+  it("exports the approved PostgreSQL tables, including durable event deliveries", () => {
     expect([
       categories,
       tasks,
       events,
+      eventNotificationDeliveries,
       reminders,
       applications,
       applicationAliases,
@@ -85,6 +88,7 @@ describe("Ares MVP database schema", () => {
       "categories",
       "tasks",
       "events",
+      "event_notification_deliveries",
       "reminders",
       "applications",
       "application_aliases",
@@ -200,10 +204,17 @@ describe("Ares MVP database schema", () => {
         "reminders_event_id_index"
       ])
     );
+    const deliveryConfig = getTableConfig(eventNotificationDeliveries);
+    expect(deliveryConfig.indexes.map((index) => index.config.name)).toContain(
+      "event_notification_deliveries_event_scheduled_unique"
+    );
+    expect(deliveryConfig.foreignKeys).toHaveLength(1);
+    expect(deliveryConfig.foreignKeys[0]?.onDelete).toBe("cascade");
     expect([
       categoriesRelations,
       tasksRelations,
       eventsRelations,
+      eventNotificationDeliveriesRelations,
       remindersRelations,
       applicationsRelations,
       applicationAliasesRelations
