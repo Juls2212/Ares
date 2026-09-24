@@ -8,7 +8,7 @@ import type { PlannerActionExecutor } from "../src/main/actions/planner-action-e
 const actionId = "11111111-1111-4111-8111-111111111111";
 
 describe("action executor routing", () => {
-  it("routes approved file actions only to the Main-only file executor and preserves planner routing", async () => {
+  it("routes application, file, and planner actions only to their dedicated Main executors", async () => {
     const plannerExecutor: PlannerActionExecutor = {
       execute: vi.fn(async (proposal, policy) => ({
         actionId: proposal.actionId,
@@ -41,6 +41,14 @@ describe("action executor routing", () => {
     await executor.execute(
       {
         actionId,
+        action: "OPEN_WEB_PAGE",
+        input: { destination: "YOUTUBE", browser: "CHROME" }
+      },
+      getActionPolicy("OPEN_WEB_PAGE")
+    );
+    await executor.execute(
+      {
+        actionId,
         action: "SEARCH_FILES",
         input: { rootId: "DOCUMENTS", query: "report" }
       },
@@ -53,6 +61,6 @@ describe("action executor routing", () => {
 
     expect(fileExecutor.execute).toHaveBeenCalledTimes(1);
     expect(plannerExecutor.execute).toHaveBeenCalledTimes(1);
-    expect(applicationExecutor.execute).not.toHaveBeenCalled();
+    expect(applicationExecutor.execute).toHaveBeenCalledTimes(1);
   });
 });
