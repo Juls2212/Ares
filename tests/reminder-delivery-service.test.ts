@@ -5,6 +5,7 @@ import {
   type LocalNotification
 } from "../src/main/reminders/reminder-delivery-service";
 import { createReminderDeliveryScheduler } from "../src/main/reminders/reminder-delivery-scheduler";
+import { MainConfigurationError } from "../src/main/config/database-environment";
 
 const now = new Date("2026-09-18T12:00:00.000Z");
 const dueReminder: DueReminder = {
@@ -123,6 +124,28 @@ describe("reminder delivery service", () => {
     expect(factory).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain("private-password");
     expect(JSON.stringify(logError.mock.calls)).not.toContain("private-password");
+    expect(logError).toHaveBeenCalledWith("Reminder delivery query failed [DATABASE_QUERY].");
+  });
+
+  it("reports a safe configuration category without exposing configuration values", async () => {
+    const repository = createRepository();
+    vi.mocked(repository.listDuePending).mockRejectedValueOnce(
+      new MainConfigurationError("DATABASE_URL_MISSING", "DATABASE_URL is required before database access.")
+    );
+    const logError = vi.fn();
+    const service = createReminderDeliveryService({
+      repository,
+      now: () => now,
+      notificationFactory: createNotificationFactory().factory,
+      logError
+    });
+
+    await service.deliverDueReminders();
+
+    expect(logError).toHaveBeenCalledWith(
+      "Reminder delivery query failed [DATABASE_CONFIGURATION]."
+    );
+    expect(JSON.stringify(logError.mock.calls)).not.toContain("DATABASE_URL is required");
   });
 });
 
