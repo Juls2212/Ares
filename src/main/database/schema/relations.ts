@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import { applicationAliases } from "./application-aliases";
 import { applications } from "./applications";
 import { categories } from "./categories";
+import { eventNotificationDeliveries } from "./event-notification-deliveries";
 import { events } from "./events";
 import { reminders } from "./reminders";
 import { tasks } from "./tasks";
@@ -16,8 +17,19 @@ export const tasksRelations = relations(tasks, ({ many, one }) => ({
     fields: [tasks.categoryId],
     references: [categories.id]
   }),
-  reminders: many(reminders)
+  reminders: many(reminders),
+  notificationDeliveries: many(eventNotificationDeliveries)
 }));
+
+export const eventNotificationDeliveriesRelations = relations(
+  eventNotificationDeliveries,
+  ({ one }) => ({
+    event: one(events, {
+      fields: [eventNotificationDeliveries.eventId],
+      references: [events.id]
+    })
+  })
+);
 
 export const eventsRelations = relations(events, ({ many, one }) => ({
   category: one(categories, {
