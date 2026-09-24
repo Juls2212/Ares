@@ -43,6 +43,10 @@ The initial PostgreSQL user is a local-development bootstrap user and may be use
 
 The database URL is read only by trusted Main configuration and Drizzle Kit tooling. Electron Main owns the lazy `pg` connection pool and its typed Drizzle client, then closes the pool during application shutdown. It must never be exposed through `window.ares`, Vite variables, preload, or the renderer. Development tooling reads the root `.env`; the later packaged-production credential strategy remains open. Migrations remain manual development operations: Ares does not generate or apply them during startup.
 
+## Local OpenAI interpretation configuration
+
+The future explicit Main-only interpretation flow reads `OPENAI_API_KEY` and `OPENAI_MODEL` from the ignored local `.env`. Both values are required only when an interpretation is requested; neither has a production fallback and neither may use a `VITE_` name. Copy the blank placeholders from `.env.example`, keep the real values local, and never print, commit, bundle, or expose them through preload or the renderer. Tests, startup, packaging, and normal builds do not make OpenAI requests. The paid manual diagnostic is excluded from normal and CI test discovery; run it only deliberately with `$env:ARES_LIVE_ASSISTANT_CHECK='1'; npm run test:assistant:live` in PowerShell.
+
 ## Drizzle workflow
 
 Drizzle ORM, the `pg` driver, and Drizzle Kit are configured for PostgreSQL. `drizzle.config.ts` uses the same `DATABASE_URL` as the future Main-owned database client, points to `src/main/database/schema/index.ts`, and will write generated, version-controlled migrations to `drizzle/`.
