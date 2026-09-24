@@ -2,6 +2,7 @@ import {
   createReminderDeliveryRepository,
   type ReminderDeliveryRepository
 } from "./reminder-delivery-repository";
+import { MainConfigurationError } from "../config/database-environment";
 
 const FALLBACK_NOTIFICATION_BODY = "Tienes un recordatorio pendiente.";
 
@@ -46,6 +47,9 @@ const normalizeNotificationBody = (title: string): string => {
   return normalized.length > 0 && normalized.length <= 240 ? normalized : FALLBACK_NOTIFICATION_BODY;
 };
 
+const getQueryFailureCategory = (error: unknown): string =>
+  error instanceof MainConfigurationError ? "DATABASE_CONFIGURATION" : "DATABASE_QUERY";
+
 export const createReminderDeliveryService = (
   overrides: Partial<ReminderDeliveryServiceDependencies> = {}
 ): ReminderDeliveryService => {
@@ -77,8 +81,10 @@ export const createReminderDeliveryService = (
       let dueReminders;
       try {
         dueReminders = await getRepository().listDuePending(deliveredAt, dependencies.batchSize);
-      } catch {
-        dependencies.logError("Reminder delivery query failed.");
+      } catch (error) {
+        dependencies.logError(
+          `Reminder delivery query failed [${getQueryFailureCategory(error)}].`
+        );
         return {
           ok: false,
           error: {
