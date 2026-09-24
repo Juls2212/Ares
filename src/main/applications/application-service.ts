@@ -57,7 +57,9 @@ const serviceMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_DISABLED: "La aplicación está deshabilitada.",
   APPLICATION_CONFLICT: "Ya existe una aplicación o alias con esos datos.",
   APPLICATION_DATABASE_UNAVAILABLE: "No se pudo acceder al catálogo de aplicaciones.",
-  APPLICATION_IPC_UNAVAILABLE: "No se pudo procesar la solicitud de aplicaciones."
+  APPLICATION_IPC_UNAVAILABLE: "No se pudo procesar la solicitud de aplicaciones.",
+  APPLICATION_CHROME_SELECTION_INVALID: "Debes seleccionar el archivo chrome.exe de Google Chrome.",
+  APPLICATION_CHROME_PICKER_UNAVAILABLE: "No se pudo abrir el selector de Google Chrome."
 };
 
 const createFailure = <T>(code: ApplicationErrorCode): ApplicationOperationResult<T> => ({
