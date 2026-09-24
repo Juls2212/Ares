@@ -3,6 +3,7 @@ import {
   type ReminderDeliveryRunResult,
   type ReminderDeliveryService
 } from "./reminder-delivery-service";
+import type { EventDeliveryService } from "../events/event-delivery-service";
 
 export const DEFAULT_REMINDER_DELIVERY_INTERVAL_MS = 30_000;
 
@@ -10,6 +11,7 @@ type TimerHandle = ReturnType<typeof setInterval>;
 
 type ReminderDeliverySchedulerDependencies = {
   service?: ReminderDeliveryService;
+  eventService?: EventDeliveryService;
   intervalMs: number;
   setInterval: (callback: () => void, intervalMs: number) => TimerHandle;
   clearInterval: (handle: TimerHandle) => void;
@@ -27,6 +29,7 @@ export const createReminderDeliveryScheduler = (
 ): ReminderDeliveryScheduler => {
   const dependencies: ReminderDeliverySchedulerDependencies = {
     service: overrides.service,
+    eventService: overrides.eventService,
     intervalMs: overrides.intervalMs ?? DEFAULT_REMINDER_DELIVERY_INTERVAL_MS,
     setInterval: overrides.setInterval ?? ((callback, intervalMs) => setInterval(callback, intervalMs)),
     clearInterval: overrides.clearInterval ?? ((handle) => clearInterval(handle)),
@@ -46,6 +49,16 @@ export const createReminderDeliveryScheduler = (
     return service;
   };
 
+  const deliverEvents = async (): Promise<void> => {
+    if (!dependencies.eventService) return;
+
+    try {
+      await dependencies.eventService.deliverDueEvents();
+    } catch {
+      dependencies.logError("Event scheduler tick failed.");
+    }
+  };
+
   const run = (): Promise<ReminderDeliveryRunResult> => {
     if (activeRun) return activeRun;
 
@@ -60,6 +73,10 @@ export const createReminderDeliveryScheduler = (
             message: "Reminder delivery check failed." as const
           }
         };
+      })
+      .then(async (reminderResult) => {
+        await deliverEvents();
+        return reminderResult;
       })
       .finally(() => {
         activeRun = undefined;
