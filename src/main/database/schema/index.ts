@@ -3,6 +3,7 @@ export * from "./application-aliases";
 export * from "./applications";
 export * from "./categories";
 export * from "./enums";
+export * from "./event-notification-deliveries";
 export * from "./events";
 export * from "./relations";
 export * from "./reminders";
