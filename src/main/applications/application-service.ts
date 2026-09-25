@@ -58,8 +58,12 @@ const serviceMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_CONFLICT: "Ya existe una aplicación o alias con esos datos.",
   APPLICATION_DATABASE_UNAVAILABLE: "No se pudo acceder al catálogo de aplicaciones.",
   APPLICATION_IPC_UNAVAILABLE: "No se pudo procesar la solicitud de aplicaciones.",
-  APPLICATION_CHROME_SELECTION_INVALID: "Debes seleccionar el archivo chrome.exe de Google Chrome.",
-  APPLICATION_CHROME_PICKER_UNAVAILABLE: "No se pudo abrir el selector de Google Chrome."
+  APPLICATION_CATALOG_SELECTION_INVALID:
+    "Debes seleccionar el archivo ejecutable correcto de la aplicación.",
+  APPLICATION_CATALOG_PICKER_UNAVAILABLE: "No se pudo abrir el selector de aplicaciones.",
+  APPLICATION_CUSTOM_SELECTION_INVALID: "Debes seleccionar un archivo ejecutable válido.",
+  APPLICATION_CUSTOM_PICKER_UNAVAILABLE: "No se pudo abrir el selector de aplicaciones.",
+  APPLICATION_CUSTOM_CONFIRMATION_UNAVAILABLE: "No se pudo confirmar el registro de la aplicación."
 };
 
 const createFailure = <T>(code: ApplicationErrorCode): ApplicationOperationResult<T> => ({
