@@ -19,6 +19,7 @@ const applicationListMaximumLimit = 100;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const absoluteWindowsExecutablePattern = /^[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\.exe$/i;
 const unsafeExecutablePathCharacterPattern = /["'%&|;<>()`$!^\r\n]/;
+const safeCustomDisplayNamePattern = /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u;
 
 const validationMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_INPUT_INVALID: "La información de la aplicación no es válida.",
@@ -41,8 +42,13 @@ const validationMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_CONFLICT: "Ya existe una aplicación o alias con esos datos.",
   APPLICATION_DATABASE_UNAVAILABLE: "No se pudo acceder al catálogo de aplicaciones.",
   APPLICATION_IPC_UNAVAILABLE: "No se pudo procesar la solicitud de aplicaciones.",
-  APPLICATION_CHROME_SELECTION_INVALID: "Debes seleccionar el archivo chrome.exe de Google Chrome.",
-  APPLICATION_CHROME_PICKER_UNAVAILABLE: "No se pudo abrir el selector de Google Chrome."
+  APPLICATION_CATALOG_SELECTION_INVALID:
+    "Debes seleccionar el archivo ejecutable correcto de la aplicación.",
+  APPLICATION_CATALOG_PICKER_UNAVAILABLE: "No se pudo abrir el selector de aplicaciones.",
+  APPLICATION_CUSTOM_SELECTION_INVALID: "Debes seleccionar un archivo ejecutable válido.",
+  APPLICATION_CUSTOM_PICKER_UNAVAILABLE: "No se pudo abrir el selector de aplicaciones.",
+  APPLICATION_CUSTOM_CONFIRMATION_UNAVAILABLE:
+    "No se pudo confirmar el registro de la aplicación."
 };
 
 const createFailure = <T>(code: ApplicationErrorCode): ApplicationOperationResult<T> => ({
@@ -187,6 +193,21 @@ export const validateApplicationAlias = (value: unknown): ApplicationOperationRe
     return createFailure(APPLICATION_ERROR_CODES.textTooLong);
   }
   return createSuccess(alias);
+};
+
+/** Custom app names are public text, never paths, commands, or shell fragments. */
+export const validateCustomApplicationDisplayName = (
+  value: unknown
+): ApplicationOperationResult<string> => {
+  if (typeof value !== "string") return createFailure(APPLICATION_ERROR_CODES.fieldTypeInvalid);
+  const displayName = value.trim();
+  if (!displayName || !safeCustomDisplayNamePattern.test(displayName)) {
+    return createFailure(APPLICATION_ERROR_CODES.textInvalid);
+  }
+  if (displayName.length > applicationNameMaximumLength) {
+    return createFailure(APPLICATION_ERROR_CODES.textTooLong);
+  }
+  return createSuccess(displayName);
 };
 
 export const validateRegisterApplicationInput = (
