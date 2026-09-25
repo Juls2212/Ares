@@ -7,15 +7,21 @@ export type OpenAiConfiguration = {
   model: string;
 };
 
+export type OpenAiTranscriptionConfiguration = {
+  apiKey: string;
+  transcriptionModel: string;
+};
+
 const requiredValue = (
   environment: NodeJS.ProcessEnv,
-  key: "OPENAI_API_KEY" | "OPENAI_MODEL"
+  key: "OPENAI_API_KEY" | "OPENAI_MODEL" | "OPENAI_TRANSCRIPTION_MODEL",
+  requestKind = "interpretation"
 ): string => {
   const value = environment[key]?.trim();
   if (!value) {
     throw new MainConfigurationError(
       `${key}_MISSING`,
-      `${key} is required before an interpretation request.`
+      `${key} is required before ${requestKind === "interpretation" ? "an" : "a"} ${requestKind} request.`
     );
   }
   return value;
@@ -32,5 +38,19 @@ export const getOpenAiConfiguration = (
   return {
     apiKey: requiredValue(environment, "OPENAI_API_KEY"),
     model: requiredValue(environment, "OPENAI_MODEL")
+  };
+};
+
+/** Reads the speech-to-text model only for an explicit Main-owned transcription. */
+export const getOpenAiTranscriptionConfiguration = (
+  environment: NodeJS.ProcessEnv = process.env
+): OpenAiTranscriptionConfiguration => {
+  if (environment === process.env) {
+    dotenv.config({ quiet: true });
+  }
+
+  return {
+    apiKey: requiredValue(environment, "OPENAI_API_KEY", "transcription"),
+    transcriptionModel: requiredValue(environment, "OPENAI_TRANSCRIPTION_MODEL", "transcription")
   };
 };
