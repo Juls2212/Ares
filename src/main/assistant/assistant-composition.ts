@@ -6,16 +6,21 @@ import {
 import type { ApplicationService } from "../applications/application-service";
 import { getApplicationService } from "../applications/application-composition";
 import { createAssistantInterpreter } from "./assistant-interpreter";
+import {
+  getAssistantContextService,
+  type AssistantContextService
+} from "./assistant-context-service";
 
 export type AssistantInterpreter = ReturnType<typeof createAssistantInterpreter>;
 
 export type AssistantInterpretationService = {
-  interpret(input: unknown): Promise<AssistantOperationResult<AssistantInterpretation>>;
+  interpret(input: unknown, webContentsId?: number): Promise<AssistantOperationResult<AssistantInterpretation>>;
 };
 
 type AssistantInterpretationServiceDependencies = {
   getInterpreter: () => AssistantInterpreter;
   getApplicationService: () => Pick<ApplicationService, "listApplications">;
+  getContextService?: () => AssistantContextService;
 };
 
 const maximumTrustedApplicationReferences = 100;
@@ -62,7 +67,7 @@ export const createAssistantInterpretationService = (
   let inFlight = false;
 
   return {
-    async interpret(input: unknown): Promise<AssistantOperationResult<AssistantInterpretation>> {
+    async interpret(input: unknown, webContentsId?: number): Promise<AssistantOperationResult<AssistantInterpretation>> {
       const normalizedInput = normalizeRequest(input);
       if (!normalizedInput) return clarification();
       if (inFlight) return unavailable(ASSISTANT_ERROR_CODES.busy);
@@ -81,11 +86,19 @@ export const createAssistantInterpretationService = (
           )
           .slice(0, maximumTrustedApplicationReferences);
         const knownApplicationAliases = trustedApplications.map((entry) => entry.alias);
+        const currentContext =
+          webContentsId === undefined || !dependencies.getContextService
+            ? undefined
+            : await dependencies.getContextService().getValidated(webContentsId);
 
-        return await dependencies.getInterpreter().interpret(normalizedInput, {
+        const reference = {
           knownApplicationAliases,
-          knownApplications: trustedApplications
-        });
+          knownApplications: trustedApplications,
+          ...(currentContext ? { currentContext: currentContext.providerContext } : {})
+        };
+        return currentContext
+          ? await dependencies.getInterpreter().interpret(normalizedInput, reference, currentContext)
+          : await dependencies.getInterpreter().interpret(normalizedInput, reference);
       } catch {
         return unavailable(ASSISTANT_ERROR_CODES.ipcUnavailable);
       } finally {
@@ -100,7 +113,8 @@ let assistantInterpretationService: AssistantInterpretationService | undefined;
 export const getAssistantInterpretationService = (): AssistantInterpretationService => {
   assistantInterpretationService ??= createAssistantInterpretationService({
     getInterpreter: createAssistantInterpreter,
-    getApplicationService
+    getApplicationService,
+    getContextService: getAssistantContextService
   });
   return assistantInterpretationService;
 };
