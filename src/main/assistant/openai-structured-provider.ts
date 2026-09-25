@@ -86,6 +86,9 @@ const buildInstructions = (reference: AssistantInterpretationReference): string 
       ?.slice(0, 50)
       .map((item) => `${item.rootId}:${displayReference(item.relativePath)}`)
       .join(", ") || "ninguna";
+  const currentContext = reference.currentContext
+    ? `Selección actual validada: tipo ${reference.currentContext.kind}; etiqueta pública: ${displayReference(reference.currentContext.label)}; token interno permitido: ${reference.currentContext.token}.`
+    : "No hay una selección actual validada.";
 
   return [
     "Eres el intérprete de Ares. Responde únicamente con el JSON solicitado.",
@@ -97,6 +100,8 @@ const buildInstructions = (reference: AssistantInterpretationReference): string 
     `Referencia temporal confiable: ${reference.now}. Zona horaria IANA confiable: ${reference.timeZone}.`,
     `Aplicaciones registradas y habilitadas disponibles: ${applications}.`,
     `Referencias de archivos confiables disponibles: ${fileReferences}.`,
+    currentContext,
+    "El token interno $CURRENT_CONTEXT no es un identificador, ruta ni alias. Úsalo solo en un campo de referencia compatible cuando la selección actual tenga el tipo requerido: taskId para TASK, eventId para EVENT, taskId/eventId para CREATE_REMINDER, alias para APPLICATION, y referencias de archivo/carpeta para acciones de archivos. Para ORGANIZE_FILES úsalo únicamente como folder cuando el tipo sea FOLDER. No reveles ni inventes el token fuera de esos campos.",
     "No conviertas ni inventes fechas relativas usando tu propio reloj. Para CREATE_TASK, dueDate puede ser hoy, mañana, un día de la semana, o YYYY-MM-DD; dueTime puede ser HH:mm o una hora local como 9 am. Ares lo resolverá de forma determinista.",
     "Para CREATE_EVENT con lenguaje natural usa date y startTime dentro de input, en lugar de startAt. date puede ser hoy, mañana, un día de la semana o YYYY-MM-DD; startTime puede ser HH:mm o 9 am. Si el usuario da una hora final, usa endTime con el mismo formato. Incluye date y startTime; Ares convierte ambos tiempos a instantes con offset explícito.",
     "Para CREATE_REMINDER con lenguaje natural usa date y time dentro de input, en lugar de remindAt. Incluye ambos campos. Ares convierte esos valores a un instante con offset explícito.",

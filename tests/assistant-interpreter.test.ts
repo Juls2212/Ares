@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createAssistantInterpreter } from "../src/main/assistant/assistant-interpreter";
 import type { StructuredInterpretationProvider } from "../src/main/assistant/openai-structured-provider";
+import type { ResolvedAssistantContext } from "../src/main/assistant/assistant-context-service";
 
 const reference = {
   now: "2026-09-20T15:00:00.000Z",
@@ -34,6 +35,36 @@ const ready = (drafts: Array<{ action: string; input: unknown }>) => ({
 });
 
 describe("Main-only assistant interpreter", () => {
+  it("replaces the Main-only current-context token for a selected folder without execution", async () => {
+    const context: ResolvedAssistantContext = {
+      selection: { section: "FILES", kind: "FOLDER", reference: { rootId: "DOCUMENTS", relativePath: "inbox" } },
+      providerContext: { token: "$CURRENT_CONTEXT", kind: "FOLDER", label: "inbox" }
+    };
+    const interpreter = interpreterFor(ready([
+      { action: "ORGANIZE_FILES", input: { folder: "$CURRENT_CONTEXT" } }
+    ]));
+    const result = await interpreter.interpret(
+      { instruction: "Organiza esta carpeta" },
+      { ...reference, currentContext: context.providerContext },
+      context
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      data: { state: "READY", drafts: [{ action: "ORGANIZE_FILES", input: { folder: { rootId: "DOCUMENTS", relativePath: "inbox" } } }] }
+    });
+  });
+
+  it("clarifies a context token with the wrong selection kind instead of accepting an identifier", async () => {
+    const context: ResolvedAssistantContext = {
+      selection: { section: "PLANNER", kind: "EVENT", id: "550e8400-e29b-41d4-a716-446655440000" },
+      providerContext: { token: "$CURRENT_CONTEXT", kind: "EVENT", label: "Reunión" }
+    };
+    const result = await interpreterFor(ready([
+      { action: "ORGANIZE_FILES", input: { folder: "$CURRENT_CONTEXT" } }
+    ])).interpret({ instruction: "Organiza esto" }, { ...reference, currentContext: context.providerContext }, context);
+    expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
+  });
+
   it("validates Spanish task, event, reminder, and schedule drafts without executing them", async () => {
     const interpreter = interpreterFor(
       ready([

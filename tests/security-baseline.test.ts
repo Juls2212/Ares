@@ -21,8 +21,15 @@ describe("Electron security baseline", () => {
     expect(mainSource).toContain('setWindowOpenHandler(() => ({ action: "deny" }))');
     expect(mainSource).toContain('webContents.on("will-navigate"');
     expect(mainSource).toContain('webContents.on("will-redirect"');
-    expect(mainSource).toContain("setPermissionCheckHandler(() => false)");
+    expect(mainSource).toContain("setPermissionCheckHandler");
     expect(mainSource).toContain("setPermissionRequestHandler");
+    expect(mainSource).toContain('permission === "media"');
+    expect(mainSource).toContain("isTrustedAudioMicrophoneRequest");
+    expect(mainSource).toContain("voicePreferencesService.initialize()");
+    expect(mainSource).toContain("globalVoiceShortcutLifecycle.stop()");
+    expect(mainSource.indexOf("voicePreferencesService.initialize()")).toBeLessThan(
+      mainSource.indexOf("await createMainWindow()")
+    );
   });
 
   it("defines a restrictive environment-aware CSP without unsafe eval", () => {

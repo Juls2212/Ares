@@ -45,6 +45,8 @@ export type AresApi = {
   actions: ActionApi;
   applications: ApplicationsApi;
   assistant: AssistantApi;
+  voice: VoiceApi;
+  settings: SettingsApi;
 };
 
 export const IPC_CHANNELS = {
@@ -96,7 +98,21 @@ export const IPC_CHANNELS = {
     getTodaySummary: "dashboard:get-today-summary"
   },
   assistant: {
-    interpret: "assistant:interpret"
+    interpret: "assistant:interpret",
+    context: {
+      set: "assistant:context:set",
+      clear: "assistant:context:clear"
+    }
+  },
+  voice: {
+    transcribe: "voice:transcribe",
+    globalShortcutActivated: "voice:global-shortcut-activated"
+  },
+  settings: {
+    voice: {
+      get: "settings:voice:get",
+      update: "settings:voice:update"
+    }
   }
 } as const;
 import type { PlannerApi } from "./planner-contracts";
@@ -104,3 +120,5 @@ import type { ActionApi } from "./action-contracts";
 import type { ApplicationsApi } from "./application-contracts";
 import type { DashboardApi } from "./dashboard-contracts";
 import type { AssistantApi } from "./assistant-contracts";
+import type { VoiceApi } from "./voice-contracts";
+import type { SettingsApi } from "./settings-contracts";

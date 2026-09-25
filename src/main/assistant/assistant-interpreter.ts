@@ -4,6 +4,7 @@ import {
   type ActionSubmission
 } from "../../shared/action-contracts";
 import {
+  ASSISTANT_CURRENT_CONTEXT_TOKEN,
   ASSISTANT_ERROR_CODES,
   type AssistantInterpretInput,
   type AssistantInterpretation,
@@ -42,6 +43,7 @@ import {
   type PlannerTemporalResolutionReason
 } from "./planner-temporal-resolution";
 import { isUnsafeAssistantDraftText, isUnsafeAssistantInstruction } from "./assistant-safety";
+import type { ResolvedAssistantContext } from "./assistant-context-service";
 
 const MAX_INSTRUCTION_LENGTH = 2_000;
 const MAX_DRAFTS = 8;
@@ -171,11 +173,59 @@ const hasUnsafeFileDraftText = (input: UnknownRecord): boolean =>
 
 type DraftClarification = { kind: "CLARIFICATION"; question: string };
 type DraftValidationResult = ActionSubmission | DraftClarification | null;
+type ContextTokenResolution = { input: unknown; usedToken: boolean } | DraftClarification | null;
 
 const draftClarification = (question: string): DraftClarification => ({ kind: "CLARIFICATION", question });
 
 const isDraftClarification = (value: DraftValidationResult): value is DraftClarification =>
   typeof value === "object" && value !== null && "kind" in value && value.kind === "CLARIFICATION";
+
+const resolveCurrentContextToken = (
+  action: string,
+  value: unknown,
+  context: ResolvedAssistantContext | undefined
+): ContextTokenResolution => {
+  if (!isRecord(value)) return { input: value, usedToken: false };
+  const hasToken = Object.values(value).some((entry) => entry === ASSISTANT_CURRENT_CONTEXT_TOKEN);
+  if (!hasToken) return { input: value, usedToken: false };
+  if (!context) return draftClarification("Necesito una selección actual válida para esa acción.");
+  const selection = context.selection;
+  const replace = (key: string, kind: string, replacement: unknown): ContextTokenResolution =>
+    value[key] === ASSISTANT_CURRENT_CONTEXT_TOKEN && context.providerContext.kind === kind
+      ? { input: { ...value, [key]: replacement }, usedToken: true }
+      : draftClarification("La selección actual no corresponde a esa acción.");
+  if (action === "UPDATE_TASK" || action === "COMPLETE_TASK") {
+    return selection.section === "PLANNER" ? replace("taskId", "TASK", selection.id) : draftClarification("Selecciona una tarea válida primero.");
+  }
+  if (action === "UPDATE_EVENT") {
+    return selection.section === "PLANNER" ? replace("eventId", "EVENT", selection.id) : draftClarification("Selecciona un evento válido primero.");
+  }
+  if (action === "CREATE_REMINDER") {
+    if (selection.section !== "PLANNER") return draftClarification("Selecciona una tarea o evento válida primero.");
+    if (value.taskId === ASSISTANT_CURRENT_CONTEXT_TOKEN && selection.kind === "TASK") return { input: { ...value, taskId: selection.id }, usedToken: true };
+    if (value.eventId === ASSISTANT_CURRENT_CONTEXT_TOKEN && selection.kind === "EVENT") return { input: { ...value, eventId: selection.id }, usedToken: true };
+    return draftClarification("La selección actual no corresponde al recordatorio.");
+  }
+  if (action === "OPEN_APPLICATION") {
+    return selection.section === "APPLICATIONS" ? replace("alias", "APPLICATION", selection.alias) : draftClarification("Selecciona una aplicación registrada válida primero.");
+  }
+  if (action === "CREATE_FOLDER") return selection.section === "FILES" ? replace("parentDirectory", "FOLDER", selection.reference) : draftClarification("Selecciona una carpeta válida primero.");
+  if (action === "RENAME_FILE") return selection.section === "FILES" ? replace("source", "FILE", selection.reference) : draftClarification("Selecciona un archivo válido primero.");
+  if (action === "RENAME_FOLDER" || action === "ORGANIZE_FILES") return selection.section === "FILES" ? replace(action === "ORGANIZE_FILES" ? "folder" : "source", "FOLDER", selection.reference) : draftClarification("Selecciona una carpeta válida primero.");
+  if (action === "MOVE_FILE") {
+    if (selection.section !== "FILES") return draftClarification("Selecciona un archivo o carpeta válida primero.");
+    if (value.source === ASSISTANT_CURRENT_CONTEXT_TOKEN && selection.kind === "FILE") return { input: { ...value, source: selection.reference }, usedToken: true };
+    if (value.destinationDirectory === ASSISTANT_CURRENT_CONTEXT_TOKEN && selection.kind === "FOLDER") return { input: { ...value, destinationDirectory: selection.reference }, usedToken: true };
+    return draftClarification("La selección actual no corresponde al movimiento.");
+  }
+  if (action === "SEARCH_FILES") {
+    if (selection.section === "FILES" && selection.kind === "FOLDER" && value.relativePath === ASSISTANT_CURRENT_CONTEXT_TOKEN) {
+      return { input: { ...value, rootId: selection.reference.rootId, relativePath: selection.reference.relativePath }, usedToken: true };
+    }
+    return draftClarification("Selecciona una carpeta válida primero.");
+  }
+  return draftClarification("La selección actual no puede usarse para esa acción.");
+};
 
 const plannerClarification = (
   action: PlannerTemporalAction,
@@ -196,13 +246,20 @@ const plannerClarification = (
 const validateDraft = (
   candidate: unknown,
   reference: AssistantInterpretationReference,
-  temporalResolver: ReturnType<typeof createPlannerTemporalResolver>
+  temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
+  currentContext?: ResolvedAssistantContext
 ): DraftValidationResult => {
   if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input"]) || typeof candidate.action !== "string") {
     return null;
   }
 
-  const { action, input } = candidate;
+  const { action } = candidate;
+  const tokenResolution = resolveCurrentContextToken(action, candidate.input, currentContext);
+  if (typeof tokenResolution === "object" && tokenResolution !== null && "kind" in tokenResolution) {
+    return tokenResolution as DraftClarification;
+  }
+  if (!tokenResolution) return null;
+  const { input } = tokenResolution;
   switch (action) {
     case "CREATE_TASK": {
       const temporal = temporalResolver.resolve(action as PlannerTemporalAction, input);
@@ -285,21 +342,21 @@ const validateDraft = (
     case "CREATE_FOLDER": {
       const result = validateCreateFolderInput(input);
       if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return fileReferencesAreKnown(action, input, reference.knownFileReferences)
+      return tokenResolution.usedToken || fileReferencesAreKnown(action, input, reference.knownFileReferences)
         ? { action, input: result.data }
         : null;
     }
     case "RENAME_FILE": {
       const result = validateRenameFileInput(input);
       if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return fileReferencesAreKnown(action, input, reference.knownFileReferences)
+      return tokenResolution.usedToken || fileReferencesAreKnown(action, input, reference.knownFileReferences)
         ? { action, input: result.data }
         : null;
     }
     case "RENAME_FOLDER": {
       const result = validateRenameFolderInput(input);
       if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return fileReferencesAreKnown(action, input, reference.knownFileReferences)
+      return tokenResolution.usedToken || fileReferencesAreKnown(action, input, reference.knownFileReferences)
         ? { action, input: result.data }
         : null;
     }
@@ -313,21 +370,29 @@ const validateDraft = (
     case "ORGANIZE_FILES": {
       const result = validateOrganizeFilesInput(input);
       if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return fileReferencesAreKnown(action, input, reference.knownFileReferences)
+      return tokenResolution.usedToken && (result.data.exclusions?.length ?? 0) === 0
+        ? { action, input: result.data }
+        : fileReferencesAreKnown(action, input, reference.knownFileReferences)
         ? { action, input: result.data }
         : null;
     }
     case "UPDATE_TASK": {
       const result = validateUpdateTaskInput(input);
-      return result.ok ? draftClarification("La tarea necesita una referencia confiable para actualizarse.") : null;
+      return result.ok && tokenResolution.usedToken
+        ? { action, input: result.data }
+        : result.ok ? draftClarification("La tarea necesita una referencia confiable para actualizarse.") : null;
     }
     case "COMPLETE_TASK": {
       const result = validateCompleteTaskInput(input);
-      return result.ok ? draftClarification("La tarea necesita una referencia confiable para completarse.") : null;
+      return result.ok && tokenResolution.usedToken
+        ? { action, input: result.data }
+        : result.ok ? draftClarification("La tarea necesita una referencia confiable para completarse.") : null;
     }
     case "UPDATE_EVENT": {
       const result = validateUpdateEventInput(input);
-      return result.ok ? draftClarification("El evento necesita una referencia confiable para actualizarse.") : null;
+      return result.ok && tokenResolution.usedToken
+        ? { action, input: result.data }
+        : result.ok ? draftClarification("El evento necesita una referencia confiable para actualizarse.") : null;
     }
     default:
       return null;
@@ -348,7 +413,8 @@ const parseDraftInput = (value: unknown): unknown => {
 const parseProviderOutput = (
   raw: unknown,
   reference: AssistantInterpretationReference,
-  temporalResolver: ReturnType<typeof createPlannerTemporalResolver>
+  temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
+  currentContext?: ResolvedAssistantContext
 ): AssistantOperationResult<AssistantInterpretation> => {
   if (typeof raw !== "string") {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
@@ -390,7 +456,8 @@ const parseProviderOutput = (
     const draft = validateDraft(
       { ...candidate, input: parseDraftInput(candidate.input) },
       reference,
-      temporalResolver
+      temporalResolver,
+      currentContext
     );
     if (isDraftClarification(draft)) return clarification(`El borrador ${index + 1}: ${draft.question}`);
     if (!draft) return rejection(ASSISTANT_ERROR_CODES.rejected);
@@ -433,7 +500,8 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
   return {
     async interpret(
       input: unknown,
-      referenceOverrides?: Partial<AssistantInterpretationReference>
+      referenceOverrides?: Partial<AssistantInterpretationReference>,
+      currentContext?: ResolvedAssistantContext
     ): Promise<AssistantOperationResult<AssistantInterpretation>> {
       if (!isRecord(input) || !hasOnlyKeys(input, ["instruction"]) || !isSafeText(input.instruction, MAX_INSTRUCTION_LENGTH)) {
         return clarification();
@@ -485,7 +553,7 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           now: () => new Date(reference.now),
           timeZone: () => reference.timeZone
         });
-        const result = parseProviderOutput(output, reference, temporalResolver);
+        const result = parseProviderOutput(output, reference, temporalResolver, currentContext);
         if (result.ok && result.data.errorCode === ASSISTANT_ERROR_CODES.malformed) {
           logError(`Assistant interpretation failed [${ASSISTANT_ERROR_CODES.malformed}].`);
         }

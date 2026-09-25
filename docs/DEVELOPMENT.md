@@ -45,7 +45,7 @@ The database URL is read only by trusted Main configuration and Drizzle Kit tool
 
 ## Local OpenAI interpretation configuration
 
-The future explicit Main-only interpretation flow reads `OPENAI_API_KEY` and `OPENAI_MODEL` from the ignored local `.env`. Both values are required only when an interpretation is requested; neither has a production fallback and neither may use a `VITE_` name. Copy the blank placeholders from `.env.example`, keep the real values local, and never print, commit, bundle, or expose them through preload or the renderer. Tests, startup, packaging, and normal builds do not make OpenAI requests. The paid manual diagnostic is excluded from normal and CI test discovery; run it only deliberately with `$env:ARES_LIVE_ASSISTANT_CHECK='1'; npm run test:assistant:live` in PowerShell.
+The explicit Main-only interpretation flow reads `OPENAI_API_KEY` and `OPENAI_MODEL` from the ignored local `.env`. Manual voice transcription additionally requires `OPENAI_TRANSCRIPTION_MODEL`, and is requested only after the user explicitly stops a bounded recording. None has a production fallback and none may use a `VITE_` name. Copy the blank placeholders from `.env.example`, keep real values local, and never print, commit, bundle, or expose them through preload or the renderer. Tests, startup, packaging, and normal builds do not make OpenAI requests. The paid manual diagnostic is excluded from normal and CI test discovery; run it only deliberately with `$env:ARES_LIVE_ASSISTANT_CHECK='1'; npm run test:assistant:live` in PowerShell.
 
 ## Drizzle workflow
 

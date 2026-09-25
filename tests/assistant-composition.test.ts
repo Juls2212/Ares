@@ -5,6 +5,7 @@ import {
   type AssistantInterpreter
 } from "../src/main/assistant/assistant-composition";
 import type { ApplicationService } from "../src/main/applications/application-service";
+import type { AssistantContextService } from "../src/main/assistant/assistant-context-service";
 import type { ApplicationRecord } from "../src/shared/application-contracts";
 
 const readyResult = {
@@ -159,5 +160,24 @@ describe("assistant interpretation composition", () => {
     expect(result).toMatchObject({ ok: true, data: { state: "UNAVAILABLE", errorCode: "ASSISTANT_IPC_UNAVAILABLE" } });
     expect(JSON.stringify(result)).not.toContain("private");
     expect(interpret).not.toHaveBeenCalled();
+  });
+
+  it("passes only the validated context token, kind, and label to the provider boundary", async () => {
+    const interpret = vi.fn(async () => readyResult);
+    const context = {
+      providerContext: { token: "$CURRENT_CONTEXT" as const, kind: "FOLDER" as const, label: "inbox" },
+      selection: { section: "FILES" as const, kind: "FOLDER" as const, reference: { rootId: "DOCUMENTS" as const, relativePath: "inbox" } }
+    };
+    const service = createAssistantInterpretationService({
+      getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
+      getApplicationService: () => applicationServiceFor(),
+      getContextService: () => ({ getValidated: vi.fn(async () => context) } as unknown as AssistantContextService)
+    });
+    await service.interpret({ text: "Organiza esta carpeta" }, 42);
+    expect(interpret).toHaveBeenCalledWith(
+      { instruction: "Organiza esta carpeta" },
+      { knownApplicationAliases: [], knownApplications: [], currentContext: context.providerContext },
+      context
+    );
   });
 });

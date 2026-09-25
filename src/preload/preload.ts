@@ -57,8 +57,20 @@ import type {
 import type {
   AssistantInterpretRequest,
   AssistantInterpretation,
-  AssistantOperationResult
+  AssistantOperationResult,
+  AssistantContextData,
+  AssistantContextSetInput
 } from "../shared/assistant-contracts";
+import type {
+  VoiceOperationResult,
+  VoiceTranscriptionData,
+  VoiceTranscriptionInput
+} from "../shared/voice-contracts";
+import type {
+  SettingsOperationResult,
+  UpdateVoicePreferencesInput,
+  VoicePreferencesData
+} from "../shared/settings-contracts";
 
 const aresApi = {
   system: {
@@ -187,7 +199,42 @@ const aresApi = {
     interpret: (input: AssistantInterpretRequest) =>
       ipcRenderer.invoke(IPC_CHANNELS.assistant.interpret, input) as Promise<
         AssistantOperationResult<AssistantInterpretation>
-      >
+      >,
+    context: {
+      set: (input: AssistantContextSetInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.assistant.context.set, input) as Promise<
+          AssistantOperationResult<AssistantContextData>
+        >,
+      clear: () =>
+        ipcRenderer.invoke(IPC_CHANNELS.assistant.context.clear) as Promise<
+          AssistantOperationResult<AssistantContextData>
+        >
+    }
+  },
+  voice: {
+    transcribe: (input: VoiceTranscriptionInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.voice.transcribe, input) as Promise<
+        VoiceOperationResult<VoiceTranscriptionData>
+      >,
+    onGlobalShortcut: (callback: () => void) => {
+      const listener = (): void => callback();
+      ipcRenderer.on(IPC_CHANNELS.voice.globalShortcutActivated, listener);
+      return (): void => {
+        ipcRenderer.removeListener(IPC_CHANNELS.voice.globalShortcutActivated, listener);
+      };
+    }
+  },
+  settings: {
+    voice: {
+      get: () =>
+        ipcRenderer.invoke(IPC_CHANNELS.settings.voice.get) as Promise<
+          SettingsOperationResult<VoicePreferencesData>
+        >,
+      update: (input: UpdateVoicePreferencesInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.settings.voice.update, input) as Promise<
+          SettingsOperationResult<VoicePreferencesData>
+        >
+    }
   }
 } satisfies AresApi;
 

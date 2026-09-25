@@ -49,7 +49,7 @@ export const getSystemCapabilitiesResult = (): OperationResult<SystemCapabilitie
     files: true,
     applications: true,
     assistant: true,
-    voice: false,
+    voice: true,
     notifications: true
   }
 });
