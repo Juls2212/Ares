@@ -57,10 +57,37 @@ export type ApplicationListData = {
   total: number;
 };
 
-/** Result of the dedicated native Chrome registration flow; it never includes a path. */
-export type ChromeRegistrationData =
-  | { status: "REGISTERED" | "ALREADY_REGISTERED"; record: ApplicationRecord }
-  | { status: "CANCELLED" };
+export const REGISTERABLE_CATALOG_APPLICATIONS = [
+  "GOOGLE_CHROME",
+  "VISUAL_STUDIO_CODE",
+  "VISUAL_STUDIO",
+  "SPOTIFY"
+] as const;
+
+export type RegisterableCatalogApplication =
+  (typeof REGISTERABLE_CATALOG_APPLICATIONS)[number];
+
+export type RegisterCatalogApplicationInput = {
+  application: RegisterableCatalogApplication;
+};
+
+export type RegisterCustomApplicationInput = {
+  displayName: string;
+};
+
+/** Result of a fixed Main-owned catalog registration; it never includes a path. */
+export type CatalogApplicationRegistrationData =
+  | {
+      status: "REGISTERED" | "ALREADY_REGISTERED";
+      application: RegisterableCatalogApplication;
+      record: ApplicationRecord;
+    }
+  | { status: "CANCELLED"; application: RegisterableCatalogApplication };
+
+/** Safe status only; custom registration never returns IDs or filesystem details. */
+export type CustomApplicationRegistrationData = {
+  status: "REGISTERED" | "ALREADY_REGISTERED" | "CANCELLED";
+};
 
 export const APPLICATION_ERROR_CODES = {
   inputInvalid: "APPLICATION_INPUT_INVALID",
@@ -83,8 +110,11 @@ export const APPLICATION_ERROR_CODES = {
   conflict: "APPLICATION_CONFLICT",
   databaseUnavailable: "APPLICATION_DATABASE_UNAVAILABLE",
   ipcUnavailable: "APPLICATION_IPC_UNAVAILABLE",
-  chromeSelectionInvalid: "APPLICATION_CHROME_SELECTION_INVALID",
-  chromePickerUnavailable: "APPLICATION_CHROME_PICKER_UNAVAILABLE"
+  catalogSelectionInvalid: "APPLICATION_CATALOG_SELECTION_INVALID",
+  catalogPickerUnavailable: "APPLICATION_CATALOG_PICKER_UNAVAILABLE",
+  customSelectionInvalid: "APPLICATION_CUSTOM_SELECTION_INVALID",
+  customPickerUnavailable: "APPLICATION_CUSTOM_PICKER_UNAVAILABLE",
+  customConfirmationUnavailable: "APPLICATION_CUSTOM_CONFIRMATION_UNAVAILABLE"
 } as const;
 
 export type ApplicationErrorCode =
@@ -93,11 +123,13 @@ export type ApplicationErrorCode =
 export type ApplicationOperationResult<T> = OperationResult<T>;
 
 export type ApplicationsApi = {
-  /** Opens a Main-owned native picker and registers only a validated chrome.exe. */
-  registerChrome: () => Promise<ApplicationOperationResult<ChromeRegistrationData>>;
-  register: (
-    input: RegisterApplicationInput
-  ) => Promise<ApplicationOperationResult<ApplicationMutationData>>;
+  /** Opens a Main-owned native picker for one fixed catalog application only. */
+  registerCatalogApplication: (
+    input: RegisterCatalogApplicationInput
+  ) => Promise<ApplicationOperationResult<CatalogApplicationRegistrationData>>;
+  registerCustomApplication: (
+    input: RegisterCustomApplicationInput
+  ) => Promise<ApplicationOperationResult<CustomApplicationRegistrationData>>;
   list: (input: ApplicationListInput) => Promise<ApplicationOperationResult<ApplicationListData>>;
   update: (
     input: UpdateApplicationInput
