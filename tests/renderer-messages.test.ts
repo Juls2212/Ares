@@ -8,10 +8,14 @@ const appSource = readFileSync(
 );
 
 describe("temporary renderer messaging", () => {
-  it("uses only the input-free Chrome registration flow and never renders an executable-path field", () => {
-    expect(appSource).toContain("window.ares.applications.registerChrome()");
+  it("uses only the closed catalog registration flow and never renders an executable-path field", () => {
+    expect(appSource).toContain("window.ares.applications.registerCatalogApplication({");
+    expect(appSource).toContain('application: selectedCatalogApplication');
     expect(appSource).not.toContain("window.ares.applications.register({");
     expect(appSource).not.toContain("executablePath");
+    expect(appSource).not.toContain("registerChrome");
+    expect(appSource).toContain("window.ares.applications.registerCustomApplication({");
+    expect(appSource).toContain("displayName: customDisplayName");
   });
 
   it("uses Spanish loading, success, and controlled error messages", () => {
