@@ -49,6 +49,7 @@ export const CalendarView = () => {
   );
   const selectedItems = itemsByDay.get(selectedDate) ?? { tasks: [], events: [] };
   const hasRecords = calendarData.tasks.length > 0 || calendarData.events.length > 0;
+  const todayDate = toLocalCalendarDate(new Date());
 
   const showMonth = (month: Date): void => {
     const normalizedMonth = monthStartFor(month);
@@ -77,7 +78,7 @@ export const CalendarView = () => {
     {calendarData.eventError && <p className="calendar-status calendar-status--error">{calendarData.eventError}</p>}
     {!isLoading && !hasRecords && !calendarData.taskError && !calendarData.eventError && <p className="calendar-status">No hay tareas ni eventos para este mes.</p>}
 
-    <CalendarGrid days={days} itemsByDay={itemsByDay} onSelectDate={setSelectedDate} selectedDate={selectedDate} />
+    <CalendarGrid days={days} itemsByDay={itemsByDay} key={toLocalCalendarDate(displayedMonth)} onSelectDate={setSelectedDate} selectedDate={selectedDate} todayDate={todayDate} />
     <CalendarDayDetails isoDate={selectedDate} items={selectedItems} />
   </section>;
 };

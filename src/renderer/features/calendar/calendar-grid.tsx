@@ -4,11 +4,12 @@ import { CALENDAR_WEEKDAY_LABELS } from "./calendar-date-utils";
 type CalendarGridProperties = {
   days: CalendarDay[];
   selectedDate: string;
+  todayDate: string;
   itemsByDay: Map<string, CalendarDayItems>;
   onSelectDate: (isoDate: string) => void;
 };
 
-export const CalendarGrid = ({ days, selectedDate, itemsByDay, onSelectDate }: CalendarGridProperties) => <>
+export const CalendarGrid = ({ days, selectedDate, todayDate, itemsByDay, onSelectDate }: CalendarGridProperties) => <>
   <div aria-hidden="true" className="calendar-weekdays">{CALENDAR_WEEKDAY_LABELS.map((day) => <span key={day}>{day}</span>)}</div>
   <div className="calendar-grid" role="grid">
     {days.map((day) => {
@@ -16,8 +17,9 @@ export const CalendarGrid = ({ days, selectedDate, itemsByDay, onSelectDate }: C
       const itemSummary = `${items.events.length} eventos y ${items.tasks.length} tareas`;
       return <button
         aria-label={`${day.isoDate}: ${itemSummary}`}
+        aria-current={day.isoDate === todayDate ? "date" : undefined}
         aria-selected={selectedDate === day.isoDate}
-        className={`calendar-day${day.isCurrentMonth ? "" : " calendar-day--outside"}${selectedDate === day.isoDate ? " is-selected" : ""}`}
+        className={`calendar-day${day.isCurrentMonth ? "" : " calendar-day--outside"}${selectedDate === day.isoDate ? " is-selected" : ""}${day.isoDate === todayDate ? " is-today" : ""}`}
         key={day.isoDate}
         onClick={() => onSelectDate(day.isoDate)}
         role="gridcell"

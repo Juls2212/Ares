@@ -50,15 +50,17 @@ export const AresView = ({
   onResolveConfirmation
 }: AresViewProperties) => <section aria-label="Espacio de comandos Ares" className="command-layout">
   <aside className="support-panel support-panel--left">
-    <p className="eyebrow">Estado actual</p>
+    <p className="eyebrow">Sesión actual</p>
     <dl className="status-list">
+      <div><dt>Texto</dt><dd>Listo para interpretar</dd></div>
       <div><dt>Voz</dt><dd>{voiceLabel}</dd></div>
       <div><dt>Atajo global</dt><dd>{voiceShortcutStatus ? voiceShortcutStatusLabels[voiceShortcutStatus] : "Verificando"}</dd></div>
+      <div><dt>Confirmación</dt><dd>Cuando se requiere</dd></div>
     </dl>
     {technicalState === "ERROR" && <p className="panel-message">{technicalMessage}</p>}
     {technicalState === "LOADING" && <p className="panel-message">Comprobando la conexión segura.</p>}
     {technicalState === "SUCCESS" && <p className="panel-message">Ares está listo para preparar acciones supervisadas.</p>}
-    <p className="support-note">Las acciones sensibles siempre requieren tu confirmación explícita.</p>
+    <p className="support-note">Puedes escribir, dictar y revisar cada paso antes de continuar.</p>
   </aside>
 
   <section className="command-core">
@@ -80,9 +82,12 @@ export const AresView = ({
   </section>
 
   <aside className="support-panel support-panel--right">
-    <p className="eyebrow">Guía de comandos</p>
-    <p>Describe una tarea, un evento, un recordatorio o una acción permitida.</p>
-    <p className="support-note">Ares prepara borradores; nunca actúa sin tu paso explícito.</p>
-    <div className="agenda-placeholder"><p className="eyebrow">Agenda</p><p>Tu agenda aparecerá aquí cuando uses Calendario.</p></div>
+    <p className="eyebrow">Secuencia supervisada</p>
+    <ol className="supervision-sequence">
+      <li><span>01</span>Describe o dicta una intención.</li>
+      <li><span>02</span>Revisa el borrador preparado.</li>
+      <li><span>03</span>Confirma solo cuando se requiera.</li>
+    </ol>
+    <p className="support-note">Ares no realiza acciones por sí solo.</p>
   </aside>
 </section>;

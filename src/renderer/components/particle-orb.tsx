@@ -215,6 +215,14 @@ const drawOrb = (
   }
 };
 
+const getAccentRgb = (canvas: HTMLCanvasElement): string => {
+  try {
+    return getComputedStyle(canvas).getPropertyValue("--accent-rgb").trim() || "0 129 166";
+  } catch {
+    return "0 129 166";
+  }
+};
+
 /** A decorative command-center field driven only by existing renderer state. */
 export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
   const canvasReference = useRef<HTMLCanvasElement>(null);
@@ -229,7 +237,7 @@ export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
       const cancelFrame = window.cancelAnimationFrame?.bind(window);
       if (!requestFrame || !cancelFrame || !canvas.getContext("2d")) return;
       const particles = createParticles();
-      const accentRgb = getComputedStyle(canvas).getPropertyValue("--accent-rgb").trim() || "0 129 166";
+      let accentRgb = getAccentRgb(canvas);
       const mediaQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
       const loop = createParticleOrbLoop({
         canAnimate: () => particleOrbAllowsMotion(mediaQuery?.matches ?? true, document.hidden),
@@ -244,12 +252,21 @@ export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
       const ResizeObserverConstructor = window.ResizeObserver;
       const resizeObserver = ResizeObserverConstructor ? new ResizeObserverConstructor(refresh) : undefined;
       resizeObserver?.observe(canvas);
+      const MutationObserverConstructor = window.MutationObserver;
+      const themeObserver = MutationObserverConstructor
+        ? new MutationObserverConstructor(() => {
+          accentRgb = getAccentRgb(canvas);
+          refresh();
+        })
+        : undefined;
+      themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
       document.addEventListener("visibilitychange", refresh);
       mediaQuery?.addEventListener?.("change", refresh);
       loop.start();
       return () => {
         loop.stop();
         resizeObserver?.disconnect();
+        themeObserver?.disconnect();
         document.removeEventListener("visibilitychange", refresh);
         mediaQuery?.removeEventListener?.("change", refresh);
       };

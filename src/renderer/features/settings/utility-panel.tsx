@@ -4,6 +4,7 @@ import {
 } from "../../../shared/application-contracts";
 import { VOICE_SHORTCUTS, type VoiceShortcut, type VoiceShortcutEffectiveStatus } from "../../../shared/settings-contracts";
 import { catalogApplicationLabels, voiceShortcutStatusLabels } from "../../app/app-state";
+import type { ThemePreference } from "./theme-preference";
 
 type UtilityPanelProperties = {
   voiceShortcutEnabled: boolean;
@@ -24,6 +25,8 @@ type UtilityPanelProperties = {
   customRegistrationMessage?: string;
   onCustomDisplayNameChange: (displayName: string) => void;
   onRegisterCustomApplication: () => void;
+  theme: ThemePreference;
+  onToggleTheme: () => void;
 };
 
 export const UtilityPanel = ({
@@ -44,8 +47,16 @@ export const UtilityPanel = ({
   isRegisteringCustomApplication,
   customRegistrationMessage,
   onCustomDisplayNameChange,
-  onRegisterCustomApplication
+  onRegisterCustomApplication,
+  theme,
+  onToggleTheme
 }: UtilityPanelProperties) => <aside className="utility-panel" id="utility-panel">
+  <section>
+    <p className="eyebrow">Apariencia</p>
+    <button aria-pressed={theme === "dark"} className="text-button" onClick={onToggleTheme} type="button">
+      {theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+    </button>
+  </section>
   <section>
     <p className="eyebrow">Configuración de voz</p>
     <label className="toggle-control" htmlFor="voice-shortcut-enabled">
