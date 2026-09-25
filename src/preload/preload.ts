@@ -44,8 +44,10 @@ import type {
   ApplicationListInput,
   ApplicationMutationData,
   ApplicationOperationResult,
-  ChromeRegistrationData,
-  RegisterApplicationInput,
+  CatalogApplicationRegistrationData,
+  CustomApplicationRegistrationData,
+  RegisterCatalogApplicationInput,
+  RegisterCustomApplicationInput,
   UpdateApplicationInput
 } from "../shared/application-contracts";
 import type {
@@ -164,13 +166,13 @@ const aresApi = {
     }
   },
   applications: {
-    registerChrome: () =>
-      ipcRenderer.invoke(IPC_CHANNELS.applications.registerChrome) as Promise<
-        ApplicationOperationResult<ChromeRegistrationData>
+    registerCatalogApplication: (input: RegisterCatalogApplicationInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.applications.registerCatalogApplication, input) as Promise<
+        ApplicationOperationResult<CatalogApplicationRegistrationData>
       >,
-    register: (input: RegisterApplicationInput) =>
-      ipcRenderer.invoke(IPC_CHANNELS.applications.register, input) as Promise<
-        ApplicationOperationResult<ApplicationMutationData>
+    registerCustomApplication: (input: RegisterCustomApplicationInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.applications.registerCustomApplication, input) as Promise<
+        ApplicationOperationResult<CustomApplicationRegistrationData>
       >,
     list: (input: ApplicationListInput) =>
       ipcRenderer.invoke(IPC_CHANNELS.applications.list, input) as Promise<
