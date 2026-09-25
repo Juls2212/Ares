@@ -29,6 +29,8 @@ describe("particle orb state and lifecycle", () => {
     const styles = readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8");
 
     expect(styles).toContain("--accent-rgb");
+    expect(styles).toContain(':root[data-theme="dark"]');
+    expect(styles).toContain("--accent: #2fcbed");
     expect(styles).toContain("background: var(--accent)");
     expect(styles).not.toContain("particle-orb__fallback::before");
   });

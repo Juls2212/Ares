@@ -5,6 +5,7 @@ import { loadCalendarData } from "../src/renderer/features/calendar/calendar-dat
 import {
   createMonthGrid,
   firstSelectedDateForMonth,
+  formatCalendarMonth,
   groupCalendarRecordsByDay,
   monthStartFor,
   nextMonthStartFor,
@@ -81,6 +82,10 @@ describe("calendar date helpers", () => {
 
   it("creates a complete local event query boundary with an explicit offset", () => {
     expect(toLocalDateTimeWithOffset(new Date(2026, 8, 1, 0, 0, 0))).toMatch(/T00:00:00[+-]\d{2}:\d{2}$/);
+  });
+
+  it("formats Spanish month names with natural lowercase casing", () => {
+    expect(formatCalendarMonth(new Date(2026, 8, 1))).toBe("septiembre de 2026");
   });
 });
 
