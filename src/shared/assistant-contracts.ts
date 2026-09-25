@@ -9,6 +9,35 @@ export type AssistantInterpretationState = "READY" | "NEEDS_CLARIFICATION" | "RE
 export type AssistantClarification = { question: string };
 export type AssistantActionDraft = ActionSubmission;
 
+export const ASSISTANT_CURRENT_CONTEXT_TOKEN = "$CURRENT_CONTEXT" as const;
+
+export type AssistantContextKind =
+  | "TASK"
+  | "EVENT"
+  | "REMINDER"
+  | "FILE"
+  | "FOLDER"
+  | "APPLICATION";
+
+export type AssistantContextSelection =
+  | { section: "PLANNER"; kind: "TASK" | "EVENT" | "REMINDER"; id: string }
+  | { section: "FILES"; kind: "FILE" | "FOLDER"; reference: SafeFileReference }
+  | { section: "APPLICATIONS"; kind: "APPLICATION"; alias: string };
+
+export type AssistantContextSetInput = { selection: AssistantContextSelection };
+
+export type AssistantContextData = {
+  status: "SET" | "CLEARED";
+  kind?: AssistantContextKind;
+};
+
+/** Provider-safe view. It intentionally excludes identifiers and references. */
+export type AssistantCurrentContext = {
+  token: typeof ASSISTANT_CURRENT_CONTEXT_TOKEN;
+  kind: AssistantContextKind;
+  label: string;
+};
+
 /** Main-only trusted catalog context; it contains no executable target or database identifier. */
 export type TrustedApplicationReference = {
   displayName: string;
@@ -33,6 +62,7 @@ export type AssistantInterpretationReference = {
   knownApplicationAliases?: string[];
   knownApplications?: TrustedApplicationReference[];
   knownFileReferences?: SafeFileReference[];
+  currentContext?: AssistantCurrentContext;
 };
 
 export const ASSISTANT_ERROR_CODES = {
@@ -46,7 +76,9 @@ export const ASSISTANT_ERROR_CODES = {
   malformed: "ASSISTANT_MALFORMED_OUTPUT",
   rejected: "ASSISTANT_REJECTED",
   busy: "ASSISTANT_BUSY",
-  ipcUnavailable: "ASSISTANT_IPC_UNAVAILABLE"
+  ipcUnavailable: "ASSISTANT_IPC_UNAVAILABLE",
+  contextInvalid: "ASSISTANT_CONTEXT_INVALID",
+  contextUnavailable: "ASSISTANT_CONTEXT_UNAVAILABLE"
 } as const;
 
 export type AssistantErrorCode = (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT_ERROR_CODES];
@@ -56,4 +88,10 @@ export type AssistantApi = {
   interpret: (
     input: AssistantInterpretRequest
   ) => Promise<AssistantOperationResult<AssistantInterpretation>>;
+  context: {
+    set: (
+      input: AssistantContextSetInput
+    ) => Promise<AssistantOperationResult<AssistantContextData>>;
+    clear: () => Promise<AssistantOperationResult<AssistantContextData>>;
+  };
 };
