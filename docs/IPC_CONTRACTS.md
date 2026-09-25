@@ -68,14 +68,16 @@ The catalog API exposes only safe registration management through serializable `
 
 | API method | IPC channel | Main delegation |
 | --- | --- | --- |
-| `applications.registerChrome` | `applications:register-chrome` | Main-owned native picker and fixed Chrome registration service |
-| `applications.register` | `applications:register` | Singleton application catalog service |
+| `applications.registerCatalogApplication` | `applications:register-catalog-application` | Main-owned native picker and fixed application catalog registration service |
+| `applications.registerCustomApplication` | `applications:register-custom-application` | Main-owned picker and confirmation for one user-named executable |
 | `applications.list` | `applications:list` | Singleton application catalog service |
 | `applications.update` | `applications:update` | Singleton application catalog service |
 
 Opening an application is intentionally absent from `window.ares.applications`. It remains available only through the supervised action boundary, using `actions.propose({ action: "OPEN_APPLICATION", input: { alias } })`.
 
-`applications.registerChrome()` accepts no renderer input. It opens one Electron Main native file picker, accepts only a canonical regular file named `chrome.exe`, and registers the fixed public name `Google Chrome`, alias `chrome`, Windows platform, and enabled state. Cancellation writes nothing. Its safe result contains only a status and, when applicable, the existing public application record; it never contains a selected or executable path. It is an idempotent technical setup path, not a generic picker or launcher.
+`applications.registerCatalogApplication({ application })` accepts only one closed catalog key: `GOOGLE_CHROME`, `VISUAL_STUDIO_CODE`, `VISUAL_STUDIO`, or `SPOTIFY`. Electron Main opens the native picker and accepts only a canonical regular file with the matching expected filename (`chrome.exe`, `Code.exe`, `devenv.exe`, or `Spotify.exe`, case-insensitively). It stores only the matching fixed public display name, alias, Windows platform, and enabled state. Cancellation writes nothing. The safe result contains only a status, catalog key, and, when applicable, an existing public application record; it never contains a selected or executable path. It is an idempotent technical setup path, not a generic picker or launcher.
+
+`applications.registerCustomApplication({ displayName })` accepts only a validated public display name. Electron Main derives a deterministic alias, rejects existing display-name or alias conflicts, opens a native `.exe` picker, canonicalizes the selection, verifies a regular executable file, and asks for Main-native confirmation using only the public name and executable basename. Any cancellation writes nothing. Its result contains a safe status only: no path, basename, alias, record identifier, or filesystem detail. Opening a custom application remains exclusively under the existing supervised `OPEN_APPLICATION` action.
 
 ## Planned API groups
 
@@ -83,7 +85,7 @@ Opening an application is intentionally absent from `window.ares.applications`. 
 | --- | --- |
 | `window.ares.planner` | Implemented as documented above. Categories, tasks, events, reminders, and local-day/local-week schedules use explicit typed methods only. |
 | `window.ares.files` | No direct file API is exposed. `SEARCH_FILES`, `CREATE_FOLDER`, `RENAME_FILE`, `RENAME_FOLDER`, `MOVE_FILE`, and `ORGANIZE_FILES` are submitted only through `window.ares.actions.propose` using typed root-relative inputs and controlled action results. Search is Level 1; each mutation and organization plan is Level 2 and requires the existing proposal-correlated confirmation. `ORGANIZE_FILES` returns a Main-generated preview and executes only its stored plan. Results expose no absolute or canonical paths, content, or filesystem details. |
-| `window.ares.applications` | Implemented safe catalog management only: the dedicated input-free `registerChrome`, plus the existing `register`, `list`, and `update` methods. Opening remains exclusively under `window.ares.actions.propose` with the alias-only `OPEN_APPLICATION` action. |
+| `window.ares.applications` | Implemented safe catalog management only: the closed-input `registerCatalogApplication`, display-name-only `registerCustomApplication`, plus existing safe `list` and `update` methods. Opening remains exclusively under `window.ares.actions.propose` with the alias-only `OPEN_APPLICATION` action. |
 | `window.ares.actions` | Implemented as documented above. Only `propose`, `confirm`, `cancel`, and terminal `history.list` are exposed. Level 1 may proceed to execution; Level 2 returns `AWAITING_CONFIRMATION`. |
 | `window.ares.assistant` | Implemented with only `interpret({ text })`. It returns safe, validated drafts or controlled clarification, rejection, or unavailable data. It never executes an action; each draft requires a separate explicit `actions.propose` request and Level 2 still requires separate visible confirmation. |
 | `window.ares.voice` | Receive one bounded command-audio payload for provider transcription only after manual capture or a local wake-word activation; request Main-owned Spanish synthesis; expose typed voice state; and support immediate mute or disable behavior. Planned responsibilities include wake-word preference, activation notification, bounded capture state, permission/device errors, `transcribe(audioPayload)`, `synthesize(spanishText)`, `getState`, `mute`, and `stopSpeaking` only if required by the later-approved playback mechanism. Renderer-local browser capture is not a privileged `window.ares` method, and no unrestricted continuous-audio channel is exposed. |
