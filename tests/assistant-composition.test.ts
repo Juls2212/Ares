@@ -29,6 +29,35 @@ const chromeRecord: ApplicationRecord = {
   updatedAt: "2026-09-20T00:00:00.000Z"
 };
 
+const catalogRecords: ApplicationRecord[] = [
+  chromeRecord,
+  {
+    ...chromeRecord,
+    id: "550e8400-e29b-41d4-a716-446655440001",
+    name: "Visual Studio Code",
+    aliases: [{ ...chromeRecord.aliases[0], applicationId: "550e8400-e29b-41d4-a716-446655440001", alias: "vscode" }]
+  },
+  {
+    ...chromeRecord,
+    id: "550e8400-e29b-41d4-a716-446655440002",
+    name: "Visual Studio",
+    aliases: [{ ...chromeRecord.aliases[0], applicationId: "550e8400-e29b-41d4-a716-446655440002", alias: "visualstudio" }]
+  },
+  {
+    ...chromeRecord,
+    id: "550e8400-e29b-41d4-a716-446655440003",
+    name: "Spotify",
+    aliases: [{ ...chromeRecord.aliases[0], applicationId: "550e8400-e29b-41d4-a716-446655440003", alias: "spotify" }]
+  }
+];
+
+const customRecord: ApplicationRecord = {
+  ...chromeRecord,
+  id: "550e8400-e29b-41d4-a716-446655440004",
+  name: "Example App",
+  aliases: [{ ...chromeRecord.aliases[0], applicationId: "550e8400-e29b-41d4-a716-446655440004", alias: "example-app" }]
+};
+
 const applicationServiceFor = (items: ApplicationRecord[] = []) => ({
   listApplications: vi.fn(async () => ({ ok: true as const, data: { items, total: items.length } }))
 }) as unknown as Pick<ApplicationService, "listApplications">;
@@ -93,7 +122,7 @@ describe("assistant interpretation composition", () => {
 
   it("supplies only enabled public display-name and alias references to the Main interpreter", async () => {
     const interpret = vi.fn(async () => readyResult);
-    const listApplications = vi.fn(async () => ({ ok: true as const, data: { items: [chromeRecord], total: 1 } }));
+    const listApplications = vi.fn(async () => ({ ok: true as const, data: { items: [...catalogRecords, customRecord], total: 5 } }));
     const service = createAssistantInterpretationService({
       getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
       getApplicationService: () => ({ listApplications } as unknown as Pick<ApplicationService, "listApplications">)
@@ -104,8 +133,14 @@ describe("assistant interpretation composition", () => {
     expect(interpret).toHaveBeenCalledWith(
       { instruction: "Abre Google Chrome" },
       {
-        knownApplicationAliases: ["chrome"],
-        knownApplications: [{ displayName: "Google Chrome", alias: "chrome" }]
+        knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"],
+        knownApplications: [
+          { displayName: "Google Chrome", alias: "chrome" },
+          { displayName: "Visual Studio Code", alias: "vscode" },
+          { displayName: "Visual Studio", alias: "visualstudio" },
+          { displayName: "Spotify", alias: "spotify" },
+          { displayName: "Example App", alias: "example-app" }
+        ]
       }
     );
     expect(JSON.stringify(interpret.mock.calls)).not.toContain("executablePath");
