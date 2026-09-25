@@ -28,6 +28,7 @@ import { createGlobalVoiceShortcutController } from "../features/voice/global-vo
 import { createManualVoiceRecorder, type ManualVoiceRecorder } from "../features/voice/manual-voice-recorder";
 import { type DraftActionState } from "../features/assistant/interpretation-result";
 import { UtilityPanel } from "../features/settings/utility-panel";
+import { useThemePreference } from "../features/settings/use-theme-preference";
 import { AresView } from "../views/ares-view";
 import { CalendarView } from "../views/calendar-view";
 
@@ -43,6 +44,7 @@ const getInterpretationMessage = (result: AssistantOperationResult<AssistantInte
   result.ok ? result.data : { state: "UNAVAILABLE", summary: result.error.userMessage, drafts: [], clarifications: [] };
 
 export const App = () => {
+  const { theme, toggleTheme } = useThemePreference();
   const [viewState, setViewState] = useState<ViewState>({ kind: "LOADING" });
   const [destination, setDestination] = useState<Destination>("ARES");
   const [utilityOpen, setUtilityOpen] = useState(false);
@@ -264,10 +266,12 @@ export const App = () => {
       onRegisterCatalogApplication={() => void registerCatalogApplication()}
       onRegisterCustomApplication={() => void registerCustomApplication()}
       onSaveVoicePreferences={() => void updateVoicePreferences()}
+      onToggleTheme={toggleTheme}
       onVoiceShortcutChange={setSelectedVoiceShortcut}
       onVoiceShortcutEnabledChange={setVoiceShortcutEnabled}
       selectedCatalogApplication={selectedCatalogApplication}
       selectedVoiceShortcut={selectedVoiceShortcut}
+      theme={theme}
       voicePreferencesMessage={voicePreferencesMessage}
       voiceShortcutEnabled={voiceShortcutEnabled}
       voiceShortcutStatus={voiceShortcutStatus}
