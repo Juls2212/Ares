@@ -6,9 +6,11 @@ import {
 } from "../../shared/application-contracts";
 import {
   getApplicationService,
-  getChromeRegistrationService
+  getCatalogApplicationRegistrationService,
+  getCustomApplicationRegistrationService
 } from "../applications/application-composition";
-import type { ChromeRegistrationService } from "../applications/chrome-registration-service";
+import type { CatalogApplicationRegistrationService } from "../applications/catalog-application-registration-service";
+import type { CustomApplicationRegistrationService } from "../applications/custom-application-registration-service";
 import type { ApplicationService } from "../applications/application-service";
 
 export type ApplicationIpcHandler = (input: unknown) => Promise<OperationResult<unknown>>;
@@ -20,7 +22,8 @@ export type ApplicationIpcHandlerRegistrar = (
 type ApplicationIpcDependencies = {
   registerHandler: ApplicationIpcHandlerRegistrar;
   getService: () => ApplicationService;
-  getChromeRegistrationService: () => ChromeRegistrationService;
+  getCatalogApplicationRegistrationService: () => CatalogApplicationRegistrationService;
+  getCustomApplicationRegistrationService: () => CustomApplicationRegistrationService;
   logError: (message: string) => void;
 };
 
@@ -45,14 +48,26 @@ const createHandler = <T>(
   }
 };
 
-const createChromeRegistrationHandler = (
-  getService: () => ChromeRegistrationService,
+const createCatalogApplicationRegistrationHandler = (
+  getService: () => CatalogApplicationRegistrationService,
   logError: (message: string) => void
-): ApplicationIpcHandler => async () => {
+): ApplicationIpcHandler => async (input) => {
   try {
-    return await getService().registerChrome();
+    return await getService().registerCatalogApplication(input);
   } catch {
-    logError("Chrome registration IPC handler failed.");
+    logError("Catalog application registration IPC handler failed.");
+    return createUnexpectedFailure();
+  }
+};
+
+const createCustomApplicationRegistrationHandler = (
+  getService: () => CustomApplicationRegistrationService,
+  logError: (message: string) => void
+): ApplicationIpcHandler => async (input) => {
+  try {
+    return await getService().registerCustomApplication(input);
+  } catch {
+    logError("Custom application registration IPC handler failed.");
     return createUnexpectedFailure();
   }
 };
@@ -66,18 +81,20 @@ export const createApplicationIpcRegistration = (
     if (registered) return;
 
     dependencies.registerHandler(
-      IPC_CHANNELS.applications.registerChrome,
-      createChromeRegistrationHandler(dependencies.getChromeRegistrationService, dependencies.logError)
-    );
-
-    dependencies.registerHandler(
-      IPC_CHANNELS.applications.register,
-      createHandler(
-        dependencies.getService,
-        (service, input) => service.registerApplication(input),
+      IPC_CHANNELS.applications.registerCatalogApplication,
+      createCatalogApplicationRegistrationHandler(
+        dependencies.getCatalogApplicationRegistrationService,
         dependencies.logError
       )
     );
+    dependencies.registerHandler(
+      IPC_CHANNELS.applications.registerCustomApplication,
+      createCustomApplicationRegistrationHandler(
+        dependencies.getCustomApplicationRegistrationService,
+        dependencies.logError
+      )
+    );
+
     dependencies.registerHandler(
       IPC_CHANNELS.applications.list,
       createHandler(
@@ -106,7 +123,8 @@ const registerElectronHandler: ApplicationIpcHandlerRegistrar = (channel, handle
 export const registerApplicationIpcHandlers = createApplicationIpcRegistration({
   registerHandler: registerElectronHandler,
   getService: getApplicationService,
-  getChromeRegistrationService,
+  getCatalogApplicationRegistrationService,
+  getCustomApplicationRegistrationService,
   logError: (message) => {
     console.error(message);
   }

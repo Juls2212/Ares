@@ -52,8 +52,8 @@ describe("preload surface", () => {
       history: { list: "actions:history:list" }
     });
     expect(IPC_CHANNELS.applications).toEqual({
-      registerChrome: "applications:register-chrome",
-      register: "applications:register",
+      registerCatalogApplication: "applications:register-catalog-application",
+      registerCustomApplication: "applications:register-custom-application",
       list: "applications:list",
       update: "applications:update"
     });
@@ -100,13 +100,18 @@ describe("preload surface", () => {
 
   it("exposes exactly the approved application catalog methods", () => {
     expect(preloadSource).toContain("applications: {");
-    expect(preloadSource).toContain("registerChrome:");
-    expect(preloadSource).toContain("register:");
+    expect(preloadSource).toContain("registerCatalogApplication:");
+    expect(preloadSource).toContain("registerCustomApplication:");
     expect(preloadSource).toContain("list:");
     expect(preloadSource).toContain("update:");
     expect(preloadSource).not.toContain("open:");
     expect(preloadSource).not.toContain("launch:");
     expect(preloadSource).not.toContain("resolveAlias:");
+    expect(preloadSource).not.toContain("executablePath:");
+    expect(preloadSource).not.toContain("showOpenDialog:");
+    expect(preloadSource).not.toContain("registerChrome:");
+    expect(preloadSource).not.toContain("applications:register,");
+    expect(preloadSource).not.toContain("showMessageBox:");
     expect(preloadSource).not.toContain("executablePath:");
     expect(preloadSource).not.toContain("showOpenDialog:");
   });

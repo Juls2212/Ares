@@ -1,20 +1,32 @@
 import { createApplicationService, type ApplicationService } from "./application-service";
 import {
-  createChromeRegistrationService,
-  type ChromeRegistrationService
-} from "./chrome-registration-service";
+  createCatalogApplicationRegistrationService,
+  type CatalogApplicationRegistrationService
+} from "./catalog-application-registration-service";
+import {
+  createCustomApplicationRegistrationService,
+  type CustomApplicationRegistrationService
+} from "./custom-application-registration-service";
 
 let applicationService: ApplicationService | undefined;
-let chromeRegistrationService: ChromeRegistrationService | undefined;
+let catalogApplicationRegistrationService: CatalogApplicationRegistrationService | undefined;
+let customApplicationRegistrationService: CustomApplicationRegistrationService | undefined;
 
 export const getApplicationService = (): ApplicationService => {
   applicationService ??= createApplicationService();
   return applicationService;
 };
 
-export const getChromeRegistrationService = (): ChromeRegistrationService => {
-  chromeRegistrationService ??= createChromeRegistrationService({
+export const getCatalogApplicationRegistrationService = (): CatalogApplicationRegistrationService => {
+  catalogApplicationRegistrationService ??= createCatalogApplicationRegistrationService({
     applicationService: getApplicationService()
   });
-  return chromeRegistrationService;
+  return catalogApplicationRegistrationService;
+};
+
+export const getCustomApplicationRegistrationService = (): CustomApplicationRegistrationService => {
+  customApplicationRegistrationService ??= createCustomApplicationRegistrationService({
+    applicationService: getApplicationService()
+  });
+  return customApplicationRegistrationService;
 };

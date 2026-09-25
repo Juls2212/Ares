@@ -87,8 +87,8 @@ export const IPC_CHANNELS = {
     }
   },
   applications: {
-    registerChrome: "applications:register-chrome",
-    register: "applications:register",
+    registerCatalogApplication: "applications:register-catalog-application",
+    registerCustomApplication: "applications:register-custom-application",
     list: "applications:list",
     update: "applications:update"
   },

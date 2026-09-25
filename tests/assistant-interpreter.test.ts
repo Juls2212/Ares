@@ -113,6 +113,22 @@ describe("Main-only assistant interpreter", () => {
     expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
   });
 
+  it("accepts only a trusted custom application alias and rejects a model-invented alias", async () => {
+    const customReference = { ...reference, knownApplicationAliases: ["example-app"] };
+    const trusted = await interpreterFor(
+      ready([{ action: "OPEN_APPLICATION", input: { alias: "example-app" } }])
+    ).interpret({ instruction: "Abre Example App" }, customReference);
+    const invented = await interpreterFor(
+      ready([{ action: "OPEN_APPLICATION", input: { alias: "example-app-admin" } }])
+    ).interpret({ instruction: "Abre Example App" }, customReference);
+
+    expect(trusted).toMatchObject({
+      ok: true,
+      data: { state: "READY", drafts: [{ action: "OPEN_APPLICATION", input: { alias: "example-app" } }] }
+    });
+    expect(invented).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
+  });
+
   it("prepares a trusted YouTube-in-Chrome draft from the exact structured-provider shape", async () => {
     const result = await interpreterFor(
       {

@@ -11,7 +11,12 @@ import type {
   AwaitingActionConfirmation
 } from "../shared/action-contracts";
 import type { SystemCapabilities, SystemStatusData } from "../shared/contracts";
-import type { ChromeRegistrationData } from "../shared/application-contracts";
+import {
+  REGISTERABLE_CATALOG_APPLICATIONS,
+  type CatalogApplicationRegistrationData,
+  type CustomApplicationRegistrationData,
+  type RegisterableCatalogApplication
+} from "../shared/application-contracts";
 
 type ViewState =
   | { kind: "LOADING" }
@@ -55,6 +60,13 @@ const actionLabels: Record<ActionSubmission["action"], string> = {
   ORGANIZE_FILES: "Organizar archivos"
 };
 
+const catalogApplicationLabels: Record<RegisterableCatalogApplication, string> = {
+  GOOGLE_CHROME: "Google Chrome",
+  VISUAL_STUDIO_CODE: "Visual Studio Code",
+  VISUAL_STUDIO: "Visual Studio",
+  SPOTIFY: "Spotify"
+};
+
 const isAwaitingConfirmation = (
   result: ActionLifecycleResult
 ): result is AwaitingActionConfirmation => "lifecycleState" in result;
@@ -77,8 +89,13 @@ export const App = () => {
   const [interpretation, setInterpretation] = useState<AssistantInterpretation>();
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
-  const [isRegisteringChrome, setIsRegisteringChrome] = useState(false);
-  const [chromeRegistrationMessage, setChromeRegistrationMessage] = useState<string>();
+  const [selectedCatalogApplication, setSelectedCatalogApplication] =
+    useState<RegisterableCatalogApplication>("GOOGLE_CHROME");
+  const [isRegisteringCatalogApplication, setIsRegisteringCatalogApplication] = useState(false);
+  const [catalogRegistrationMessage, setCatalogRegistrationMessage] = useState<string>();
+  const [customDisplayName, setCustomDisplayName] = useState("");
+  const [isRegisteringCustomApplication, setIsRegisteringCustomApplication] = useState(false);
+  const [customRegistrationMessage, setCustomRegistrationMessage] = useState<string>();
 
   useEffect(() => {
     const loadTechnicalStatus = async (): Promise<void> => {
@@ -127,28 +144,58 @@ export const App = () => {
     setDraftStates((current) => ({ ...current, [index]: state }));
   };
 
-  const registerChrome = async (): Promise<void> => {
-    if (isRegisteringChrome) return;
-    setIsRegisteringChrome(true);
-    setChromeRegistrationMessage(undefined);
+  const registerCatalogApplication = async (): Promise<void> => {
+    if (isRegisteringCatalogApplication) return;
+    setIsRegisteringCatalogApplication(true);
+    setCatalogRegistrationMessage(undefined);
     try {
-      const result = await window.ares.applications.registerChrome();
+      const result = await window.ares.applications.registerCatalogApplication({
+        application: selectedCatalogApplication
+      });
       if (!result.ok) {
-        setChromeRegistrationMessage(result.error.userMessage);
+        setCatalogRegistrationMessage(result.error.userMessage);
         return;
       }
-      const data: ChromeRegistrationData = result.data;
-      setChromeRegistrationMessage(
+      const data: CatalogApplicationRegistrationData = result.data;
+      const applicationLabel = catalogApplicationLabels[data.application];
+      setCatalogRegistrationMessage(
         data.status === "CANCELLED"
-          ? "La selección de Google Chrome se canceló."
+          ? `La selección de ${applicationLabel} se canceló.`
           : data.status === "ALREADY_REGISTERED"
-            ? "Google Chrome ya está registrado."
-            : "Google Chrome se registró correctamente."
+            ? `${applicationLabel} ya está registrado.`
+            : `${applicationLabel} se registró correctamente.`
       );
     } catch {
-      setChromeRegistrationMessage("No se pudo registrar Google Chrome.");
+      setCatalogRegistrationMessage("No se pudo registrar la aplicación.");
     } finally {
-      setIsRegisteringChrome(false);
+      setIsRegisteringCatalogApplication(false);
+    }
+  };
+
+  const registerCustomApplication = async (): Promise<void> => {
+    if (isRegisteringCustomApplication) return;
+    setIsRegisteringCustomApplication(true);
+    setCustomRegistrationMessage(undefined);
+    try {
+      const result = await window.ares.applications.registerCustomApplication({
+        displayName: customDisplayName
+      });
+      if (!result.ok) {
+        setCustomRegistrationMessage(result.error.userMessage);
+        return;
+      }
+      const data: CustomApplicationRegistrationData = result.data;
+      setCustomRegistrationMessage(
+        data.status === "CANCELLED"
+          ? "El registro de la aplicación se canceló."
+          : data.status === "ALREADY_REGISTERED"
+            ? "La aplicación ya está registrada."
+            : "La aplicación se registró correctamente."
+      );
+    } catch {
+      setCustomRegistrationMessage("No se pudo registrar la aplicación.");
+    } finally {
+      setIsRegisteringCustomApplication(false);
     }
   };
 
@@ -225,18 +272,53 @@ export const App = () => {
           </div>
         )}
 
-        <section aria-label="Registro técnico de Google Chrome" className="space-y-2 border-t pt-4 text-left">
-          <h2 className="text-lg font-medium">Registro técnico del navegador</h2>
-          <p className="text-sm text-slate-600">Selecciona manualmente el archivo chrome.exe instalado.</p>
+        <section aria-label="Registro técnico de aplicaciones" className="space-y-2 border-t pt-4 text-left">
+          <h2 className="text-lg font-medium">Registro técnico de aplicaciones</h2>
+          <p className="text-sm text-slate-600">Selecciona el ejecutable instalado de una aplicación aprobada.</p>
+          <label className="block text-sm" htmlFor="catalog-application">Aplicación</label>
+          <select
+            className="border p-1 text-sm"
+            disabled={isRegisteringCatalogApplication}
+            id="catalog-application"
+            onChange={(event) => setSelectedCatalogApplication(event.target.value as RegisterableCatalogApplication)}
+            value={selectedCatalogApplication}
+          >
+            {REGISTERABLE_CATALOG_APPLICATIONS.map((application) => (
+              <option key={application} value={application}>{catalogApplicationLabels[application]}</option>
+            ))}
+          </select>
           <button
             className="border px-3 py-1 text-sm"
-            disabled={isRegisteringChrome}
-            onClick={() => void registerChrome()}
+            disabled={isRegisteringCatalogApplication}
+            onClick={() => void registerCatalogApplication()}
             type="button"
           >
-            {isRegisteringChrome ? "Registrando..." : "Registrar Google Chrome"}
+            {isRegisteringCatalogApplication ? "Registrando..." : "Registrar aplicación"}
           </button>
-          {chromeRegistrationMessage && <p aria-live="polite" className="text-sm">{chromeRegistrationMessage}</p>}
+          {catalogRegistrationMessage && <p aria-live="polite" className="text-sm">{catalogRegistrationMessage}</p>}
+        </section>
+
+        <section aria-label="Registro técnico de aplicación personalizada" className="space-y-2 border-t pt-4 text-left">
+          <h2 className="text-lg font-medium">Registrar aplicación personalizada</h2>
+          <p className="text-sm text-slate-600">Indica un nombre y selecciona su archivo ejecutable.</p>
+          <label className="block text-sm" htmlFor="custom-application-name">Nombre de la aplicación</label>
+          <input
+            className="border p-1 text-sm"
+            disabled={isRegisteringCustomApplication}
+            id="custom-application-name"
+            onChange={(event) => setCustomDisplayName(event.target.value)}
+            type="text"
+            value={customDisplayName}
+          />
+          <button
+            className="border px-3 py-1 text-sm"
+            disabled={isRegisteringCustomApplication}
+            onClick={() => void registerCustomApplication()}
+            type="button"
+          >
+            {isRegisteringCustomApplication ? "Registrando..." : "Registrar aplicación personalizada"}
+          </button>
+          {customRegistrationMessage && <p aria-live="polite" className="text-sm">{customRegistrationMessage}</p>}
         </section>
 
         <section aria-label="Interpretación técnica" className="space-y-3 border-t pt-4 text-left">
