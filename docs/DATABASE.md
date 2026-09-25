@@ -62,7 +62,7 @@ The `reminders_single_association_check` constraint enforces that `task_id` and 
 
 History metadata is optional and must not store credentials, file contents, raw audio, arbitrary prompts, stack traces, or unnecessarily detailed personal content. The future history service decides which safe metadata is recorded.
 
-`settings` stores an internal lower-snake-case English key, JSONB preference value, and timestamps. It may later hold non-secret preferences such as appearance mode, voice-output enabled, wake-word enabled, selected device names, or notification preferences. It must not store plaintext OpenAI credentials, database passwords, captured audio, or other secrets. Future services validate each known key and value.
+`settings` stores an internal lower-snake-case English key, JSONB preference value, and timestamps. The implemented `voice_preferences` key contains only a validated `{ enabled: boolean, shortcut }` global-shortcut preference; `shortcut` is one of three fixed approved accelerator strings. It must not store plaintext OpenAI credentials, database passwords, captured audio, device identifiers, or other secrets. Main validates every known key and value before it is read or written.
 
 ### Event notification deliveries
 
