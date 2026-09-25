@@ -61,7 +61,12 @@ describe("preload surface", () => {
       getTodaySummary: "dashboard:get-today-summary"
     });
     expect(IPC_CHANNELS.assistant).toEqual({
-      interpret: "assistant:interpret"
+      interpret: "assistant:interpret",
+      context: { set: "assistant:context:set", clear: "assistant:context:clear" }
+    });
+    expect(IPC_CHANNELS.voice).toEqual({ transcribe: "voice:transcribe", globalShortcutActivated: "voice:global-shortcut-activated" });
+    expect(IPC_CHANNELS.settings).toEqual({
+      voice: { get: "settings:voice:get", update: "settings:voice:update" }
     });
   });
 
@@ -116,14 +121,39 @@ describe("preload surface", () => {
     expect(preloadSource).not.toContain("showOpenDialog:");
   });
 
-  it("exposes exactly one assistant interpretation method", () => {
+  it("exposes interpretation plus the narrow selection context methods", () => {
     expect(preloadSource).toContain("assistant: {");
     expect(preloadSource).toContain("interpret:");
+    expect(preloadSource).toContain("context: {");
+    expect(preloadSource).toContain("set:");
+    expect(preloadSource).toContain("clear:");
     expect(preloadSource).not.toContain("assistant: {\n    execute:");
     expect(preloadSource).not.toContain("assistant: {\n    propose:");
     expect(preloadSource).not.toContain("assistant: {\n    confirm:");
     expect(preloadSource).not.toContain("OPENAI_API_KEY");
     expect(preloadSource).not.toContain("openai");
+  });
+
+  it("exposes bounded transcription plus only the fixed shortcut subscription", () => {
+    expect(preloadSource).toContain("voice: {");
+    expect(preloadSource).toContain("transcribe:");
+    expect(preloadSource).toContain("onGlobalShortcut:");
+    expect(preloadSource).toContain("removeListener(IPC_CHANNELS.voice.globalShortcutActivated");
+    expect(preloadSource).not.toContain("voice: {\n    start:");
+    expect(preloadSource).not.toContain("getUserMedia:");
+    expect(preloadSource).not.toContain("microphone:");
+    expect(preloadSource.match(/ipcRenderer\.on\(/g)).toHaveLength(1);
+    expect(preloadSource).not.toContain("ipcRenderer.once(");
+  });
+
+  it("exposes only approved voice-preference methods", () => {
+    expect(preloadSource).toContain("settings: {");
+    expect(preloadSource).toContain("voice: {");
+    expect(preloadSource).toContain("get:");
+    expect(preloadSource).toContain("update:");
+    expect(preloadSource).not.toContain("settings: {\n    get:");
+    expect(preloadSource).not.toContain("settings: {\n    write:");
+    expect(preloadSource).not.toContain("settings: {\n    list:");
   });
 
   it("uses the same complete Ares API contract in the renderer declaration", () => {
