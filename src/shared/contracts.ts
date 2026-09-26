@@ -46,6 +46,7 @@ export type AresApi = {
   applications: ApplicationsApi;
   assistant: AssistantApi;
   voice: VoiceApi;
+  speech: import("./speech-contracts").SpeechApi;
   settings: SettingsApi;
 };
 
@@ -64,12 +65,18 @@ export const IPC_CHANNELS = {
       create: "planner:tasks:create",
       list: "planner:tasks:list",
       update: "planner:tasks:update",
-      complete: "planner:tasks:complete"
+      complete: "planner:tasks:complete",
+      requestDeletion: "planner:tasks:request-deletion",
+      confirmDeletion: "planner:tasks:confirm-deletion",
+      cancelDeletion: "planner:tasks:cancel-deletion"
     },
     events: {
       create: "planner:events:create",
       list: "planner:events:list",
-      update: "planner:events:update"
+      update: "planner:events:update",
+      requestDeletion: "planner:events:request-deletion",
+      confirmDeletion: "planner:events:confirm-deletion",
+      cancelDeletion: "planner:events:cancel-deletion"
     },
     reminders: {
       create: "planner:reminders:create",
@@ -108,6 +115,7 @@ export const IPC_CHANNELS = {
     transcribe: "voice:transcribe",
     globalShortcutActivated: "voice:global-shortcut-activated"
   },
+  speech: { speak: "speech:speak" },
   settings: {
     voice: {
       get: "settings:voice:get",
