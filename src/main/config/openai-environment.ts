@@ -7,6 +7,11 @@ export type OpenAiConfiguration = {
   model: string;
 };
 
+export const getOpenAiSpeechConfiguration = (): { apiKey: string } => {
+  dotenv.config({ quiet: true });
+  return { apiKey: requiredValue(process.env, "OPENAI_API_KEY", "speech") };
+};
+
 export type OpenAiTranscriptionConfiguration = {
   apiKey: string;
   transcriptionModel: string;
