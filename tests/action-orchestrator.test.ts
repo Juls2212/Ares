@@ -36,7 +36,7 @@ const historyRecord: ActionHistoryRecord = {
 const createSuccessOutcome = (proposal: ExecutableActionProposal): ActionOutcome => ({
   actionId: proposal.actionId,
   action: proposal.action,
-  riskLevel: ["UPDATE_TASK", "COMPLETE_TASK", "UPDATE_EVENT", "CREATE_FOLDER", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES"].includes(proposal.action) ? 2 : 1,
+  riskLevel: getActionPolicy(proposal.action).riskLevel,
   status: "SUCCEEDED",
   ...(proposal.action === "OPEN_APPLICATION"
     ? { data: { applicationName: "Microsoft Word" } }
@@ -86,6 +86,84 @@ const createOrchestrator = (
 };
 
 describe("action orchestrator", () => {
+  it("binds reinforced event deletion to the exact event and consumes confirmation once", async () => {
+    const { orchestrator, executor, historyService } = createOrchestrator();
+    const eventId = "550e8400-e29b-41d4-a716-446655440000";
+    const otherEventId = "550e8400-e29b-41d4-a716-446655440001";
+    const proposal = await orchestrator.propose({ action: "DELETE_EVENT", input: { eventId } });
+    expect(proposal).toMatchObject({
+      ok: true,
+      data: { action: "DELETE_EVENT", lifecycleState: "AWAITING_CONFIRMATION", riskLevel: 3 }
+    });
+    if (!proposal.ok || !("confirmationId" in proposal.data)) throw new Error("Expected confirmation.");
+    const token = proposal.data.confirmationId;
+    expect(executor.execute).not.toHaveBeenCalled();
+    expect(await orchestrator.confirmEventDeletion(otherEventId, token)).toMatchObject({
+      ok: false, error: { code: "ACTION_CONFIRMATION_UNAVAILABLE" }
+    });
+    expect(executor.execute).not.toHaveBeenCalled();
+    expect(await orchestrator.confirmEventDeletion(eventId, token)).toMatchObject({
+      ok: true, data: { action: "DELETE_EVENT", status: "SUCCEEDED", riskLevel: 3 }
+    });
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    expect(historyService.recordTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      action: "DELETE_EVENT", riskLevel: 3, metadata: { scopeKind: "PLANNER", resultKind: "SUCCEEDED" }
+    }));
+    expect(await orchestrator.confirmEventDeletion(eventId, token)).toMatchObject({
+      ok: false, error: { code: "ACTION_CONFIRMATION_UNAVAILABLE" }
+    });
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects cancelled, unknown, and expired reinforced confirmations without deletion", async () => {
+    const eventId = "550e8400-e29b-41d4-a716-446655440000";
+    const { orchestrator, executor } = createOrchestrator();
+    const requested = await orchestrator.propose({ action: "DELETE_EVENT", input: { eventId } });
+    if (!requested.ok || !("confirmationId" in requested.data)) throw new Error("Expected confirmation.");
+    const token = requested.data.confirmationId;
+    expect(await orchestrator.cancelEventDeletion(eventId, token)).toMatchObject({ ok: true, data: { status: "CANCELLED" } });
+    expect(await orchestrator.confirmEventDeletion(eventId, token)).toMatchObject({ ok: false });
+    expect(await orchestrator.confirmEventDeletion(eventId, identifiers[3])).toMatchObject({ ok: false });
+    expect(executor.execute).not.toHaveBeenCalled();
+
+    let now = new Date("2026-09-17T10:00:00.000Z");
+    const expiringExecutor = createExecutor();
+    const expiring = createActionOrchestrator({
+      executor: expiringExecutor,
+      historyService: createHistoryService(),
+      generateIdentifier: vi.fn().mockReturnValueOnce(identifiers[0]).mockReturnValueOnce(identifiers[1]),
+      now: () => now,
+      logError: vi.fn()
+    });
+    const expiringProposal = await expiring.propose({ action: "DELETE_EVENT", input: { eventId } });
+    if (!expiringProposal.ok || !("confirmationId" in expiringProposal.data)) throw new Error("Expected confirmation.");
+    now = new Date("2026-09-17T10:05:00.000Z");
+    expect(await expiring.confirmEventDeletion(eventId, expiringProposal.data.confirmationId)).toMatchObject({ ok: false });
+    expect(expiringExecutor.execute).not.toHaveBeenCalled();
+  });
+  it("executes a direct folder-creation proposal without a confirmation token", async () => {
+    const { orchestrator, executor } = createOrchestrator();
+    const result = await orchestrator.propose({
+      action: "CREATE_FOLDER",
+      input: { parentDirectory: { rootId: "DOCUMENTS", relativePath: "Work" }, name: "Archive" }
+    });
+
+    expect(result).toMatchObject({ ok: true, data: { status: "SUCCEEDED", riskLevel: 1 } });
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("never dispatches a deferred destructive action or accepts an unissued confirmation", async () => {
+    const { orchestrator, executor } = createOrchestrator();
+    const proposal = await orchestrator.propose({ action: "DELETE_FILE", input: { fileId: identifiers[0] } });
+
+    expect(proposal).toMatchObject({ ok: false, error: { code: "ACTION_DEFERRED" } });
+    expect(await orchestrator.confirm(identifiers[0])).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_CONFIRMATION_UNAVAILABLE" }
+    });
+    expect(executor.execute).not.toHaveBeenCalled();
+  });
+
   it("executes SEARCH_FILES as a Level 1 action and records only safe aggregate metadata", async () => {
     const executor: ActionExecutor = {
       execute: vi.fn(async (proposal: ExecutableActionProposal): Promise<ActionOutcome> => ({
@@ -271,8 +349,8 @@ describe("action orchestrator", () => {
   it("cancels a pending file mutation without execution and records the cancellation", async () => {
     const { orchestrator, executor, historyService } = createOrchestrator();
     const proposed = await orchestrator.propose({
-      action: "CREATE_FOLDER",
-      input: { parentDirectory: { rootId: "DOCUMENTS", relativePath: "Work" }, name: "Archive" }
+      action: "RENAME_FILE",
+      input: { source: { rootId: "DOCUMENTS", relativePath: "Work\\Report.txt" }, newName: "Summary.txt" }
     });
     if (!proposed.ok || !("confirmationId" in proposed.data)) {
       throw new Error("Expected an awaiting confirmation result.");
@@ -283,7 +361,7 @@ describe("action orchestrator", () => {
     expect(result).toMatchObject({ ok: true, data: { status: "CANCELLED" } });
     expect(executor.execute).not.toHaveBeenCalled();
     expect(historyService.recordTerminal).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "CREATE_FOLDER", status: "CANCELLED", metadata: { scopeKind: "FILES", resultKind: "CANCELLED" } })
+      expect.objectContaining({ action: "RENAME_FILE", status: "CANCELLED", metadata: { scopeKind: "FILES", resultKind: "CANCELLED" } })
     );
   });
 
