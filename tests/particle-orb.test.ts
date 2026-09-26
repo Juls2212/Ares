@@ -16,6 +16,14 @@ describe("particle orb state and lifecycle", () => {
 
     expect(source).toContain("particle-orb__fallback");
     expect(source).toContain("fallbackDots.map");
+    expect(source).toContain("particle-orb__hud");
+    expect(source).toContain("particle-orb__ring--outer");
+    expect(source).toContain("particle-orb__orbit--one");
+    expect(source).toContain("particle-orb__ticks");
+    expect(source).toContain("particle-orb__direction");
+    expect(source).toContain("particle-orb__trace");
+    expect(source).toContain("particle-orb__scan");
+    expect(source).toContain('d="M17 17A46 46');
   });
 
   it("uses a dense layered particle field rather than one sparse point population", () => {
@@ -46,6 +54,19 @@ describe("particle orb state and lifecycle", () => {
     expect(particleOrbAllowsMotion(false, false)).toBe(true);
     expect(particleOrbAllowsMotion(true, false)).toBe(false);
     expect(particleOrbAllowsMotion(false, true)).toBe(false);
+  });
+
+  it("pauses decorative HUD motion when the document is hidden", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/renderer/components/particle-orb.tsx"), "utf8");
+    const styles = readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8");
+
+    expect(source).toContain('data-paused={isDocumentHidden || undefined}');
+    expect(source).toContain("setIsDocumentHidden(document.hidden)");
+    expect(styles).toContain('.particle-orb[data-paused="true"]');
+    expect(styles).toContain(".particle-orb--recording .particle-orb__ring--outer");
+    expect(styles).toContain(".particle-orb--transcribing .particle-orb__scan");
+    expect(styles).toContain(".particle-orb--interpreting .particle-orb__scan");
+    expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
   it("cancels the pending animation frame during cleanup", () => {
