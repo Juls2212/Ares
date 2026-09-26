@@ -202,6 +202,30 @@ afterAll(async () => {
 });
 
 describe("planner database integration", () => {
+  it("deletes one real event while retaining its linked reminder and unrelated events", async () => {
+    const target = trackEvent(getSuccessData(await service.createEvent({
+      title: `Delete target ${testSuffix}`,
+      startAt: "2026-09-17T15:00:00Z"
+    })).record);
+    const unrelated = trackEvent(getSuccessData(await service.createEvent({
+      title: `Keep event ${testSuffix}`,
+      startAt: "2026-09-18T15:00:00Z"
+    })).record);
+    const linkedReminder = trackReminder(getSuccessData(await service.createReminder({
+      title: `Keep reminder ${testSuffix}`,
+      remindAt: "2026-09-17T14:00:00Z",
+      eventId: target.id
+    })).record);
+
+    expect(getSuccessData(await service.deleteEvent({ eventId: target.id }))).toEqual({ deleted: true });
+    expect(getFailureCode(await service.deleteEvent({ eventId: target.id }))).toBe("PLANNER_NOT_FOUND");
+    expect(await repositories.findEventById(target.id)).toBeUndefined();
+    expect(await repositories.findEventById(unrelated.id)).toBeDefined();
+    const [reminderAfterDeletion] = await database.select().from(reminders).where(eq(reminders.id, linkedReminder.id));
+    expect(reminderAfterDeletion).toBeDefined();
+    expect(reminderAfterDeletion.eventId).toBeNull();
+  });
+
   it("claims each event start atomically once, supports a changed start instant, and ignores old starts", async () => {
     const deliveryNow = new Date();
     const firstStart = new Date(deliveryNow.getTime() - 60_000);
