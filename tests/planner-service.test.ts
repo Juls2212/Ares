@@ -89,6 +89,8 @@ const createRepositories = (): PlannerRepositories => ({
   findEventById: vi.fn(async () => event),
   listEvents: vi.fn(async () => [event]),
   updateEvent: vi.fn(async () => event),
+  deleteEvent: vi.fn(async () => true),
+  deleteTask: vi.fn(async () => true),
   createReminder: vi.fn(async () => reminder),
   findReminderById: vi.fn(async () => reminder),
   listReminders: vi.fn(async () => [reminder])
@@ -102,6 +104,33 @@ const expectFailureCode = <T>(result: PlannerOperationResult<T>, code: string): 
 };
 
 describe("planner service", () => {
+  it("deletes only an existing UUID event and returns a controlled not-found result for races", async () => {
+    const repositories = createRepositories();
+    const service = createPlannerService({ repositories, clock, logError: vi.fn() });
+
+    await expect(service.deleteEvent({ eventId })).resolves.toEqual({ ok: true, data: { deleted: true } });
+    expect(repositories.findEventById).toHaveBeenCalledWith(eventId);
+    expect(repositories.deleteEvent).toHaveBeenCalledWith({ eventId });
+
+    vi.mocked(repositories.deleteEvent).mockResolvedValueOnce(false);
+    expectFailureCode(await service.deleteEvent({ eventId }), "PLANNER_NOT_FOUND");
+    vi.mocked(repositories.findEventById).mockResolvedValueOnce(undefined);
+    expectFailureCode(await service.deleteEvent({ eventId }), "PLANNER_NOT_FOUND");
+    expect(repositories.deleteEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects malformed event deletion and redacts persistence failures", async () => {
+    const repositories = createRepositories();
+    const service = createPlannerService({ repositories, clock, logError: vi.fn() });
+    expectFailureCode(await service.deleteEvent({ eventId: "not-a-uuid" }), "PLANNER_IDENTIFIER_INVALID");
+    expectFailureCode(await service.deleteEvent({ eventId, extra: "secret" }), "PLANNER_UNKNOWN_FIELD");
+    expect(repositories.deleteEvent).not.toHaveBeenCalled();
+
+    vi.mocked(repositories.deleteEvent).mockRejectedValueOnce(new Error("secret database detail"));
+    const result = await service.deleteEvent({ eventId });
+    expectFailureCode(result, "PLANNER_DATABASE_UNAVAILABLE");
+    expect(JSON.stringify(result)).not.toContain("secret database detail");
+  });
   it("creates a category after validation and returns a serializable mutation result", async () => {
     const repositories = createRepositories();
     const service = createPlannerService({ repositories, clock, logError: vi.fn() });
@@ -271,5 +300,17 @@ describe("planner service", () => {
     expect(JSON.stringify(result)).not.toContain(password);
     expect(logError).toHaveBeenCalledWith("Planner persistence operation failed.");
     expect(JSON.stringify(logError.mock.calls)).not.toContain(password);
+  });
+  it("validates task deletion, checks existence, and deletes only the requested task", async () => {
+    const repositories = createRepositories();
+    const service = createPlannerService({ repositories, clock, logError: vi.fn() });
+    expectFailureCode(await service.deleteTask({ taskId: "invalid" }), "PLANNER_IDENTIFIER_INVALID");
+    expectFailureCode(await service.deleteTask({ taskId: task.id, extra: true }), "PLANNER_UNKNOWN_FIELD");
+    expect(repositories.deleteTask).not.toHaveBeenCalled();
+    vi.mocked(repositories.findTaskById).mockResolvedValueOnce(undefined);
+    expectFailureCode(await service.deleteTask({ taskId: task.id }), "PLANNER_NOT_FOUND");
+    expect(repositories.deleteTask).not.toHaveBeenCalled();
+    expect(await service.deleteTask({ taskId: task.id })).toEqual({ ok: true, data: { deleted: true } });
+    expect(repositories.deleteTask).toHaveBeenCalledWith({ taskId: task.id });
   });
 });
