@@ -6,6 +6,8 @@ import {
 } from "../../shared/planner-contracts";
 import { getPlannerService } from "../planner/planner-composition";
 import type { PlannerService } from "../planner/planner-service";
+import { getEventDeletionService, type EventDeletionService } from "../planner/event-deletion-service";
+import { getTaskDeletionService, type TaskDeletionService } from "../planner/task-deletion-service";
 
 export type PlannerIpcHandler = (input: unknown) => Promise<OperationResult<unknown>>;
 export type PlannerIpcHandlerRegistrar = (
@@ -16,6 +18,8 @@ export type PlannerIpcHandlerRegistrar = (
 type PlannerIpcDependencies = {
   registerHandler: PlannerIpcHandlerRegistrar;
   getService: () => PlannerService;
+  getDeletionService?: () => EventDeletionService;
+  getTaskDeletionService?: () => TaskDeletionService;
   logError: (message: string) => void;
 };
 
@@ -42,6 +46,24 @@ const createHandler = <T>(
 
 export const createPlannerIpcRegistration = (dependencies: PlannerIpcDependencies): (() => void) => {
   let registered = false;
+  const taskDeletionHandler = (operation: (service: TaskDeletionService, input: unknown) => Promise<OperationResult<unknown>>): PlannerIpcHandler => async (input) => {
+    try {
+      return await operation((dependencies.getTaskDeletionService ?? getTaskDeletionService)(), input);
+    } catch {
+      dependencies.logError("Task deletion IPC handler failed.");
+      return createUnexpectedFailure();
+    }
+  };
+  const deletionHandler = (
+    operation: (service: EventDeletionService, input: unknown) => Promise<OperationResult<unknown>>
+  ): PlannerIpcHandler => async (input) => {
+    try {
+      return await operation((dependencies.getDeletionService ?? getEventDeletionService)(), input);
+    } catch {
+      dependencies.logError("Event deletion IPC handler failed.");
+      return createUnexpectedFailure();
+    }
+  };
 
   return (): void => {
     if (registered) {
@@ -80,6 +102,9 @@ export const createPlannerIpcRegistration = (dependencies: PlannerIpcDependencie
       IPC_CHANNELS.planner.events.create,
       createHandler(dependencies.getService, (service, input) => service.createEvent(input), dependencies.logError)
     );
+    dependencies.registerHandler(IPC_CHANNELS.planner.tasks.requestDeletion, taskDeletionHandler((service, input) => service.request(input)));
+    dependencies.registerHandler(IPC_CHANNELS.planner.tasks.confirmDeletion, taskDeletionHandler((service, input) => service.confirm(input)));
+    dependencies.registerHandler(IPC_CHANNELS.planner.tasks.cancelDeletion, taskDeletionHandler((service, input) => service.cancel(input)));
     dependencies.registerHandler(
       IPC_CHANNELS.planner.events.list,
       createHandler(dependencies.getService, (service, input) => service.listEvents(input), dependencies.logError)
@@ -87,6 +112,18 @@ export const createPlannerIpcRegistration = (dependencies: PlannerIpcDependencie
     dependencies.registerHandler(
       IPC_CHANNELS.planner.events.update,
       createHandler(dependencies.getService, (service, input) => service.updateEvent(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.events.requestDeletion,
+      deletionHandler((service, input) => service.request(input))
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.events.confirmDeletion,
+      deletionHandler((service, input) => service.confirm(input))
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.events.cancelDeletion,
+      deletionHandler((service, input) => service.cancel(input))
     );
     dependencies.registerHandler(
       IPC_CHANNELS.planner.reminders.create,
