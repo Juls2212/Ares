@@ -9,6 +9,8 @@ import {
 } from "../src/main/ipc/register-planner-ipc";
 import { IPC_CHANNELS, type OperationResult } from "../src/shared/contracts";
 import type { PlannerService } from "../src/main/planner/planner-service";
+import type { EventDeletionService } from "../src/main/planner/event-deletion-service";
+import type { TaskDeletionService } from "../src/main/planner/task-deletion-service";
 
 type ServiceMethod = keyof PlannerService;
 
@@ -26,6 +28,8 @@ const createService = (): { service: PlannerService; methods: Record<ServiceMeth
     createEvent: vi.fn(async () => successResult),
     listEvents: vi.fn(async () => successResult),
     updateEvent: vi.fn(async () => successResult),
+    deleteEvent: vi.fn(async () => successResult),
+    deleteTask: vi.fn(async () => successResult),
     createReminder: vi.fn(async () => successResult),
     listReminders: vi.fn(async () => successResult),
     getTodaySchedule: vi.fn(async () => successResult),
@@ -57,6 +61,19 @@ const channelDelegations: ReadonlyArray<{
 ];
 
 describe("planner IPC registration", () => {
+  it("delegates task deletion only through explicit reinforced-confirmation operations", async () => {
+    const handlers = new Map<string, PlannerIpcHandler>();
+    const { service, methods } = createService();
+    const deletion = { request: vi.fn(async () => successResult), confirm: vi.fn(async () => successResult), cancel: vi.fn(async () => successResult) };
+    createPlannerIpcRegistration({ registerHandler: (channel, handler) => handlers.set(channel, handler), getService: () => service, getTaskDeletionService: () => deletion as TaskDeletionService, logError: vi.fn() })();
+    const input = { taskId: "task-id", confirmationId: "opaque-token" };
+    for (const [channel, method] of [[IPC_CHANNELS.planner.tasks.requestDeletion, "request"], [IPC_CHANNELS.planner.tasks.confirmDeletion, "confirm"], [IPC_CHANNELS.planner.tasks.cancelDeletion, "cancel"]] as const) {
+      expect(await handlers.get(channel)!(input)).toEqual(successResult);
+      expect(deletion[method]).toHaveBeenCalledWith(input);
+    }
+    expect(methods.deleteTask).not.toHaveBeenCalled();
+    expect(handlers.has("planner:tasks:delete")).toBe(false);
+  });
   it("registers every approved channel exactly once", () => {
     const handlers = new Map<string, PlannerIpcHandler>();
     const registerHandler: PlannerIpcHandlerRegistrar = (channel, handler) => {
@@ -72,8 +89,45 @@ describe("planner IPC registration", () => {
     register();
     register();
 
-    expect([...handlers.keys()]).toEqual(channelDelegations.map(({ channel }) => channel));
-    expect(handlers.size).toBe(14);
+    expect([...handlers.keys()]).toEqual([
+      ...channelDelegations.slice(0, 8).map(({ channel }) => channel),
+      IPC_CHANNELS.planner.tasks.requestDeletion,
+      IPC_CHANNELS.planner.tasks.confirmDeletion,
+      IPC_CHANNELS.planner.tasks.cancelDeletion,
+      ...channelDelegations.slice(8, 10).map(({ channel }) => channel),
+      IPC_CHANNELS.planner.events.requestDeletion,
+      IPC_CHANNELS.planner.events.confirmDeletion,
+      IPC_CHANNELS.planner.events.cancelDeletion,
+      ...channelDelegations.slice(10).map(({ channel }) => channel)
+    ]);
+    expect(handlers.size).toBe(20);
+    expect(handlers.has("planner:events:delete")).toBe(false);
+  });
+
+  it("delegates only narrow event deletion request, confirmation, and cancellation", async () => {
+    const handlers = new Map<string, PlannerIpcHandler>();
+    const { service, methods } = createService();
+    const deletion = {
+      request: vi.fn(async () => successResult),
+      confirm: vi.fn(async () => successResult),
+      cancel: vi.fn(async () => successResult)
+    } as unknown as EventDeletionService;
+    createPlannerIpcRegistration({
+      registerHandler: (channel, handler) => handlers.set(channel, handler),
+      getService: () => service,
+      getDeletionService: () => deletion,
+      logError: vi.fn()
+    })();
+    const input = { eventId: "event-id", confirmationId: "opaque-token" };
+    for (const [channel, method] of [
+      [IPC_CHANNELS.planner.events.requestDeletion, "request"],
+      [IPC_CHANNELS.planner.events.confirmDeletion, "confirm"],
+      [IPC_CHANNELS.planner.events.cancelDeletion, "cancel"]
+    ] as const) {
+      expect(await handlers.get(channel)?.(input)).toEqual(successResult);
+      expect(deletion[method]).toHaveBeenCalledWith(input);
+    }
+    expect(methods.deleteEvent).not.toHaveBeenCalled();
   });
 
   it.each(channelDelegations)("delegates $channel to $method", async ({ channel, method, input }) => {
