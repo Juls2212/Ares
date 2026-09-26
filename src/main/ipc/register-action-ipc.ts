@@ -10,6 +10,8 @@ import {
 } from "../actions/action-composition";
 import type { ActionHistoryService } from "../actions/action-history-service";
 import type { ActionOrchestrator } from "../actions/action-orchestrator";
+import { speechService } from "../voice/speech-composition";
+import { composeFinalResponse } from "../voice/final-response-composer";
 
 export type ActionIpcHandler = (input: unknown) => Promise<OperationResult<unknown>>;
 export type ActionIpcHandlerRegistrar = (channel: string, handler: ActionIpcHandler) => void;
@@ -68,8 +70,26 @@ export const createActionIpcRegistration = (dependencies: ActionIpcDependencies)
   };
 };
 
+const speechWindows = new WeakSet<Electron.WebContents>();
 const registerElectronHandler: ActionIpcHandlerRegistrar = (channel, handler): void => {
-  ipcMain.handle(channel, (_event, input: unknown) => handler(input));
+  ipcMain.handle(channel, async (event, input: unknown) => {
+    if (!speechWindows.has(event.sender)) {
+      const windowId = event.sender.id;
+      speechWindows.add(event.sender);
+      event.sender.once("destroyed", () => speechService.clear(windowId));
+    }
+    speechService.clear(event.sender.id);
+    const result = await handler(input);
+    if (result.ok && result.data && typeof result.data === "object" && "status" in result.data) {
+      const outcome = result.data as import("../../shared/action-contracts").ActionOutcome;
+      const text = composeFinalResponse(outcome);
+      if (text) {
+        outcome.userSummary = text;
+        outcome.spokenResponse = speechService.remember(event.sender.id, text);
+      }
+    }
+    return result;
+  });
 };
 
 export const registerActionIpcHandlers = createActionIpcRegistration({
