@@ -22,6 +22,16 @@ import type {
   CreateEventInput,
   CreateReminderInput,
   CreateTaskInput,
+  DeleteEventData,
+  DeleteTaskData,
+  DeleteTaskInput,
+  TaskDeletionCancellationData,
+  TaskDeletionConfirmationInput,
+  TaskDeletionRequestData,
+  DeleteEventInput,
+  EventDeletionCancellationData,
+  EventDeletionConfirmationInput,
+  EventDeletionRequestData,
   EventListInput,
   EventRecord,
   GetTodayScheduleInput,
@@ -120,7 +130,13 @@ const aresApi = {
       complete: (input: CompleteTaskInput) =>
         ipcRenderer.invoke(IPC_CHANNELS.planner.tasks.complete, input) as Promise<
           PlannerOperationResult<PlannerMutationData<TaskRecord>>
-        >
+        >,
+      requestDeletion: (input: DeleteTaskInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.tasks.requestDeletion, input) as Promise<PlannerOperationResult<TaskDeletionRequestData>>,
+      confirmDeletion: (input: TaskDeletionConfirmationInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.tasks.confirmDeletion, input) as Promise<PlannerOperationResult<DeleteTaskData>>,
+      cancelDeletion: (input: TaskDeletionConfirmationInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.tasks.cancelDeletion, input) as Promise<PlannerOperationResult<TaskDeletionCancellationData>>
     },
     events: {
       create: (input: CreateEventInput) =>
@@ -134,6 +150,18 @@ const aresApi = {
       update: (input: UpdateEventInput) =>
         ipcRenderer.invoke(IPC_CHANNELS.planner.events.update, input) as Promise<
           PlannerOperationResult<PlannerMutationData<EventRecord>>
+        >,
+      requestDeletion: (input: DeleteEventInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.events.requestDeletion, input) as Promise<
+          PlannerOperationResult<EventDeletionRequestData>
+        >,
+      confirmDeletion: (input: EventDeletionConfirmationInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.events.confirmDeletion, input) as Promise<
+          PlannerOperationResult<DeleteEventData>
+        >,
+      cancelDeletion: (input: EventDeletionConfirmationInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.events.cancelDeletion, input) as Promise<
+          PlannerOperationResult<EventDeletionCancellationData>
         >
     },
     reminders: {
@@ -223,6 +251,9 @@ const aresApi = {
         ipcRenderer.removeListener(IPC_CHANNELS.voice.globalShortcutActivated, listener);
       };
     }
+  },
+  speech: {
+    speak: (input: { responseId: string }) => ipcRenderer.invoke(IPC_CHANNELS.speech.speak, input) as Promise<OperationResult<import("../shared/speech-contracts").SpeechAudio>>
   },
   settings: {
     voice: {
