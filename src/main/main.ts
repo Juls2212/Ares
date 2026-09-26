@@ -8,6 +8,7 @@ import { registerPlannerIpcHandlers } from "./ipc/register-planner-ipc";
 import { registerSettingsIpcHandlers } from "./ipc/register-settings-ipc";
 import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
 import { registerVoiceIpcHandlers } from "./ipc/register-voice-ipc";
+import { registerSpeechIpcHandlers } from "./ipc/register-speech-ipc";
 import { getReminderDeliveryScheduler } from "./reminders/reminder-composition";
 import { registerReminderDeliveryShutdown } from "./reminders/register-reminder-delivery-lifecycle";
 import {
@@ -105,6 +106,10 @@ const createMainWindow = async (): Promise<void> => {
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     await createdWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    await new Promise<void>((resolve) => {
+      createdWebContents.once("did-finish-load", resolve);
+      createdWebContents.reloadIgnoringCache();
+    });
     return;
   }
 
@@ -120,6 +125,7 @@ app.whenReady().then(async () => {
   registerActionIpcHandlers();
   registerAssistantIpcHandlers();
   registerVoiceIpcHandlers();
+  registerSpeechIpcHandlers();
   const voicePreferencesService = configureVoicePreferencesService(globalVoiceShortcutLifecycle);
   registerSettingsIpcHandlers();
   registerApplicationIpcHandlers();
