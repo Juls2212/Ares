@@ -9,6 +9,8 @@ import {
   type CreateEventInput,
   type CreateReminderInput,
   type CreateTaskInput,
+  type DeleteEventInput,
+  type DeleteTaskInput,
   type EventListInput,
   type GetTodayScheduleInput,
   type GetWeekScheduleInput,
@@ -50,6 +52,7 @@ const validationMessages: Record<PlannerErrorCode, string> = {
   PLANNER_CONFLICT: "Ya existe un elemento con esos datos.",
   PLANNER_DATABASE_UNAVAILABLE: "No se pudo acceder a los datos del planificador.",
   PLANNER_TASK_ALREADY_COMPLETED: "La tarea ya está completada.",
+  PLANNER_CONFIRMATION_UNAVAILABLE: "La confirmación del evento ya no está disponible.",
   PLANNER_IPC_UNAVAILABLE: "No se pudo procesar la solicitud del planificador."
 };
 
@@ -656,6 +659,22 @@ export const validateUpdateEventInput = (
     ...(categoryId.data === undefined ? {} : { categoryId: categoryId.data }),
     ...(location.data === undefined ? {} : { location: location.data })
   });
+};
+
+export const validateDeleteEventInput = (
+  input: unknown
+): PlannerOperationResult<DeleteEventInput> => {
+  const objectResult = validateObject(input, ["eventId"]);
+  if (!objectResult.ok) return objectResult;
+  const eventId = validateUuid(objectResult.data.eventId);
+  return eventId.ok ? createSuccess({ eventId: eventId.data }) : eventId;
+};
+
+export const validateDeleteTaskInput = (input: unknown): PlannerOperationResult<DeleteTaskInput> => {
+  const objectResult = validateObject(input, ["taskId"]);
+  if (!objectResult.ok) return objectResult;
+  const taskId = validateUuid(objectResult.data.taskId);
+  return taskId.ok ? createSuccess({ taskId: taskId.data }) : taskId;
 };
 
 export const validateEventListInput = (
