@@ -32,11 +32,24 @@ describe("Electron security baseline", () => {
     );
   });
 
+  it("performs one development-only cache-bypassing reload after loading the Vite URL", () => {
+    const developmentLoadIndex = mainSource.indexOf("await createdWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)");
+    const cacheBypassReloadIndex = mainSource.indexOf("createdWebContents.reloadIgnoringCache()");
+    const packagedLoadIndex = mainSource.indexOf("await createdWindow.loadFile(");
+
+    expect(developmentLoadIndex).toBeGreaterThan(-1);
+    expect(cacheBypassReloadIndex).toBeGreaterThan(developmentLoadIndex);
+    expect(packagedLoadIndex).toBeGreaterThan(cacheBypassReloadIndex);
+    expect(mainSource).not.toContain("session.defaultSession.clearCache()");
+  });
+
   it("defines a restrictive environment-aware CSP without unsafe eval", () => {
     expect(rendererConfigSource).toContain("default-src 'self'");
     expect(rendererConfigSource).toContain("const scriptSources = isDevelopment");
     expect(rendererConfigSource).toContain("script-src ${scriptSources}");
     expect(rendererConfigSource).toContain("object-src 'none'");
+    expect(rendererConfigSource).toContain("media-src blob:");
+    expect(rendererConfigSource).not.toContain("media-src *");
     expect(rendererConfigSource).toContain("base-uri 'self'");
     expect(rendererConfigSource).toContain("frame-src 'none'");
     expect(rendererConfigSource).toContain('"Content-Security-Policy"');

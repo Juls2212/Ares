@@ -29,7 +29,9 @@ const successSummaries: Record<PlannerActionProposal["action"], string> = {
   UPDATE_EVENT: "Se actualizó el evento.",
   CREATE_REMINDER: "Se creó el recordatorio.",
   GET_TODAY_SCHEDULE: "Se consultó la agenda de hoy.",
-  GET_WEEK_SCHEDULE: "Se consultó la agenda de la semana."
+  GET_WEEK_SCHEDULE: "Se consultó la agenda de la semana.",
+  DELETE_EVENT: "Se eliminó el evento.",
+  DELETE_TASK: "Se eliminó la tarea."
 };
 
 const failureStatus = (errorCode: string): TerminalActionStatus =>
@@ -100,6 +102,10 @@ export const createPlannerActionExecutor = (
             return toOutcome(proposal, policy, await getService().getTodaySchedule(proposal.input));
           case "GET_WEEK_SCHEDULE":
             return toOutcome(proposal, policy, await getService().getWeekSchedule(proposal.input));
+          case "DELETE_EVENT":
+            return toOutcome(proposal, policy, await getService().deleteEvent(proposal.input));
+          case "DELETE_TASK":
+            return toOutcome(proposal, policy, await getService().deleteTask(proposal.input));
         }
       } catch {
         dependencies.logError("Planner action execution failed.");

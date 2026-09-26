@@ -30,7 +30,9 @@ import {
   validateGetTodayScheduleInput,
   validateGetWeekScheduleInput,
   validateUpdateEventInput,
-  validateUpdateTaskInput
+  validateUpdateTaskInput,
+  validateDeleteEventInput,
+  validateEventListInput
 } from "../planner/planner-validation";
 import {
   ASSISTANT_PROVIDER_TIMEOUT_MS,
@@ -44,6 +46,8 @@ import {
 } from "./planner-temporal-resolution";
 import { isUnsafeAssistantDraftText, isUnsafeAssistantInstruction } from "./assistant-safety";
 import type { ResolvedAssistantContext } from "./assistant-context-service";
+import { normalizeEventTitle, type ResolveEventDeletion } from "./assistant-event-reference";
+import { getAssistantProviderFailureCategory } from "./provider-failure-category";
 
 const MAX_INSTRUCTION_LENGTH = 2_000;
 const MAX_DRAFTS = 8;
@@ -59,6 +63,7 @@ export type AssistantInterpreterDependencies = {
   timeZone?: () => string;
   timeoutMs?: number;
   logError?: (message: string) => void;
+  resolveEventDeletion?: ResolveEventDeletion;
 };
 
 const success = (data: AssistantInterpretation): AssistantOperationResult<AssistantInterpretation> => ({
@@ -197,7 +202,7 @@ const resolveCurrentContextToken = (
   if (action === "UPDATE_TASK" || action === "COMPLETE_TASK") {
     return selection.section === "PLANNER" ? replace("taskId", "TASK", selection.id) : draftClarification("Selecciona una tarea válida primero.");
   }
-  if (action === "UPDATE_EVENT") {
+  if (action === "UPDATE_EVENT" || action === "DELETE_EVENT") {
     return selection.section === "PLANNER" ? replace("eventId", "EVENT", selection.id) : draftClarification("Selecciona un evento válido primero.");
   }
   if (action === "CREATE_REMINDER") {
@@ -243,12 +248,14 @@ const plannerClarification = (
   return draftClarification("La tarea necesita una fecha u hora válidas que no estén en el pasado.");
 };
 
-const validateDraft = (
+const validateDraft = async (
   candidate: unknown,
   reference: AssistantInterpretationReference,
   temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
-  currentContext?: ResolvedAssistantContext
-): DraftValidationResult => {
+  currentContext?: ResolvedAssistantContext,
+  resolveEventDeletion?: ResolveEventDeletion,
+  instruction = ""
+): Promise<DraftValidationResult> => {
   if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input"]) || typeof candidate.action !== "string") {
     return null;
   }
@@ -261,6 +268,31 @@ const validateDraft = (
   if (!tokenResolution) return null;
   const { input } = tokenResolution;
   switch (action) {
+    case "DELETE_EVENT": {
+      if (tokenResolution.usedToken) {
+        const validated = validateDeleteEventInput(input);
+        return validated.ok ? { action, input: validated.data } : null;
+      }
+      if (!isRecord(input) || !hasOnlyKeys(input, ["eventTitle", "startAt"])) {
+        return draftClarification("Indica el título del evento o selecciona un evento válido. Su eliminación requiere confirmación.");
+      }
+      if (!isSafeText(input.eventTitle, 200) || isUnsafeAssistantDraftText(input.eventTitle)) {
+        return draftClarification("¿Cuál es el título del evento que quieres eliminar? Necesitará confirmación.");
+      }
+      if (!normalizeEventTitle(instruction).includes(normalizeEventTitle(input.eventTitle))) return null;
+      const range = validateEventListInput(input.startAt === undefined ? {} : { startAt: input.startAt });
+      if (!range.ok) return draftClarification("Indica la fecha y hora exactas del evento para distinguirlo.");
+      if (range.data.startAt && !instruction.includes(range.data.startAt)) {
+        return draftClarification("Indica la fecha y hora exactas con zona horaria o selecciona el evento. No puedo suponer cuál quieres eliminar.");
+      }
+      if (!resolveEventDeletion) return draftClarification("Selecciona un evento válido o indica su título exacto. Su eliminación requiere confirmación.");
+      const resolution = await resolveEventDeletion({ title: input.eventTitle.trim(), ...range.data });
+      if (resolution.state === "AMBIGUOUS") return draftClarification("Hay varios eventos con ese título. Indica su fecha y hora exactas o selecciona uno en el contexto.");
+      if (resolution.state === "MISSING") return draftClarification("No encontré ese evento. Indica su título exacto o selecciona un evento existente.");
+      if (resolution.state !== "RESOLVED") return draftClarification("No se pudieron consultar los eventos. Inténtalo de nuevo antes de solicitar la eliminación.");
+      const validated = validateDeleteEventInput({ eventId: resolution.eventId });
+      return validated.ok ? { action, input: validated.data } : null;
+    }
     case "CREATE_TASK": {
       const temporal = temporalResolver.resolve(action as PlannerTemporalAction, input);
       if (!temporal.ok) return plannerClarification(action, temporal.reason);
@@ -410,12 +442,14 @@ const parseDraftInput = (value: unknown): unknown => {
   }
 };
 
-const parseProviderOutput = (
+const parseProviderOutput = async (
   raw: unknown,
   reference: AssistantInterpretationReference,
   temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
-  currentContext?: ResolvedAssistantContext
-): AssistantOperationResult<AssistantInterpretation> => {
+  currentContext?: ResolvedAssistantContext,
+  resolveEventDeletion?: ResolveEventDeletion,
+  instruction = ""
+): Promise<AssistantOperationResult<AssistantInterpretation>> => {
   if (typeof raw !== "string") {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
   }
@@ -453,17 +487,21 @@ const parseProviderOutput = (
   const drafts: ActionSubmission[] = [];
   for (const [index, candidate] of parsed.drafts.entries()) {
     if (!isRecord(candidate)) return rejection(ASSISTANT_ERROR_CODES.malformed);
-    const draft = validateDraft(
+    const draft = await validateDraft(
       { ...candidate, input: parseDraftInput(candidate.input) },
       reference,
       temporalResolver,
-      currentContext
+      currentContext,
+      resolveEventDeletion,
+      instruction
     );
     if (isDraftClarification(draft)) return clarification(`El borrador ${index + 1}: ${draft.question}`);
     if (!draft) return rejection(ASSISTANT_ERROR_CODES.rejected);
     drafts.push(draft);
   }
-  return success({ state: "READY", summary: READY_SUMMARY, drafts, clarifications: [] });
+  return success({ state: "READY", summary: drafts.some((draft) => draft.action === "DELETE_EVENT")
+    ? "Preparé la eliminación del evento. Revisa la propuesta: requiere confirmación explícita y no se puede deshacer."
+    : READY_SUMMARY, drafts, clarifications: [] });
 };
 
 const isRateLimited = (error: unknown): boolean =>
@@ -472,6 +510,9 @@ const isRateLimited = (error: unknown): boolean =>
 const getProviderFailureCode = (
   error: unknown
 ): (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT_ERROR_CODES] => {
+  const category = getAssistantProviderFailureCategory(error);
+  if (category === "TIMEOUT") return ASSISTANT_ERROR_CODES.timeout;
+  if (category === "MODEL_ACCESS" || category === "MODEL_REQUEST_INCOMPATIBLE") return ASSISTANT_ERROR_CODES.modelAccess;
   if (!isRecord(error)) return ASSISTANT_ERROR_CODES.provider;
   if (error.status === 401) return ASSISTANT_ERROR_CODES.authentication;
   if (error.status === 403 || error.status === 404) return ASSISTANT_ERROR_CODES.modelAccess;
@@ -543,6 +584,7 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
         });
       } catch (error) {
         if (timedOut) return reportUnavailable(ASSISTANT_ERROR_CODES.timeout);
+        logError(`Assistant provider failure category [${getAssistantProviderFailureCategory(error)}].`);
         return reportUnavailable(getProviderFailureCode(error));
       } finally {
         clearTimeout(timeout);
@@ -553,7 +595,7 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           now: () => new Date(reference.now),
           timeZone: () => reference.timeZone
         });
-        const result = parseProviderOutput(output, reference, temporalResolver, currentContext);
+        const result = await parseProviderOutput(output, reference, temporalResolver, currentContext, dependencies.resolveEventDeletion, normalizedInput.instruction);
         if (result.ok && result.data.errorCode === ASSISTANT_ERROR_CODES.malformed) {
           logError(`Assistant interpretation failed [${ASSISTANT_ERROR_CODES.malformed}].`);
         }

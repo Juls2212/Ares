@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { type FormEvent } from "react";
 
 import type { AssistantInterpretation } from "../../shared/assistant-contracts";
 import type { ActionSubmission, AwaitingActionConfirmation } from "../../shared/action-contracts";
@@ -7,8 +7,12 @@ import { voiceShortcutStatusLabels } from "../app/app-state";
 import { ParticleOrb, type ParticleOrbState } from "../components/particle-orb";
 import { InterpretationResult, type DraftActionState } from "../features/assistant/interpretation-result";
 import { VoiceCommandControls } from "../features/voice/voice-command-controls";
+import { ResponseSpeechControls } from "../features/voice/response-speech-controls";
 
 type AresViewProperties = {
+  spokenResponse?: import("../../shared/speech-contracts").SpokenResponse;
+  automaticSpeech: boolean;
+  onAutomaticSpeechChange: (enabled: boolean) => void;
   technicalState: "LOADING" | "SUCCESS" | "ERROR";
   technicalMessage?: string;
   voiceLabel: string;
@@ -30,6 +34,9 @@ type AresViewProperties = {
 };
 
 export const AresView = ({
+  spokenResponse,
+  automaticSpeech,
+  onAutomaticSpeechChange,
   technicalState,
   technicalMessage,
   voiceLabel,
@@ -48,11 +55,12 @@ export const AresView = ({
   onCancelRecording,
   onPropose,
   onResolveConfirmation
-}: AresViewProperties) => <section aria-label="Espacio de comandos Ares" className="command-layout">
+}: AresViewProperties) => {
+  return <section aria-label="Espacio de comandos Ares" className="command-layout">
   <aside className="support-panel support-panel--left">
     <p className="eyebrow">Sesión actual</p>
     <dl className="status-list">
-      <div><dt>Texto</dt><dd>Listo para interpretar</dd></div>
+      <div><dt>Texto</dt><dd>{isInterpreting ? "Interpretando" : "Listo para interpretar"}</dd></div>
       <div><dt>Voz</dt><dd>{voiceLabel}</dd></div>
       <div><dt>Atajo global</dt><dd>{voiceShortcutStatus ? voiceShortcutStatusLabels[voiceShortcutStatus] : "Verificando"}</dd></div>
       <div><dt>Confirmación</dt><dd>Cuando se requiere</dd></div>
@@ -64,21 +72,29 @@ export const AresView = ({
   </aside>
 
   <section className="command-core">
-    <ParticleOrb label={voiceLabel} state={orbState} />
     <div className="command-heading">
       <p className="eyebrow">Centro de mando personal</p>
       <h1>Ares</h1>
       <p>Escribe o dicta una intención. Tú decides cada siguiente paso.</p>
     </div>
-    <section aria-label="Comando asistido" className="command-input-area">
-      <VoiceCommandControls message={voiceMessage} onCancel={onCancelRecording} onStart={onStartRecording} onStop={onStopRecording} state={voiceState} />
-      <form onSubmit={onInterpret}>
+    <div className="command-instrument">
+      <div className="command-core__visual">
+        <ParticleOrb label={voiceLabel} state={orbState} />
+      </div>
+      <span aria-hidden="true" className="command-instrument__axis" />
+      <span aria-hidden="true" className="command-instrument__anchor" />
+    </div>
+    <section aria-label="Comando asistido" className="command-input-area command-entry-zone command-dock">
+      <p className="eyebrow command-dock__label">Entrada de comando</p>
+      <VoiceCommandControls disabled={isInterpreting} processingInstruction={isInterpreting || voiceMessage === "Procesando instrucción…"} message={voiceMessage} onCancel={onCancelRecording} onStart={onStartRecording} onStop={onStopRecording} state={voiceState} />
+      <form className="command-entry-form" onSubmit={onInterpret}>
         <label className="sr-only" htmlFor="assistant-instruction">Instrucción para Ares</label>
         <textarea disabled={isInterpreting} id="assistant-instruction" onChange={(event) => onInstructionChange(event.target.value)} placeholder="Escribe una instrucción para Ares" value={instruction} />
-        <button className="interpret-button" disabled={isInterpreting} type="submit">{isInterpreting ? "Interpretando..." : "Interpretar"}</button>
+        <button className="interpret-button" disabled={isInterpreting || voiceState !== "IDLE"} type="submit">{isInterpreting ? "Interpretando..." : "Interpretar"}</button>
       </form>
+      <InterpretationResult draftStates={draftStates} interpretation={interpretation} onPropose={onPropose} onResolveConfirmation={onResolveConfirmation} />
+      <ResponseSpeechControls automatic={automaticSpeech} onAutomaticChange={onAutomaticSpeechChange} blocked={isInterpreting || voiceState !== "IDLE" || Object.values(draftStates).some((state) => state.busy || state.confirmation)} response={spokenResponse} />
     </section>
-    <InterpretationResult draftStates={draftStates} interpretation={interpretation} onPropose={onPropose} onResolveConfirmation={onResolveConfirmation} />
   </section>
 
   <aside className="support-panel support-panel--right">
@@ -91,3 +107,4 @@ export const AresView = ({
     <p className="support-note">Ares no realiza acciones por sí solo.</p>
   </aside>
 </section>;
+};

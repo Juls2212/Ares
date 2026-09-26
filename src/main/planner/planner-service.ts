@@ -7,6 +7,8 @@ import {
   type CreateEventInput,
   type CreateReminderInput,
   type CreateTaskInput,
+  type DeleteEventData,
+  type DeleteTaskData,
   type EventListInput,
   type EventRecord,
   type GetTodayScheduleInput,
@@ -32,6 +34,8 @@ import {
   validateCreateEventInput,
   validateCreateReminderInput,
   validateCreateTaskInput,
+  validateDeleteEventInput,
+  validateDeleteTaskInput,
   validateEventListInput,
   validateGetTodayScheduleInput,
   validateGetWeekScheduleInput,
@@ -68,6 +72,8 @@ export type PlannerService = {
   createEvent: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<EventRecord>>>;
   listEvents: (input: unknown) => Promise<PlannerOperationResult<PlannerListData<EventRecord>>>;
   updateEvent: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<EventRecord>>>;
+  deleteEvent: (input: unknown) => Promise<PlannerOperationResult<DeleteEventData>>;
+  deleteTask: (input: unknown) => Promise<PlannerOperationResult<DeleteTaskData>>;
   createReminder: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<ReminderRecord>>>;
   listReminders: (input: unknown) => Promise<PlannerOperationResult<PlannerListData<ReminderRecord>>>;
   getTodaySchedule: (input: unknown) => Promise<PlannerOperationResult<TodayScheduleData>>;
@@ -104,6 +110,7 @@ const serviceMessages: Record<PlannerErrorCode, string> = {
   PLANNER_CONFLICT: "Ya existe un elemento con esos datos.",
   PLANNER_DATABASE_UNAVAILABLE: "No se pudo acceder a los datos del planificador.",
   PLANNER_TASK_ALREADY_COMPLETED: "La tarea ya está completada.",
+  PLANNER_CONFIRMATION_UNAVAILABLE: "La confirmación del evento ya no está disponible.",
   PLANNER_IPC_UNAVAILABLE: "No se pudo procesar la solicitud del planificador."
 };
 
@@ -334,6 +341,31 @@ export const createPlannerService = (
         return record
           ? createSuccess({ record })
           : createFailure(PLANNER_ERROR_CODES.notFound);
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    deleteEvent: async (input) => {
+      const validation = validateDeleteEventInput(input);
+      if (!validation.ok) return validation;
+      try {
+        if (!(await dependencies.repositories.findEventById(validation.data.eventId))) {
+          return createFailure(PLANNER_ERROR_CODES.notFound);
+        }
+        return await dependencies.repositories.deleteEvent(validation.data)
+          ? createSuccess({ deleted: true })
+          : createFailure(PLANNER_ERROR_CODES.notFound);
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    deleteTask: async (input) => {
+      const validation = validateDeleteTaskInput(input);
+      if (!validation.ok) return validation;
+      try {
+        if (!(await dependencies.repositories.findTaskById(validation.data.taskId))) return createFailure(PLANNER_ERROR_CODES.notFound);
+        return await dependencies.repositories.deleteTask(validation.data)
+          ? createSuccess({ deleted: true }) : createFailure(PLANNER_ERROR_CODES.notFound);
       } catch (error) {
         return mapPersistenceFailure(error);
       }

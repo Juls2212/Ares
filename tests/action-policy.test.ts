@@ -1,37 +1,55 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTION_KINDS,
   ACTION_NAMES,
-  type ActionName,
+  type ActionApprovalClass,
+  type ActionKind,
   type ActionRiskLevel
 } from "../src/shared/action-contracts";
 import {
   evaluateActionProposal,
   getActionPolicy,
+  lookupActionPolicy,
   requiresActionConfirmation
 } from "../src/main/actions/action-policy";
 
-const expectedRiskLevels: Record<ActionName, ActionRiskLevel> = {
+const expectedRiskLevels: Record<ActionKind, ActionRiskLevel> = {
   OPEN_APPLICATION: 1,
   OPEN_WEB_PAGE: 1,
-  CREATE_FOLDER: 2,
+  CREATE_FOLDER: 1,
   RENAME_FILE: 2,
   RENAME_FOLDER: 2,
   MOVE_FILE: 2,
   SEARCH_FILES: 1,
   ORGANIZE_FILES: 2,
   CREATE_TASK: 1,
-  UPDATE_TASK: 2,
-  COMPLETE_TASK: 2,
+  UPDATE_TASK: 1,
+  COMPLETE_TASK: 1,
   CREATE_EVENT: 1,
-  UPDATE_EVENT: 2,
+  UPDATE_EVENT: 1,
   CREATE_REMINDER: 1,
   GET_TODAY_SCHEDULE: 1,
-  GET_WEEK_SCHEDULE: 1
+  GET_WEEK_SCHEDULE: 1,
+  OPEN_REGISTERED_APPLICATION: 1,
+  OPEN_REGISTERED_PAGE: 1,
+  MOVE_FOLDER: 2,
+  UPDATE_REGISTERED_APPLICATION: 2,
+  UPDATE_REGISTERED_PAGE: 2,
+  DELETE_EVENT: 3,
+  DELETE_TASK: 3,
+  DELETE_FILE: 3,
+  DELETE_FOLDER: 3
+};
+
+const approvalByRisk: Record<ActionRiskLevel, ActionApprovalClass> = {
+  1: "DIRECT",
+  2: "CONFIRMATION_REQUIRED",
+  3: "REINFORCED_CONFIRMATION_REQUIRED"
 };
 
 describe("action policy", () => {
   it("contains the complete approved MVP action catalog", () => {
-    expect(ACTION_NAMES).toEqual([
+    expect(ACTION_KINDS).toEqual([
       "OPEN_APPLICATION",
       "OPEN_WEB_PAGE",
       "CREATE_FOLDER",
@@ -47,15 +65,26 @@ describe("action policy", () => {
       "UPDATE_EVENT",
       "CREATE_REMINDER",
       "GET_TODAY_SCHEDULE",
-      "GET_WEEK_SCHEDULE"
+      "GET_WEEK_SCHEDULE",
+      "DELETE_EVENT",
+      "DELETE_TASK",
+      "OPEN_REGISTERED_APPLICATION",
+      "OPEN_REGISTERED_PAGE",
+      "MOVE_FOLDER",
+      "UPDATE_REGISTERED_APPLICATION",
+      "UPDATE_REGISTERED_PAGE",
+      "DELETE_FILE",
+      "DELETE_FOLDER"
     ]);
   });
 
   it("uses the approved risk and confirmation rules for every action", () => {
-    for (const action of ACTION_NAMES) {
+    expect(ACTION_NAMES).toEqual(ACTION_KINDS.slice(0, ACTION_NAMES.length));
+    for (const action of ACTION_KINDS) {
       const policy = getActionPolicy(action);
       expect(policy.riskLevel).toBe(expectedRiskLevels[action]);
-      expect(policy.confirmation.required).toBe(policy.riskLevel === 2);
+      expect(policy.approval).toBe(approvalByRisk[expectedRiskLevels[action]]);
+      expect(policy.confirmation.required).toBe(policy.approval !== "DIRECT");
       expect(policy.confirmation.summary).toMatch(/^[A-ZÁÉÍÓÚÑ¿¡]/u);
       expect(policy.confirmation.summary).not.toMatch(/postgres|token|password|c:\\|\//iu);
     }
@@ -76,7 +105,7 @@ describe("action policy", () => {
 
   it("rejects unknown proposals without executing them", () => {
     const unknown = evaluateActionProposal({
-      action: "DELETE_FILE",
+      action: "RUN_SHELL",
       command: "Remove-Item C:\\private"
     });
 
@@ -85,9 +114,14 @@ describe("action policy", () => {
       error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." }
     });
     expect(JSON.stringify(unknown)).not.toContain("Remove-Item");
+    expect(lookupActionPolicy("RUN_SHELL")).toEqual(unknown);
+    expect(evaluateActionProposal({ action: "DELETE_FILE" })).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_DEFERRED" }
+    });
   });
 
-  it("keeps planner proposal payloads typed and applies confirmation only to Level 2 actions", () => {
+  it("keeps planner proposal payloads typed and makes routine updates direct", () => {
     const createTask = { actionId: "proposal-1", action: "CREATE_TASK" as const, input: { title: "Plan review" } };
     const completeTask = {
       actionId: "proposal-2",
@@ -96,7 +130,7 @@ describe("action policy", () => {
     };
 
     expect(requiresActionConfirmation(createTask)).toBe(false);
-    expect(requiresActionConfirmation(completeTask)).toBe(true);
+    expect(requiresActionConfirmation(completeTask)).toBe(false);
   });
 
   it("defines OPEN_APPLICATION with an alias-only structured payload", () => {
@@ -113,7 +147,7 @@ describe("action policy", () => {
     });
   });
 
-  it("keeps SEARCH_FILES at Level 1 and each single-item mutation at Level 2", () => {
+  it("keeps searches and folder creation direct while file changes require confirmation", () => {
     expect(requiresActionConfirmation({
       actionId: "proposal-4",
       action: "SEARCH_FILES",
@@ -123,11 +157,24 @@ describe("action policy", () => {
       actionId: "proposal-5",
       action: "CREATE_FOLDER",
       input: { parentDirectory: { rootId: "DOCUMENTS", relativePath: "Work" }, name: "Archive" }
-    })).toBe(true);
+    })).toBe(false);
     expect(requiresActionConfirmation({
       actionId: "proposal-6",
       action: "ORGANIZE_FILES",
       input: { folder: { rootId: "DOCUMENTS", relativePath: "Inbox" } }
     })).toBe(true);
+  });
+
+  it("never classifies destructive actions as direct", () => {
+    for (const action of ["DELETE_EVENT", "DELETE_FILE", "DELETE_FOLDER"] as const) {
+      expect(getActionPolicy(action)).toMatchObject({
+        approval: "REINFORCED_CONFIRMATION_REQUIRED",
+        riskLevel: 3,
+        confirmation: { required: true }
+      });
+      expect(lookupActionPolicy(action)).toMatchObject({ ok: true, data: { riskLevel: 3 } });
+    }
+    expect(getActionPolicy("DELETE_EVENT").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("DELETE_FILE").availability).toBe("DEFERRED");
   });
 });

@@ -42,6 +42,10 @@ export type ActionOrchestrator = {
   propose: (submission: unknown) => Promise<ActionOperationResult<ActionLifecycleResult>>;
   confirm: (confirmationId: unknown) => Promise<ActionOperationResult<ActionOutcome>>;
   cancel: (confirmationId: unknown) => Promise<ActionOperationResult<ActionOutcome>>;
+  confirmEventDeletion: (eventId: unknown, confirmationId: unknown) => Promise<ActionOperationResult<ActionOutcome>>;
+  cancelEventDeletion: (eventId: unknown, confirmationId: unknown) => Promise<ActionOperationResult<ActionOutcome>>;
+  confirmTaskDeletion: (taskId: unknown, confirmationId: unknown) => Promise<ActionOperationResult<ActionOutcome>>;
+  cancelTaskDeletion: (taskId: unknown, confirmationId: unknown) => Promise<ActionOperationResult<ActionOutcome>>;
 };
 
 const messages = {
@@ -76,7 +80,9 @@ const isPlannerAction = (action: ActionSubmission["action"]): action is PlannerA
     "UPDATE_EVENT",
     "CREATE_REMINDER",
     "GET_TODAY_SCHEDULE",
-    "GET_WEEK_SCHEDULE"
+    "GET_WEEK_SCHEDULE",
+    "DELETE_EVENT",
+    "DELETE_TASK"
   ].includes(action as PlannerActionProposal["action"]);
 
 const isOpenApplicationSubmission = (
@@ -226,11 +232,24 @@ export const createActionOrchestrator = (
   const execute = async (
     proposal: ExecutableActionProposal,
     policy: ActionPolicy,
-    startedAt: Date
+    startedAt: Date,
+    approvedByConfirmation = false
   ): Promise<ActionOutcome> => {
+    if (policy.approval !== "DIRECT" && !approvedByConfirmation) {
+      return recordTerminalOutcome({
+        actionId: proposal.actionId,
+        action: proposal.action,
+        riskLevel: policy.riskLevel,
+        status: "VALIDATION_FAILED",
+        errorCode: ACTION_ERROR_CODES.confirmationUnavailable,
+        userSummary: messages[ACTION_ERROR_CODES.confirmationUnavailable]
+      }, startedAt);
+    }
+
     let outcome: ActionOutcome;
     try {
-      outcome = await dependencies.executor.execute(proposal, policy);
+      const executed = await dependencies.executor.execute(proposal, policy);
+      outcome = { ...executed, actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel };
     } catch {
       dependencies.logError("Action executor threw unexpectedly.");
       outcome = {
@@ -259,7 +278,7 @@ export const createActionOrchestrator = (
     );
   };
 
-  return {
+  const orchestrator: ActionOrchestrator = {
     propose: async (submission) => {
       const policyResult = evaluateActionProposal(submission);
       if (!policyResult.ok) return policyResult;
@@ -268,6 +287,9 @@ export const createActionOrchestrator = (
       }
 
       const policy = getActionPolicy(submission.action);
+      if ((submission.action === "DELETE_EVENT" || submission.action === "DELETE_TASK") && policy.approval !== "REINFORCED_CONFIRMATION_REQUIRED") {
+        return createFailure(ACTION_ERROR_CODES.proposalInvalid);
+      }
       if (
         !isPlannerAction(submission.action) &&
         !isOpenApplicationSubmission(submission) &&
@@ -382,7 +404,7 @@ export const createActionOrchestrator = (
 
       pending.state = "RUNNING";
       pendingProposals.delete(confirmationId);
-      return { ok: true, data: await execute(pending.proposal, pending.policy, pending.startedAt) };
+      return { ok: true, data: await execute(pending.proposal, pending.policy, pending.startedAt, true) };
     },
     cancel: async (confirmationId) => {
       if (!isOpaqueIdentifier(confirmationId)) {
@@ -407,6 +429,37 @@ export const createActionOrchestrator = (
         userSummary: "Se canceló la acción solicitada."
       };
       return { ok: true, data: await recordTerminalOutcome(outcome, pending.startedAt) };
+    },
+    confirmEventDeletion: async (eventId, confirmationId) => {
+      if (!isOpaqueIdentifier(confirmationId)) return createFailure(ACTION_ERROR_CODES.confirmationInvalid);
+      const pending = pendingProposals.get(confirmationId);
+      if (
+        !pending || pending.proposal.action !== "DELETE_EVENT" ||
+        pending.proposal.input.eventId !== eventId ||
+        pending.policy.approval !== "REINFORCED_CONFIRMATION_REQUIRED"
+      ) return createFailure(ACTION_ERROR_CODES.confirmationUnavailable);
+      return orchestrator.confirm(confirmationId);
+    },
+    confirmTaskDeletion: async (taskId, confirmationId) => {
+      if (!isOpaqueIdentifier(confirmationId)) return createFailure(ACTION_ERROR_CODES.confirmationInvalid);
+      const pending = pendingProposals.get(confirmationId);
+      if (!pending || pending.proposal.action !== "DELETE_TASK" || pending.proposal.input.taskId !== taskId || pending.policy.approval !== "REINFORCED_CONFIRMATION_REQUIRED") return createFailure(ACTION_ERROR_CODES.confirmationUnavailable);
+      return orchestrator.confirm(confirmationId);
+    },
+    cancelTaskDeletion: async (taskId, confirmationId) => {
+      if (!isOpaqueIdentifier(confirmationId)) return createFailure(ACTION_ERROR_CODES.confirmationInvalid);
+      const pending = pendingProposals.get(confirmationId);
+      if (!pending || pending.proposal.action !== "DELETE_TASK" || pending.proposal.input.taskId !== taskId) return createFailure(ACTION_ERROR_CODES.confirmationUnavailable);
+      return orchestrator.cancel(confirmationId);
+    },
+    cancelEventDeletion: async (eventId, confirmationId) => {
+      if (!isOpaqueIdentifier(confirmationId)) return createFailure(ACTION_ERROR_CODES.confirmationInvalid);
+      const pending = pendingProposals.get(confirmationId);
+      if (!pending || pending.proposal.action !== "DELETE_EVENT" || pending.proposal.input.eventId !== eventId) {
+        return createFailure(ACTION_ERROR_CODES.confirmationUnavailable);
+      }
+      return orchestrator.cancel(confirmationId);
     }
   };
+  return orchestrator;
 };

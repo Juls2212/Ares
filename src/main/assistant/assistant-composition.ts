@@ -6,6 +6,8 @@ import {
 import type { ApplicationService } from "../applications/application-service";
 import { getApplicationService } from "../applications/application-composition";
 import { createAssistantInterpreter } from "./assistant-interpreter";
+import { createEventDeletionResolver } from "./assistant-event-reference";
+import { getPlannerService } from "../planner/planner-composition";
 import {
   getAssistantContextService,
   type AssistantContextService
@@ -112,7 +114,7 @@ let assistantInterpretationService: AssistantInterpretationService | undefined;
 
 export const getAssistantInterpretationService = (): AssistantInterpretationService => {
   assistantInterpretationService ??= createAssistantInterpretationService({
-    getInterpreter: createAssistantInterpreter,
+    getInterpreter: () => createAssistantInterpreter({ resolveEventDeletion: createEventDeletionResolver(getPlannerService) }),
     getApplicationService,
     getContextService: getAssistantContextService
   });

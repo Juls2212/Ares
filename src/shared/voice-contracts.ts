@@ -15,6 +15,7 @@ export const VOICE_MAX_RECORDING_DURATION_MS = 60_000;
 export type VoiceTranscriptionInput = {
   audio: ArrayBuffer;
   mimeType: VoiceMimeType;
+  durationMs: number;
 };
 
 export type VoiceTranscriptionData = { text: string };
@@ -29,6 +30,8 @@ export const VOICE_ERROR_CODES = {
   modelAccess: "VOICE_MODEL_ACCESS_UNAVAILABLE",
   rateLimited: "VOICE_RATE_LIMITED",
   provider: "VOICE_PROVIDER_UNAVAILABLE",
+  timeout: "VOICE_TRANSCRIPTION_TIMEOUT",
+  busy: "VOICE_TRANSCRIPTION_BUSY",
   ipcUnavailable: "VOICE_IPC_UNAVAILABLE"
 } as const;
 

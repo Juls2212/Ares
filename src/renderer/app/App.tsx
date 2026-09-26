@@ -26,6 +26,9 @@ import {
 } from "./app-state";
 import { createGlobalVoiceShortcutController } from "../features/voice/global-voice-shortcut-controller";
 import { createManualVoiceRecorder, type ManualVoiceRecorder } from "../features/voice/manual-voice-recorder";
+import { bindRecordingCancellation } from "../features/voice/recording-cancellation";
+import { createVoiceTranscriptSubmission } from "../features/voice/voice-transcript-submission";
+import type { VoiceMimeType } from "../../shared/voice-contracts";
 import { type DraftActionState } from "../features/assistant/interpretation-result";
 import { UtilityPanel } from "../features/settings/utility-panel";
 import { useThemePreference } from "../features/settings/use-theme-preference";
@@ -52,6 +55,9 @@ export const App = () => {
   const [interpretation, setInterpretation] = useState<AssistantInterpretation>();
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
+  const [spokenResponse, setSpokenResponse] = useState<import("../../shared/speech-contracts").SpokenResponse>();
+  const [automaticSpeech, setAutomaticSpeech] = useState(false);
+  useEffect(() => { setSpokenResponse(undefined); }, [destination]);
   const [selectedCatalogApplication, setSelectedCatalogApplication] = useState<RegisterableCatalogApplication>("GOOGLE_CHROME");
   const [isRegisteringCatalogApplication, setIsRegisteringCatalogApplication] = useState(false);
   const [catalogRegistrationMessage, setCatalogRegistrationMessage] = useState<string>();
@@ -63,6 +69,10 @@ export const App = () => {
   const voiceRecorder = useRef<ManualVoiceRecorder | undefined>(undefined);
   const voiceStateReference = useRef(voiceState);
   const voiceStartInFlight = useRef(false);
+  const voiceGeneration = useRef(0);
+  const voiceUploadGeneration = useRef(-1);
+  const voiceSubmission = useRef(createVoiceTranscriptSubmission());
+  const interpretationInFlight = useRef(false);
   const [voiceShortcutEnabled, setVoiceShortcutEnabled] = useState(true);
   const [selectedVoiceShortcut, setSelectedVoiceShortcut] = useState<VoiceShortcut>(VOICE_SHORTCUTS[0]);
   const [voiceShortcutStatus, setVoiceShortcutStatus] = useState<VoiceShortcutEffectiveStatus>();
@@ -94,25 +104,52 @@ export const App = () => {
     void loadVoicePreferences();
   }, []);
 
-  useEffect(() => () => voiceRecorder.current?.dispose(), []);
+  const cancelRecording = (): void => {
+    if (voiceStateReference.current === "IDLE" && !voiceStartInFlight.current) return;
+    voiceGeneration.current++;
+    voiceRecorder.current?.cancel();
+    if (voiceStateReference.current === "PROCESSING") {
+      voiceStateReference.current = "IDLE";
+      setVoiceState("IDLE");
+      setVoiceMessage("Grabación cancelada");
+    }
+  };
+  useEffect(() => {
+    const cleanup = bindRecordingCancellation(document, window, () => document.hidden, cancelRecording);
+    return () => { voiceGeneration.current++; voiceRecorder.current?.dispose(); cleanup(); };
+  }, []);
+  useEffect(() => { if (destination !== "ARES") cancelRecording(); }, [destination]);
   useEffect(() => { voiceStateReference.current = voiceState; }, [voiceState]);
 
-  const transcribeAudio = async (audio: Blob, mimeType: string): Promise<void> => {
+  const transcribeAudio = async (audio: Blob, mimeType: VoiceMimeType, durationMs: number, generation: number): Promise<void> => {
+    if (generation !== voiceGeneration.current || generation <= voiceUploadGeneration.current) return;
+    voiceUploadGeneration.current = generation;
     try {
-      const result = await window.ares.voice.transcribe({ audio: await audio.arrayBuffer(), mimeType: mimeType as "audio/webm" });
+      const bytes = await audio.arrayBuffer();
+      if (generation !== voiceGeneration.current) return;
+      const result = await window.ares.voice.transcribe({ audio: bytes, mimeType, durationMs });
+      if (generation !== voiceGeneration.current) return;
       if (!result.ok) return setVoiceMessage(result.error.userMessage);
-      setInstruction(result.data.text);
-      setVoiceMessage("Transcripción lista. Revisa el texto y selecciona Interpretar.");
+      setVoiceMessage("Procesando instrucción…");
+      await voiceSubmission.current.submit({
+        generation, text: result.data.text, isCurrent: () => generation === voiceGeneration.current,
+        showTranscript: setInstruction,
+        interpret: (text) => submitInstruction(text, true, () => generation === voiceGeneration.current),
+        propose: (index, draft) => requestProposal(index, draft, () => generation === voiceGeneration.current)
+      });
+      if (generation === voiceGeneration.current) setVoiceMessage("Instrucción procesada. Revisa el resultado y confirma si se requiere.");
     } catch {
-      setVoiceMessage("La transcripción no está disponible en este momento.");
+      if (generation === voiceGeneration.current) setVoiceMessage("La transcripción no está disponible en este momento.");
     } finally {
-      setVoiceState("IDLE");
+      if (generation === voiceGeneration.current) { voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); }
     }
   };
 
   const startRecording = async (fromGlobalShortcut = false): Promise<void> => {
-    if (voiceState !== "IDLE" || voiceStartInFlight.current) return;
+    setSpokenResponse(undefined);
+    if (voiceStateReference.current !== "IDLE" || voiceStartInFlight.current || interpretationInFlight.current) return;
     voiceStartInFlight.current = true;
+    const generation = ++voiceGeneration.current;
     setDestination("ARES");
     setVoiceMessage(fromGlobalShortcut ? "Ares está grabando." : undefined);
     const browserMedia = navigator.mediaDevices;
@@ -127,15 +164,16 @@ export const App = () => {
       isMimeTypeSupported: MediaRecorder.isTypeSupported,
       createBlob: (parts, options) => new Blob(parts, options),
       setTimer: (callback, delay) => setTimeout(callback, delay), clearTimer: (timer) => clearTimeout(timer),
-      onRecording: () => setVoiceState("RECORDING"), onProcessing: () => setVoiceState("PROCESSING"),
+      onRecording: () => { voiceStateReference.current = "RECORDING"; setVoiceState("RECORDING"); },
+      onProcessing: () => { voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); },
       onUnavailable: (message, reason) => {
         voiceStartInFlight.current = false;
         setVoiceState("IDLE");
         setVoiceMessage(fromGlobalShortcut && reason === "USER_GESTURE_REQUIRED" ? "Para iniciar la grabación, usa el botón visible." : message);
       },
       isUserActivationActive: () => navigator.userActivation?.isActive ?? false,
-      onCancelled: () => { voiceStartInFlight.current = false; setVoiceState("IDLE"); setVoiceMessage("La grabación se canceló."); },
-      onAudio: (recording, recordingMimeType) => { void transcribeAudio(recording, recordingMimeType); }
+      onCancelled: () => { voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage("Grabación cancelada"); },
+      onAudio: (recording, recordingMimeType, durationMs) => { void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
     });
     await voiceRecorder.current.start();
     voiceStartInFlight.current = false;
@@ -169,17 +207,29 @@ export const App = () => {
     return window.ares.voice.onGlobalShortcut(controller.activate);
   }, []);
 
-  const interpret = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (isInterpreting) return;
+  const submitInstruction = async (instruction: string, automaticProposal = false, isCurrent = () => true): Promise<AssistantInterpretation | undefined> => {
+    setSpokenResponse(undefined);
+    if (interpretationInFlight.current || !isCurrent()) return;
+    interpretationInFlight.current = true;
     setIsInterpreting(true); setInterpretation(undefined); setDraftStates({});
     try {
-      setInterpretation(getInterpretationMessage(await window.ares.assistant.interpret({ text: instruction })));
+      const result = getInterpretationMessage(await window.ares.assistant.interpret({ text: instruction }));
+      if (!isCurrent()) return;
+      if (automaticProposal && result.state === "READY") setDraftStates(Object.fromEntries(result.drafts.map((_draft, index) => [index, { busy: true, resolved: false }])));
+      setInterpretation(result);
+      return result;
     } catch {
-      setInterpretation({ state: "UNAVAILABLE", summary: "La interpretación no está disponible en este momento.", drafts: [], clarifications: [] });
+      if (isCurrent()) setInterpretation({ state: "UNAVAILABLE", summary: "La interpretación no está disponible en este momento.", drafts: [], clarifications: [] });
     } finally {
+      interpretationInFlight.current = false;
       setIsInterpreting(false);
     }
+  };
+
+  const interpret = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (voiceStateReference.current !== "IDLE") return;
+    await submitInstruction(instruction);
   };
 
   const updateDraftState = (index: number, state: DraftActionState): void => setDraftStates((current) => ({ ...current, [index]: state }));
@@ -215,27 +265,37 @@ export const App = () => {
     }
   };
 
-  const propose = async (index: number, draft: ActionSubmission): Promise<void> => {
-    const state = draftStates[index];
-    if (state?.busy || state?.resolved) return;
+  const requestProposal = async (index: number, draft: ActionSubmission, isCurrent = () => true): Promise<void> => {
+    if (!isCurrent()) return;
+    setSpokenResponse(undefined);
     updateDraftState(index, { busy: true, resolved: false });
     try {
       const result = await window.ares.actions.propose(draft);
+      if (!isCurrent()) return;
       if (!result.ok) return updateDraftState(index, { busy: false, resolved: true, userMessage: result.error.userMessage });
       if (isAwaitingConfirmation(result.data)) return updateDraftState(index, { busy: false, resolved: true, confirmation: result.data, userMessage: result.data.confirmation.summary });
-      updateDraftState(index, { busy: false, resolved: true, userMessage: result.data.userSummary });
+      updateDraftState(index, { busy: false, resolved: true, userMessage: result.data.userSummary, spokenResponse: result.data.spokenResponse });
+      setSpokenResponse(result.data.spokenResponse);
     } catch {
-      updateDraftState(index, { busy: false, resolved: true, userMessage: "No se pudo proponer la acción." });
+      if (isCurrent()) updateDraftState(index, { busy: false, resolved: true, userMessage: "No se pudo proponer la acción." });
     }
+  };
+
+  const propose = async (index: number, draft: ActionSubmission): Promise<void> => {
+    const state = draftStates[index];
+    if (state?.busy || state?.resolved) return;
+    await requestProposal(index, draft);
   };
 
   const resolveConfirmation = async (index: number, confirmation: AwaitingActionConfirmation, decision: "CONFIRM" | "CANCEL"): Promise<void> => {
     const state = draftStates[index];
     if (!state || state.busy || !state.confirmation) return;
+    setSpokenResponse(undefined);
     updateDraftState(index, { ...state, busy: true });
     try {
       const result = decision === "CONFIRM" ? await window.ares.actions.confirm(confirmation.confirmationId) : await window.ares.actions.cancel(confirmation.confirmationId);
-      updateDraftState(index, { busy: false, resolved: true, userMessage: result.ok ? result.data.userSummary : result.error.userMessage });
+      updateDraftState(index, { busy: false, resolved: true, userMessage: result.ok ? result.data.userSummary : result.error.userMessage, spokenResponse: result.ok ? result.data.spokenResponse : undefined });
+      if (result.ok) setSpokenResponse(result.data.spokenResponse);
     } catch {
       updateDraftState(index, { busy: false, resolved: true, userMessage: decision === "CONFIRM" ? "No se pudo confirmar la acción." : "No se pudo cancelar la acción." });
     }
@@ -278,11 +338,14 @@ export const App = () => {
     />}
 
     {destination === "ARES" ? <AresView
+      spokenResponse={spokenResponse}
+      automaticSpeech={automaticSpeech}
+      onAutomaticSpeechChange={setAutomaticSpeech}
       draftStates={draftStates}
       instruction={instruction}
       interpretation={interpretation}
       isInterpreting={isInterpreting}
-      onCancelRecording={() => voiceRecorder.current?.cancel()}
+      onCancelRecording={cancelRecording}
       onInstructionChange={setInstruction}
       onInterpret={(event) => void interpret(event)}
       onPropose={(index, draft) => void propose(index, draft)}

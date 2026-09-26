@@ -3,6 +3,7 @@ import type { ActionSubmission, AwaitingActionConfirmation } from "../../../shar
 import { actionLabels } from "../../app/app-state";
 
 export type DraftActionState = {
+  spokenResponse?: import("../../../shared/speech-contracts").SpokenResponse;
   busy: boolean;
   resolved: boolean;
   userMessage?: string;

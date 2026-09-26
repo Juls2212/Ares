@@ -8,6 +8,12 @@ const rendererSource = [
   "src/renderer/views/ares-view.tsx",
   "src/renderer/views/calendar-view.tsx",
   "src/renderer/features/calendar/calendar-data.ts",
+  "src/renderer/features/calendar/calendar-event-deletion.ts",
+  "src/renderer/features/calendar/calendar-event-editing.ts",
+  "src/renderer/features/calendar/calendar-event-edit-dialog.tsx",
+  "src/renderer/features/calendar/calendar-task-editing.ts",
+  "src/renderer/features/calendar/calendar-task-actions.tsx",
+  "src/renderer/features/calendar/calendar-task-deletion.ts",
   "src/renderer/features/calendar/calendar-grid.tsx",
   "src/renderer/features/assistant/interpretation-result.tsx",
   "src/renderer/features/voice/voice-command-controls.tsx",
@@ -60,7 +66,7 @@ describe("temporary renderer messaging", () => {
     expect(rendererSource).not.toContain("window.ares.web");
     const interpretationFlow = rendererSource.slice(
       rendererSource.indexOf("const interpret ="),
-      rendererSource.indexOf("const propose =")
+      rendererSource.indexOf("const updateDraftState =")
     );
     expect(interpretationFlow).not.toContain("window.ares.actions.propose");
     expect(rendererSource).toContain("interpretation.drafts.map((draft, index)");
@@ -69,10 +75,10 @@ describe("temporary renderer messaging", () => {
     expect(rendererSource).toContain("interpretation.clarifications.map");
   });
 
-  it("keeps manual recording and transcription separate from interpretation", () => {
+  it("routes successful voice input into the shared submission path without confirming actions", () => {
     expect(rendererSource).toContain("Iniciar grabación");
-    expect(rendererSource).toContain("Detener grabación");
-    expect(rendererSource).toContain("Cancelar grabación");
+    expect(rendererSource).toContain("Detener y transcribir");
+    expect(rendererSource).toContain(">Cancelar</button>");
     expect(rendererSource).toContain("window.ares.voice.transcribe");
     const transcriptionFlow = rendererSource.slice(
       rendererSource.indexOf("const transcribeAudio ="),
@@ -80,6 +86,8 @@ describe("temporary renderer messaging", () => {
     );
     expect(transcriptionFlow).not.toContain("window.ares.assistant.interpret");
     expect(transcriptionFlow).not.toContain("window.ares.actions.propose");
+    expect(transcriptionFlow).toContain("voiceSubmission.current.submit");
+    expect(transcriptionFlow).toContain("submitInstruction(text, true");
   });
 
   it("subscribes to the fixed voice signal without auto-interpreting or executing", () => {
@@ -88,7 +96,7 @@ describe("temporary renderer messaging", () => {
     expect(rendererSource).toContain('reason === "USER_GESTURE_REQUIRED"');
     const shortcutFlow = rendererSource.slice(
       rendererSource.indexOf("const controller = createGlobalVoiceShortcutController"),
-      rendererSource.indexOf("const interpret =")
+      rendererSource.indexOf("const submitInstruction =")
     );
     expect(shortcutFlow).not.toContain("window.ares.assistant.interpret");
     expect(shortcutFlow).not.toContain("window.ares.actions.propose");
@@ -126,6 +134,31 @@ describe("temporary renderer messaging", () => {
     expect(rendererSource).not.toContain("window.ares.assistant.execute");
   });
 
+  it("keeps the command entry and calendar details inside technical renderer workspaces", () => {
+    const styles = readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8");
+    const aresView = readFileSync(path.resolve(process.cwd(), "src/renderer/views/ares-view.tsx"), "utf8");
+
+    expect(rendererSource).toContain("command-entry-zone");
+    expect(rendererSource).toContain("calendar-console");
+    expect(rendererSource).toContain("calendar-surface");
+    expect(rendererSource).toContain("calendar-focus-rail");
+    expect(styles).toContain(".command-core__visual");
+    expect(styles).toContain(".calendar-surface::before");
+    expect(styles).toContain(".calendar-focus-rail");
+    expect(styles).toContain(".ares-header { min-height: 64px; position: sticky; top: 0;");
+    expect(styles).toContain(".command-entry-zone:focus-within");
+    expect(aresView.indexOf("command-heading")).toBeLessThan(aresView.indexOf("command-core__visual"));
+    expect(aresView.indexOf("command-core__visual")).toBeLessThan(aresView.indexOf("command-entry-zone"));
+    expect(aresView).toContain("command-instrument__axis");
+    expect(aresView).toContain("command-instrument__anchor");
+    expect(aresView).toContain("command-dock__label");
+    expect(aresView.indexOf("<InterpretationResult")).toBeLessThan(aresView.indexOf("</section>\n  </section>"));
+    expect(styles).toContain(".support-panel::before");
+    expect(styles).toContain(".command-instrument");
+    expect(styles).toContain(".command-dock:focus-within");
+    expect(styles).toContain("--command-grid-line");
+  });
+
   it("uses truthful Spanish guidance for the current session and supervised sequence", () => {
     expect(rendererSource).toContain("Sesión actual");
     expect(rendererSource).toContain("Texto");
@@ -155,13 +188,21 @@ describe("temporary renderer messaging", () => {
     expect(styles).toContain("font-family: var(--font-display)");
   });
 
-  it("uses only read-only planner list methods for the calendar", () => {
+  it("uses planner lists, explicit event updates, and confirmed event deletion for the calendar", () => {
     expect(rendererSource).toContain("planner.tasks.list");
     expect(rendererSource).toContain("planner.events.list");
+    expect(rendererSource).toContain("planner.events.requestDeletion({ eventId })");
+    expect(rendererSource).toContain("planner.events.confirmDeletion({ eventId, confirmationId })");
+    expect(rendererSource).toContain("planner.events.cancelDeletion({ eventId, confirmationId })");
+    expect(rendererSource).not.toContain("planner.events.delete(");
     expect(rendererSource).not.toContain("planner.tasks.create");
-    expect(rendererSource).not.toContain("planner.tasks.update");
-    expect(rendererSource).not.toContain("planner.tasks.complete");
+    expect(rendererSource).toContain("planner.tasks.update");
+    expect(rendererSource).toContain("planner.tasks.complete");
+    expect(rendererSource).toContain("planner.tasks.requestDeletion({ taskId })");
+    expect(rendererSource).toContain("planner.tasks.confirmDeletion({ taskId, confirmationId })");
+    expect(rendererSource).toContain("planner.tasks.cancelDeletion({ taskId, confirmationId })");
     expect(rendererSource).not.toContain("planner.events.create");
-    expect(rendererSource).not.toContain("planner.events.update");
+    expect(rendererSource).toContain("planner.events.update(input)");
+    expect(rendererSource).not.toContain("planner.tasks.delete");
   });
 });

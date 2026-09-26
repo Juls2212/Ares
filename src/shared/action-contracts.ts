@@ -6,6 +6,9 @@ import type {
   CreateTaskInput,
   GetTodayScheduleInput,
   GetWeekScheduleInput,
+  DeleteEventInput,
+  DeleteTaskInput,
+  DeleteEventData,
   PlannerMutationData,
   ReminderRecord,
   TaskRecord,
@@ -44,7 +47,27 @@ export const ACTION_NAMES = [
   "UPDATE_EVENT",
   "CREATE_REMINDER",
   "GET_TODAY_SCHEDULE",
-  "GET_WEEK_SCHEDULE"
+  "GET_WEEK_SCHEDULE",
+  "DELETE_EVENT",
+  "DELETE_TASK"
+] as const;
+
+/** Policy-only kinds are not executable submissions until a typed Main adapter exists. */
+export const ACTION_KINDS = [
+  ...ACTION_NAMES,
+  "OPEN_REGISTERED_APPLICATION",
+  "OPEN_REGISTERED_PAGE",
+  "MOVE_FOLDER",
+  "UPDATE_REGISTERED_APPLICATION",
+  "UPDATE_REGISTERED_PAGE",
+  "DELETE_FILE",
+  "DELETE_FOLDER"
+] as const;
+
+export const ACTION_APPROVAL_CLASSES = [
+  "DIRECT",
+  "CONFIRMATION_REQUIRED",
+  "REINFORCED_CONFIRMATION_REQUIRED"
 ] as const;
 
 export const ACTION_RISK_LEVELS = [1, 2, 3] as const;
@@ -63,6 +86,8 @@ export const TERMINAL_ACTION_STATUSES = [
 ] as const;
 
 export type ActionName = (typeof ACTION_NAMES)[number];
+export type ActionKind = (typeof ACTION_KINDS)[number];
+export type ActionApprovalClass = (typeof ACTION_APPROVAL_CLASSES)[number];
 export type ActionRiskLevel = (typeof ACTION_RISK_LEVELS)[number];
 export type ActionLifecycleState = (typeof ACTION_LIFECYCLE_STATES)[number];
 export type TerminalActionStatus = (typeof TERMINAL_ACTION_STATUSES)[number];
@@ -82,7 +107,9 @@ export type PlannerActionProposal =
   | (ActionProposalBase & { action: "UPDATE_EVENT"; input: UpdateEventInput })
   | (ActionProposalBase & { action: "CREATE_REMINDER"; input: CreateReminderInput })
   | (ActionProposalBase & { action: "GET_TODAY_SCHEDULE"; input: GetTodayScheduleInput })
-  | (ActionProposalBase & { action: "GET_WEEK_SCHEDULE"; input: GetWeekScheduleInput });
+  | (ActionProposalBase & { action: "GET_WEEK_SCHEDULE"; input: GetWeekScheduleInput })
+  | (ActionProposalBase & { action: "DELETE_EVENT"; input: DeleteEventInput })
+  | (ActionProposalBase & { action: "DELETE_TASK"; input: DeleteTaskInput });
 
 export type OpenApplicationInput = {
   alias: string;
@@ -145,7 +172,9 @@ export type PlannerActionSubmission =
   | { action: "UPDATE_EVENT"; input: UpdateEventInput }
   | { action: "CREATE_REMINDER"; input: CreateReminderInput }
   | { action: "GET_TODAY_SCHEDULE"; input: GetTodayScheduleInput }
-  | { action: "GET_WEEK_SCHEDULE"; input: GetWeekScheduleInput };
+  | { action: "GET_WEEK_SCHEDULE"; input: GetWeekScheduleInput }
+  | { action: "DELETE_EVENT"; input: DeleteEventInput }
+  | { action: "DELETE_TASK"; input: DeleteTaskInput };
 
 export type OpenApplicationActionSubmission = {
   action: "OPEN_APPLICATION";
@@ -216,7 +245,8 @@ export type PlannerActionData =
   | PlannerMutationData<EventRecord>
   | PlannerMutationData<ReminderRecord>
   | TodayScheduleData
-  | WeekScheduleData;
+  | WeekScheduleData
+  | DeleteEventData;
 
 export type OpenApplicationActionData = {
   applicationName: string;
@@ -235,6 +265,7 @@ export type FileActionData =
 export type ActionData = PlannerActionData | OpenApplicationActionData | OpenWebPageActionData | FileActionData;
 
 export type ActionOutcome = {
+  spokenResponse?: import("./speech-contracts").SpokenResponse;
   actionId: string;
   action: ActionName;
   riskLevel: ActionRiskLevel;
@@ -258,7 +289,8 @@ export type AwaitingActionConfirmation = {
 export type ActionLifecycleResult = ActionOutcome | AwaitingActionConfirmation;
 
 export type ActionPolicy = {
-  action: ActionName;
+  action: ActionKind;
+  approval: ActionApprovalClass;
   riskLevel: ActionRiskLevel;
   availability: ActionAvailability;
   confirmation: ActionConfirmationRequirement;

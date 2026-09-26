@@ -15,6 +15,7 @@ const createContentSecurityPolicy = (isDevelopment: boolean): string => {
     `script-src ${scriptSources}`,
     `style-src ${styleSources}`,
     "img-src 'self' data:",
+    "media-src blob:",
     "font-src 'self'",
     `connect-src ${connectSources}`,
     "object-src 'none'",

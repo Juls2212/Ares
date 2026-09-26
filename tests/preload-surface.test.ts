@@ -14,6 +14,11 @@ const rendererGlobalSource = readFileSync(
 );
 
 describe("preload surface", () => {
+  it("exposes narrow task deletion confirmations but no direct task-delete method", () => {
+    for (const operation of ["requestDeletion", "confirmDeletion", "cancelDeletion"]) expect(preloadSource).toContain(`IPC_CHANNELS.planner.tasks.${operation}, input`);
+    expect(preloadSource).not.toContain("IPC_CHANNELS.planner.tasks.delete");
+    expect(IPC_CHANNELS.planner.tasks).not.toHaveProperty("delete");
+  });
   it("uses only explicit system, dashboard, planner, action, application catalog, and assistant channels", () => {
     expect(IPC_CHANNELS.system).toEqual({
       getStatus: "system:get-status",
@@ -29,12 +34,18 @@ describe("preload surface", () => {
         create: "planner:tasks:create",
         list: "planner:tasks:list",
         update: "planner:tasks:update",
-        complete: "planner:tasks:complete"
+        complete: "planner:tasks:complete",
+        requestDeletion: "planner:tasks:request-deletion",
+        confirmDeletion: "planner:tasks:confirm-deletion",
+        cancelDeletion: "planner:tasks:cancel-deletion"
       },
       events: {
         create: "planner:events:create",
         list: "planner:events:list",
-        update: "planner:events:update"
+        update: "planner:events:update",
+        requestDeletion: "planner:events:request-deletion",
+        confirmDeletion: "planner:events:confirm-deletion",
+        cancelDeletion: "planner:events:cancel-deletion"
       },
       reminders: {
         create: "planner:reminders:create",
@@ -84,7 +95,12 @@ describe("preload surface", () => {
     expect(preloadSource).toContain("events: {");
     expect(preloadSource).toContain("reminders: {");
     expect(preloadSource).toContain("schedule: {");
-    expect(preloadSource).not.toContain("delete:");
+    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.planner.events.requestDeletion, input)");
+    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.planner.events.confirmDeletion, input)");
+    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.planner.events.cancelDeletion, input)");
+    expect(preloadSource).not.toContain("IPC_CHANNELS.planner.events.delete");
+    expect(preloadSource).not.toContain("planner.tasks.delete");
+    expect(preloadSource).not.toContain("planner.reminders.delete");
     expect(preloadSource).not.toContain("database:");
   });
 

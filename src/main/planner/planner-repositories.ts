@@ -26,6 +26,8 @@ import type {
   CreateEventInput,
   CreateReminderInput,
   CreateTaskInput,
+  DeleteEventInput,
+  DeleteTaskInput,
   EventListInput,
   EventRecord,
   ReminderListInput,
@@ -71,6 +73,8 @@ export type PlannerRepositories = {
   findEventById: (eventId: string) => Promise<EventRecord | undefined>;
   listEvents: (input: EventListInput) => Promise<EventRecord[]>;
   updateEvent: (input: UpdateEventInput) => Promise<EventRecord | undefined>;
+  deleteEvent: (input: DeleteEventInput) => Promise<boolean>;
+  deleteTask: (input: DeleteTaskInput) => Promise<boolean>;
   createReminder: (input: CreateReminderInput) => Promise<ReminderRecord>;
   findReminderById: (reminderId: string) => Promise<ReminderRecord | undefined>;
   listReminders: (input: ReminderListInput) => Promise<ReminderRecord[]>;
@@ -313,6 +317,16 @@ export const createPlannerRepositories = (
         .where(eq(events.id, input.eventId))
         .returning();
       return record ? mapEvent(record) : undefined;
+    }),
+  deleteEvent: async ({ eventId }) =>
+    executePersistence(async () => {
+      const [record] = await database.delete(events).where(eq(events.id, eventId)).returning({ id: events.id });
+      return record !== undefined;
+    }),
+  deleteTask: async ({ taskId }) =>
+    executePersistence(async () => {
+      const [record] = await database.delete(tasks).where(eq(tasks.id, taskId)).returning({ id: tasks.id });
+      return record !== undefined;
     }),
   createReminder: async (input) =>
     executePersistence(async () => {

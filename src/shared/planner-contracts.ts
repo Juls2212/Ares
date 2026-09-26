@@ -128,6 +128,33 @@ export type UpdateEventInput = {
   location?: string | null;
 };
 
+export type DeleteEventInput = {
+  eventId: string;
+};
+
+export type DeleteTaskInput = { taskId: string };
+export type DeleteTaskData = { deleted: true };
+export type TaskDeletionConfirmationInput = { taskId: string; confirmationId: string };
+export type TaskDeletionRequestData = { confirmationId: string };
+export type TaskDeletionCancellationData = { cancelled: true };
+
+export type DeleteEventData = {
+  deleted: true;
+};
+
+export type EventDeletionConfirmationInput = {
+  eventId: string;
+  confirmationId: string;
+};
+
+export type EventDeletionRequestData = {
+  confirmationId: string;
+};
+
+export type EventDeletionCancellationData = {
+  cancelled: true;
+};
+
 export type EventListInput = {
   categoryId?: string;
   startAt?: IsoDateTime;
@@ -195,11 +222,17 @@ export type PlannerApi = {
     list: (input: TaskListInput) => Promise<PlannerOperationResult<PlannerListData<TaskRecord>>>;
     update: (input: UpdateTaskInput) => Promise<PlannerOperationResult<PlannerMutationData<TaskRecord>>>;
     complete: (input: CompleteTaskInput) => Promise<PlannerOperationResult<PlannerMutationData<TaskRecord>>>;
+    requestDeletion: (input: DeleteTaskInput) => Promise<PlannerOperationResult<TaskDeletionRequestData>>;
+    confirmDeletion: (input: TaskDeletionConfirmationInput) => Promise<PlannerOperationResult<DeleteTaskData>>;
+    cancelDeletion: (input: TaskDeletionConfirmationInput) => Promise<PlannerOperationResult<TaskDeletionCancellationData>>;
   };
   events: {
     create: (input: CreateEventInput) => Promise<PlannerOperationResult<PlannerMutationData<EventRecord>>>;
     list: (input: EventListInput) => Promise<PlannerOperationResult<PlannerListData<EventRecord>>>;
     update: (input: UpdateEventInput) => Promise<PlannerOperationResult<PlannerMutationData<EventRecord>>>;
+    requestDeletion: (input: DeleteEventInput) => Promise<PlannerOperationResult<EventDeletionRequestData>>;
+    confirmDeletion: (input: EventDeletionConfirmationInput) => Promise<PlannerOperationResult<DeleteEventData>>;
+    cancelDeletion: (input: EventDeletionConfirmationInput) => Promise<PlannerOperationResult<EventDeletionCancellationData>>;
   };
   reminders: {
     create: (input: CreateReminderInput) => Promise<PlannerOperationResult<PlannerMutationData<ReminderRecord>>>;
@@ -235,6 +268,7 @@ export const PLANNER_ERROR_CODES = {
   conflict: "PLANNER_CONFLICT",
   databaseUnavailable: "PLANNER_DATABASE_UNAVAILABLE",
   taskAlreadyCompleted: "PLANNER_TASK_ALREADY_COMPLETED",
+  confirmationUnavailable: "PLANNER_CONFIRMATION_UNAVAILABLE",
   ipcUnavailable: "PLANNER_IPC_UNAVAILABLE"
 } as const;
 

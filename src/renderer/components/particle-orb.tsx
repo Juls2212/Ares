@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useRef } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 export type ParticleOrbState = "idle" | "recording" | "transcribing" | "interpreting" | "speaking";
 
@@ -177,7 +177,8 @@ const drawOrb = (
     const layerDrift = particle.layer === "contour" ? motion.drift * 0.42 : motion.drift;
     const shimmer = Math.sin(now * 0.0012 + particle.phase) * layerDrift;
     const densityBreath = Math.sin(now * 0.0008 + particle.phase * 0.7) * (particle.layer === "interior" ? 0.022 : 0.012);
-    const particleRadius = radius * Math.max(0.08, particle.radius + shimmer + densityBreath);
+    const parallax = Math.sin(now * 0.00055 + particle.phase) * (particle.layer === "foreground" ? 0.016 : particle.layer === "interior" ? 0.008 : 0.003);
+    const particleRadius = radius * Math.max(0.08, particle.radius + shimmer + densityBreath + parallax);
     const angle = particle.angle + motion.rotation + Math.sin(now * 0.0007 + particle.phase) * layerDrift;
     const layerAlpha = particle.layer === "contour" ? 0.5 : particle.layer === "foreground" ? 0.72 : 0.42;
     const twinkle = Math.max(0, Math.sin(now * 0.0033 + particle.phase * 2.7)) * motion.twinkle;
@@ -227,6 +228,9 @@ const getAccentRgb = (canvas: HTMLCanvasElement): string => {
 export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
   const canvasReference = useRef<HTMLCanvasElement>(null);
   const stateReference = useRef(state);
+  const [isDocumentHidden, setIsDocumentHidden] = useState(() =>
+    typeof document !== "undefined" && document.hidden
+  );
   stateReference.current = state;
 
   useEffect(() => {
@@ -260,14 +264,18 @@ export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
         })
         : undefined;
       themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-      document.addEventListener("visibilitychange", refresh);
+      const onVisibilityChange = (): void => {
+        setIsDocumentHidden(document.hidden);
+        refresh();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
       mediaQuery?.addEventListener?.("change", refresh);
       loop.start();
       return () => {
         loop.stop();
         resizeObserver?.disconnect();
         themeObserver?.disconnect();
-        document.removeEventListener("visibilitychange", refresh);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
         mediaQuery?.removeEventListener?.("change", refresh);
       };
     } catch {
@@ -277,7 +285,27 @@ export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
   }, [state]);
 
   return (
-    <div className={`particle-orb particle-orb--${state}`} data-state={state}>
+    <div className={`particle-orb particle-orb--${state}`} data-paused={isDocumentHidden || undefined} data-state={state}>
+      <svg aria-hidden="true" className="particle-orb__hud" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="ares-core-scan-tail" x1="0%" x2="100%" y1="0%" y2="0%">
+            <stop offset="0%" stopColor="var(--core-active)" stopOpacity="0" />
+            <stop offset="65%" stopColor="var(--core-active)" stopOpacity=".18" />
+            <stop offset="100%" stopColor="var(--core-active)" stopOpacity=".9" />
+          </linearGradient>
+        </defs>
+        <path className="particle-orb__ring particle-orb__ring--outer" d="M17 17A46 46 0 0 1 89 29M95 50A46 46 0 0 1 64 94M42 96A46 46 0 0 1 7 56M9 35A46 46 0 0 1 17 17" />
+        <path className="particle-orb__ring particle-orb__ring--middle" d="M25 22A39 39 0 0 1 69 14M86 28A39 39 0 0 1 91 62M73 84A39 39 0 0 1 34 86M16 69A39 39 0 0 1 18 42" />
+        <path className="particle-orb__ring particle-orb__ring--inner" d="M35 31A29 29 0 0 1 76 38M77 65A29 29 0 0 1 43 78M25 57A29 29 0 0 1 35 31" />
+        <path className="particle-orb__orbit particle-orb__orbit--one" d="M11 58C32 27 77 25 92 43M87 61C60 83 31 79 13 63" />
+        <path className="particle-orb__orbit particle-orb__orbit--two" d="M42 9C71 27 75 67 55 91M38 86C18 64 20 32 37 12" />
+        <path className="particle-orb__guides" d="M0 51H16M83 49H100M49 0V13M52 87V100M17 20L24 27M82 79L76 73" />
+        <circle className="particle-orb__ticks" cx="51" cy="49" r="48" />
+        <path className="particle-orb__direction" d="M49 2L52 0L55 2M97 46L100 49L97 52M54 97L51 100L48 97" />
+        <path className="particle-orb__trace" d="M6 28H12V22M84 8H90V14M94 71H88V77M18 92H12V86" />
+        <path className="particle-orb__travel" d="M84 20A46 46 0 0 1 94 41" />
+        <path className="particle-orb__scan" d="M20 50H80" />
+      </svg>
       <div aria-hidden="true" className="particle-orb__fallback">
         {fallbackDots.map((style, index) => <i key={index} style={style} />)}
       </div>
