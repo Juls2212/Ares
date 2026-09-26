@@ -13,6 +13,7 @@ const createPlannerService = (): PlannerService =>
     completeTask: vi.fn(async () => success),
     createEvent: vi.fn(async () => success),
     updateEvent: vi.fn(async () => success),
+    deleteEvent: vi.fn(async () => ({ ok: true, data: { deleted: true } })),
     createReminder: vi.fn(async () => success),
     getTodaySchedule: vi.fn(async () => ({ ok: true, data: { localDate: "2026-09-17", tasks: [], events: [], reminders: [] } })),
     getWeekSchedule: vi.fn(async () => ({
@@ -27,6 +28,7 @@ const actionCases: Array<{ action: PlannerActionProposal["action"]; input: unkno
   { action: "COMPLETE_TASK", input: { taskId: "550e8400-e29b-41d4-a716-446655440000", completedAt: "2026-09-17T10:00:00Z" }, method: "completeTask" },
   { action: "CREATE_EVENT", input: { title: "Reunión", startAt: "2026-09-17T10:00:00Z" }, method: "createEvent" },
   { action: "UPDATE_EVENT", input: { eventId: "550e8400-e29b-41d4-a716-446655440000", title: "Reunión" }, method: "updateEvent" },
+  { action: "DELETE_EVENT", input: { eventId: "550e8400-e29b-41d4-a716-446655440000" }, method: "deleteEvent" },
   { action: "CREATE_REMINDER", input: { title: "Llamar", remindAt: "2026-09-17T10:00:00Z" }, method: "createReminder" },
   { action: "GET_TODAY_SCHEDULE", input: {}, method: "getTodaySchedule" },
   { action: "GET_WEEK_SCHEDULE", input: {}, method: "getWeekSchedule" }
