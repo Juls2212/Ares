@@ -22,7 +22,9 @@ export const actionLabels: Record<ActionSubmission["action"], string> = {
   RENAME_FILE: "Renombrar archivo",
   RENAME_FOLDER: "Renombrar carpeta",
   MOVE_FILE: "Mover archivo",
-  ORGANIZE_FILES: "Organizar archivos"
+  ORGANIZE_FILES: "Organizar archivos",
+  DELETE_EVENT: "Eliminar evento",
+  DELETE_TASK: "Eliminar tarea"
 };
 
 export const catalogApplicationLabels: Record<RegisterableCatalogApplication, string> = {
