@@ -1,8 +1,250 @@
 @import "tailwindcss";
 
+:root {
+  color: #17262f;
+  background: #e9e8e3;
+  font-family: "Franklin Gothic Medium", "Franklin Gothic", Arial, sans-serif;
+}
+
 html,
 body,
 #root {
   min-height: 100%;
   margin: 0;
+}
+
+button,
+textarea { font: inherit; }
+
+button:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #067994;
+  outline-offset: 3px;
+}
+
+.ares-shell {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: clamp(1.5rem, 4vw, 4rem);
+  background:
+    linear-gradient(90deg, rgba(5, 116, 146, 0.04) 1px, transparent 1px) 0 0 / 4rem 4rem,
+    #e9e8e3;
+}
+
+.ares-clock {
+  position: absolute;
+  top: clamp(1rem, 2.5vw, 2rem);
+  right: clamp(1rem, 3vw, 3rem);
+  color: #087f9b;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.ares-workspace {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(26rem, 2.35fr) minmax(12rem, 1fr);
+  gap: clamp(1.25rem, 3vw, 3rem);
+  align-items: center;
+  max-width: 92rem;
+  min-height: calc(100vh - clamp(3rem, 8vw, 8rem));
+  margin: 0 auto;
+}
+
+.planner-rail {
+  position: relative;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(7, 78, 97, 0.35);
+  border-bottom: 1px solid rgba(7, 78, 97, 0.2);
+}
+
+.planner-rail::before {
+  position: absolute;
+  top: -1px;
+  width: 2.75rem;
+  border-top: 3px solid #087f9b;
+  content: "";
+}
+
+.planner-rail--today::before { left: 0; }
+.planner-rail--events::before { right: 0; }
+
+.planner-rail__eyebrow,
+.ares-command__eyebrow {
+  margin: 0 0 0.5rem;
+  color: #087f9b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.planner-rail h2 {
+  margin: 0;
+  font-size: clamp(1.25rem, 2vw, 1.7rem);
+  font-weight: 700;
+}
+
+.planner-rail__description,
+.planner-rail__state {
+  margin: 1rem 0 0;
+  color: #41535d;
+  font-family: "Franklin Gothic", Arial, sans-serif;
+  font-size: 0.93rem;
+  line-height: 1.45;
+}
+
+.planner-rail__metrics {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1.25rem 0 0;
+}
+
+.planner-rail__metrics div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid rgba(23, 38, 47, 0.14);
+}
+
+.planner-rail__metrics dt { font-size: 0.84rem; }
+.planner-rail__metrics dd { margin: 0; color: #087f9b; font-size: 1.5rem; font-weight: 700; }
+
+.planner-rail__events {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planner-rail__events li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  align-items: baseline;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid rgba(23, 38, 47, 0.14);
+  font-family: "Franklin Gothic", Arial, sans-serif;
+  font-size: 0.93rem;
+}
+
+.planner-rail__events time { color: #087f9b; font-weight: 700; }
+
+.ares-command {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem clamp(0.5rem, 3vw, 2.5rem);
+  text-align: center;
+}
+
+.ares-command__identity { width: 100%; }
+
+.connected-points-visual {
+  width: min(100%, 34rem);
+  margin: 0 auto 1.25rem;
+  filter: drop-shadow(0 1.2rem 1.8rem rgba(0, 112, 141, 0.18));
+}
+
+.connected-points-visual svg { display: block; width: 100%; overflow: visible; }
+.connected-points-visual__traces line { stroke: rgba(7, 114, 141, 0.52); stroke-width: 0.5; }
+.connected-points-visual__points circle { fill: #0b90b1; }
+.connected-points-visual__points circle:nth-child(3n) { fill: #055e78; }
+
+.ares-command h1 {
+  margin: 0;
+  font-size: clamp(2.6rem, 7vw, 5.75rem);
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+}
+
+.command-entry {
+  width: 100%;
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(7, 78, 97, 0.36);
+  text-align: left;
+}
+
+.command-entry form { display: grid; gap: 0.65rem; }
+.command-entry label { font-size: 0.92rem; font-weight: 700; }
+
+.command-entry textarea {
+  box-sizing: border-box;
+  min-height: 5.5rem;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid rgba(7, 78, 97, 0.45);
+  background: rgba(255, 255, 255, 0.36);
+  padding: 0.75rem;
+  color: inherit;
+}
+
+.command-entry button,
+.application-utility button,
+.interpretation-result button {
+  width: fit-content;
+  border: 1px solid #087f9b;
+  background: #087f9b;
+  padding: 0.55rem 0.9rem;
+  color: #f4fbfc;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.command-entry button:disabled,
+.application-utility button:disabled,
+.interpretation-result button:disabled { cursor: wait; opacity: 0.55; }
+
+.interpretation-result {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  text-align: left;
+}
+
+.interpretation-result p { margin: 0; }
+.interpretation-result article { display: grid; gap: 0.5rem; border-top: 1px solid rgba(23, 38, 47, 0.16); padding-top: 0.7rem; }
+.interpretation-result__actions { display: flex; gap: 0.5rem; }
+
+.application-utility {
+  width: 100%;
+  margin-top: 1rem;
+  color: #41535d;
+  text-align: left;
+}
+
+.application-utility summary { cursor: pointer; font-size: 0.88rem; font-weight: 700; }
+.application-utility p { margin: 0.5rem 0; font-family: "Franklin Gothic", Arial, sans-serif; font-size: 0.85rem; }
+
+@media (prefers-color-scheme: dark) {
+  :root { color: #e4eff2; background: #121b20; }
+  .ares-shell { background: linear-gradient(90deg, rgba(62, 188, 214, 0.05) 1px, transparent 1px) 0 0 / 4rem 4rem, #121b20; }
+  .planner-rail { border-color: rgba(119, 213, 233, 0.3); }
+  .planner-rail__description, .planner-rail__state, .application-utility { color: #b2c4ca; }
+  .planner-rail__metrics div, .planner-rail__events li, .interpretation-result article { border-color: rgba(207, 239, 245, 0.16); }
+  .planner-rail__metrics dd, .planner-rail__events time, .planner-rail__eyebrow, .ares-command__eyebrow { color: #55cde4; }
+  .ares-clock { color: #55cde4; }
+  .connected-points-visual { filter: drop-shadow(0 1.2rem 2.2rem rgba(70, 207, 234, 0.2)); }
+  .connected-points-visual__traces line { stroke: rgba(93, 211, 233, 0.58); }
+  .connected-points-visual__points circle { fill: #68d7ed; }
+  .connected-points-visual__points circle:nth-child(3n) { fill: #2fa7c2; }
+  .command-entry textarea { border-color: rgba(85, 205, 228, 0.55); background: rgba(12, 29, 35, 0.75); }
+  .command-entry button, .application-utility button, .interpretation-result button { background: #1187a1; border-color: #6addf0; color: #f5feff; }
+}
+
+@media (max-width: 900px) {
+  .ares-workspace { grid-template-columns: 1fr; max-width: 42rem; }
+  .planner-rail--today { order: 2; }
+  .ares-command { order: 1; }
+  .planner-rail--events { order: 3; }
+  .planner-rail--events::before { left: 0; right: auto; }
+  .ares-clock { top: 0.85rem; right: 1rem; }
 }

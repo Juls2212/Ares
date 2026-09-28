@@ -14,11 +14,27 @@ describe("temporary renderer messaging", () => {
     expect(appSource).not.toContain("executablePath");
   });
 
-  it("uses Spanish loading, success, and controlled error messages", () => {
-    expect(appSource).toContain("Consultando estado técnico...");
-    expect(appSource).toContain("La comunicación segura está en funcionamiento.");
-    expect(appSource).toContain("No se pudo consultar el estado técnico de Ares.");
-    expect(appSource).toContain('"disponible"');
+  it("renders the real planner rails with Spanish loading, empty, and controlled error states", () => {
+    for (const text of [
+      "Resumen de hoy",
+      "Ares es tu centro personal de productividad para organizar lo importante.",
+      "Cargando tu resumen de hoy…",
+      "No se pudo cargar el resumen de hoy.",
+      "Próximos eventos",
+      "Cargando próximos eventos…",
+      "No se pudieron cargar los eventos próximos.",
+      "No tienes eventos próximos."
+    ]) expect(appSource).toContain(text);
+    expect(appSource).toContain("window.ares.planner.schedule.getToday({ includeCompletedTasks: true })");
+    expect(appSource).toContain("window.ares.planner.events.list({ startAt: now.toISOString() })");
+    expect(appSource).not.toContain("window.ares.dashboard.getTodaySummary");
+  });
+
+  it("renders a local clock that updates without a renderer API", () => {
+    expect(appSource).toContain('aria-label="Hora local"');
+    expect(appSource).toContain("window.setInterval(updateClock, 60_000)");
+    expect(appSource).toContain("window.clearInterval(intervalId)");
+    expect(appSource).not.toContain("window.ares.system.getTime");
   });
 
   it("keeps interpretation, proposal, and confirmation as separate explicit technical steps", () => {

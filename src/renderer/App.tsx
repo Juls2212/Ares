@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import type {
   AssistantInterpretation,
@@ -6,34 +6,26 @@ import type {
 } from "../shared/assistant-contracts";
 import type {
   ActionLifecycleResult,
-  ActionOutcome,
   ActionSubmission,
   AwaitingActionConfirmation
 } from "../shared/action-contracts";
-import type { SystemCapabilities, SystemStatusData } from "../shared/contracts";
 import type { ChromeRegistrationData } from "../shared/application-contracts";
-
-type ViewState =
-  | { kind: "LOADING" }
-  | { kind: "SUCCESS"; status: SystemStatusData; capabilities: SystemCapabilities }
-  | { kind: "ERROR"; userMessage: string };
+import type { EventRecord, PlannerListData, TodayScheduleData } from "../shared/planner-contracts";
+import { ConnectedPointsVisual } from "./connected-points-visual";
+import { formatLocalClock } from "./local-clock";
+import {
+  formatEventTime,
+  getPlannerPanelState,
+  getUpcomingEvents,
+  summarizeToday,
+  type PlannerPanelState
+} from "./ares-planner-summary";
 
 type DraftActionState = {
   busy: boolean;
   resolved: boolean;
   userMessage?: string;
   confirmation?: AwaitingActionConfirmation;
-};
-
-const capabilityLabels: Record<keyof SystemCapabilities, string> = {
-  database: "Base de datos",
-  dashboard: "Inicio",
-  planner: "Planificador",
-  files: "Archivos",
-  applications: "Aplicaciones",
-  assistant: "Asistente",
-  voice: "Voz",
-  notifications: "Notificaciones"
 };
 
 const actionLabels: Record<ActionSubmission["action"], string> = {
@@ -61,46 +53,55 @@ const isAwaitingConfirmation = (
 
 const getInterpretationMessage = (
   result: AssistantOperationResult<AssistantInterpretation>
-): AssistantInterpretation =>
-  result.ok
-    ? result.data
-    : {
-        state: "UNAVAILABLE",
-        summary: result.error.userMessage,
-        drafts: [],
-        clarifications: []
-      };
+): AssistantInterpretation => result.ok
+  ? result.data
+  : { state: "UNAVAILABLE", summary: result.error.userMessage, drafts: [], clarifications: [] };
 
 export const App = () => {
-  const [viewState, setViewState] = useState<ViewState>({ kind: "LOADING" });
   const [instruction, setInstruction] = useState("");
   const [interpretation, setInterpretation] = useState<AssistantInterpretation>();
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
   const [isRegisteringChrome, setIsRegisteringChrome] = useState(false);
   const [chromeRegistrationMessage, setChromeRegistrationMessage] = useState<string>();
+  const [todayState, setTodayState] = useState<PlannerPanelState<TodayScheduleData>>({ kind: "LOADING" });
+  const [eventsState, setEventsState] = useState<PlannerPanelState<PlannerListData<EventRecord>>>({ kind: "LOADING" });
+  const [localTime, setLocalTime] = useState(() => formatLocalClock(new Date()));
 
   useEffect(() => {
-    const loadTechnicalStatus = async (): Promise<void> => {
-      const [statusResult, capabilitiesResult] = await Promise.all([
-        window.ares.system.getStatus(),
-        window.ares.system.getCapabilities()
-      ]);
-      if (!statusResult.ok) {
-        setViewState({ kind: "ERROR", userMessage: statusResult.error.userMessage });
-        return;
-      }
-      if (!capabilitiesResult.ok) {
-        setViewState({ kind: "ERROR", userMessage: capabilitiesResult.error.userMessage });
-        return;
-      }
-      setViewState({ kind: "SUCCESS", status: statusResult.data, capabilities: capabilitiesResult.data });
-    };
-
-    void loadTechnicalStatus().catch(() => {
-      setViewState({ kind: "ERROR", userMessage: "No se pudo consultar el estado técnico de Ares." });
-    });
+    const updateClock = (): void => setLocalTime(formatLocalClock(new Date()));
+    const intervalId = window.setInterval(updateClock, 60_000);
+    return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadPlannerSummary = async (): Promise<void> => {
+      const now = new Date();
+      const [todayResult, eventsResult] = await Promise.all([
+        window.ares.planner.schedule.getToday({ includeCompletedTasks: true }),
+        window.ares.planner.events.list({ startAt: now.toISOString() })
+      ]);
+      if (!active) return;
+      setTodayState(getPlannerPanelState(todayResult, "No se pudo cargar el resumen de hoy."));
+      setEventsState(getPlannerPanelState(eventsResult, "No se pudieron cargar los eventos próximos."));
+    };
+    void loadPlannerSummary().catch(() => {
+      if (!active) return;
+      setTodayState({ kind: "ERROR", userMessage: "No se pudo cargar el resumen de hoy." });
+      setEventsState({ kind: "ERROR", userMessage: "No se pudieron cargar los eventos próximos." });
+    });
+    return () => { active = false; };
+  }, []);
+
+  const todaySummary = useMemo(
+    () => todayState.kind === "READY" ? summarizeToday(todayState.data, new Date()) : undefined,
+    [todayState]
+  );
+  const upcomingEvents = useMemo(
+    () => eventsState.kind === "READY" ? getUpcomingEvents(eventsState.data.items, new Date()) : [],
+    [eventsState]
+  );
 
   const interpret = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -186,10 +187,9 @@ export const App = () => {
     if (!state || state.busy || !state.confirmation) return;
     updateDraftState(index, { ...state, busy: true });
     try {
-      const result =
-        decision === "CONFIRM"
-          ? await window.ares.actions.confirm(confirmation.confirmationId)
-          : await window.ares.actions.cancel(confirmation.confirmationId);
+      const result = decision === "CONFIRM"
+        ? await window.ares.actions.confirm(confirmation.confirmationId)
+        : await window.ares.actions.cancel(confirmation.confirmationId);
       updateDraftState(index, {
         busy: false,
         resolved: true,
@@ -205,86 +205,85 @@ export const App = () => {
   };
 
   return (
-    <main className="grid min-h-screen place-items-center bg-white p-8 text-slate-900">
-      <section className="w-full max-w-2xl space-y-4 text-center">
-        <h1 className="text-3xl font-semibold">Ares</h1>
-        <p className="text-base">Base técnica en funcionamiento</p>
-        {viewState.kind === "LOADING" && <p className="text-sm text-slate-600">Consultando estado técnico...</p>}
-        {viewState.kind === "ERROR" && <p className="text-sm text-slate-600">{viewState.userMessage}</p>}
-        {viewState.kind === "SUCCESS" && (
-          <div className="space-y-2 text-sm text-slate-600">
-            <p>La comunicación segura está en funcionamiento.</p>
-            <p>Versión {viewState.status.applicationVersion}</p>
-            <ul className="list-none p-0">
-              {(Object.keys(viewState.capabilities) as Array<keyof SystemCapabilities>).map((capability) => (
-                <li key={capability}>
-                  {capabilityLabels[capability]}: {viewState.capabilities[capability] ? "disponible" : "no disponible todavía"}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <section aria-label="Registro técnico de Google Chrome" className="space-y-2 border-t pt-4 text-left">
-          <h2 className="text-lg font-medium">Registro técnico del navegador</h2>
-          <p className="text-sm text-slate-600">Selecciona manualmente el archivo chrome.exe instalado.</p>
-          <button
-            className="border px-3 py-1 text-sm"
-            disabled={isRegisteringChrome}
-            onClick={() => void registerChrome()}
-            type="button"
-          >
-            {isRegisteringChrome ? "Registrando..." : "Registrar Google Chrome"}
-          </button>
-          {chromeRegistrationMessage && <p aria-live="polite" className="text-sm">{chromeRegistrationMessage}</p>}
-        </section>
-
-        <section aria-label="Interpretación técnica" className="space-y-3 border-t pt-4 text-left">
-          <h2 className="text-lg font-medium">Interpretación técnica</h2>
-          <form className="space-y-2" onSubmit={(event) => void interpret(event)}>
-            <label className="block text-sm" htmlFor="assistant-instruction">Instrucción</label>
-            <textarea
-              id="assistant-instruction"
-              className="min-h-24 w-full border p-2 text-sm"
-              disabled={isInterpreting}
-              onChange={(event) => setInstruction(event.target.value)}
-              value={instruction}
-            />
-            <button className="border px-3 py-1 text-sm" disabled={isInterpreting} type="submit">
-              {isInterpreting ? "Interpretando..." : "Interpretar"}
-            </button>
-          </form>
-
-          {interpretation && (
-            <div aria-live="polite" className="space-y-2 text-sm">
-              <p>{interpretation.summary}</p>
-              {interpretation.clarifications.map((item, index) => <p key={`${item.question}-${index}`}>{item.question}</p>)}
-              {interpretation.drafts.map((draft, index) => {
-                const state = draftStates[index];
-                return (
-                  <article className="space-y-2 border p-2" key={`${draft.action}-${index}`}>
-                    <p>{actionLabels[draft.action]}</p>
-                    <button
-                      className="border px-2 py-1"
-                      disabled={state?.busy || state?.resolved}
-                      onClick={() => void propose(index, draft)}
-                      type="button"
-                    >
-                      {state?.busy ? "Procesando..." : "Proponer acción"}
-                    </button>
-                    {state?.userMessage && <p>{state.userMessage}</p>}
-                    {state?.confirmation && !state.busy && (
-                      <div className="space-x-2">
-                        <button className="border px-2 py-1" onClick={() => void resolveConfirmation(index, state.confirmation!, "CONFIRM")} type="button">Confirmar</button>
-                        <button className="border px-2 py-1" onClick={() => void resolveConfirmation(index, state.confirmation!, "CANCEL")} type="button">Cancelar</button>
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
+    <main className="ares-shell">
+      <time aria-label="Hora local" className="ares-clock">{localTime}</time>
+      <section className="ares-workspace" aria-label="Ares">
+        <aside className="planner-rail planner-rail--today" aria-labelledby="today-summary-heading">
+          <p className="planner-rail__eyebrow">Resumen de hoy</p>
+          <h2 id="today-summary-heading">Tu enfoque</h2>
+          <p className="planner-rail__description">Ares es tu centro personal de productividad para organizar lo importante.</p>
+          {todayState.kind === "LOADING" && <p className="planner-rail__state">Cargando tu resumen de hoy…</p>}
+          {todayState.kind === "ERROR" && <p className="planner-rail__state">{todayState.userMessage}</p>}
+          {todaySummary && (
+            <dl className="planner-rail__metrics">
+              <div><dt>Tareas pendientes</dt><dd>{todaySummary.pendingTasks}</dd></div>
+              <div><dt>Tareas completadas</dt><dd>{todaySummary.completedTasks}</dd></div>
+              <div><dt>Eventos por venir</dt><dd>{todaySummary.upcomingEvents}</dd></div>
+            </dl>
           )}
+          {todaySummary && todaySummary.pendingTasks === 0 && todaySummary.completedTasks === 0 && todaySummary.upcomingEvents === 0 && (
+            <p className="planner-rail__state">No tienes actividades para hoy.</p>
+          )}
+        </aside>
+
+        <section className="ares-command" aria-labelledby="ares-heading">
+          <div className="ares-command__identity">
+            <ConnectedPointsVisual />
+            <p className="ares-command__eyebrow">Centro personal</p>
+            <h1 id="ares-heading">Ares</h1>
+          </div>
+
+          <section aria-label="Instrucción para Ares" className="command-entry">
+            <form onSubmit={(event) => void interpret(event)}>
+              <label htmlFor="assistant-instruction">¿En qué quieres avanzar?</label>
+              <textarea id="assistant-instruction" disabled={isInterpreting} onChange={(event) => setInstruction(event.target.value)} value={instruction} />
+              <button disabled={isInterpreting} type="submit">{isInterpreting ? "Interpretando…" : "Interpretar"}</button>
+            </form>
+
+            {interpretation && (
+              <div aria-live="polite" className="interpretation-result">
+                <p>{interpretation.summary}</p>
+                {interpretation.clarifications.map((item, index) => <p key={`${item.question}-${index}`}>{item.question}</p>)}
+                {interpretation.drafts.map((draft, index) => {
+                  const state = draftStates[index];
+                  return (
+                    <article key={`${draft.action}-${index}`}>
+                      <p>{actionLabels[draft.action]}</p>
+                      <button disabled={state?.busy || state?.resolved} onClick={() => void propose(index, draft)} type="button">{state?.busy ? "Procesando…" : "Proponer acción"}</button>
+                      {state?.userMessage && <p>{state.userMessage}</p>}
+                      {state?.confirmation && !state.busy && (
+                        <div className="interpretation-result__actions">
+                          <button onClick={() => void resolveConfirmation(index, state.confirmation!, "CONFIRM")} type="button">Confirmar</button>
+                          <button onClick={() => void resolveConfirmation(index, state.confirmation!, "CANCEL")} type="button">Cancelar</button>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <details className="application-utility">
+            <summary>Aplicaciones</summary>
+            <p>Registra Google Chrome para usarlo desde Ares.</p>
+            <button disabled={isRegisteringChrome} onClick={() => void registerChrome()} type="button">{isRegisteringChrome ? "Registrando…" : "Registrar Google Chrome"}</button>
+            {chromeRegistrationMessage && <p aria-live="polite">{chromeRegistrationMessage}</p>}
+          </details>
         </section>
+
+        <aside className="planner-rail planner-rail--events" aria-labelledby="upcoming-events-heading">
+          <p className="planner-rail__eyebrow">Próximos eventos</p>
+          <h2 id="upcoming-events-heading">En tu agenda</h2>
+          {eventsState.kind === "LOADING" && <p className="planner-rail__state">Cargando próximos eventos…</p>}
+          {eventsState.kind === "ERROR" && <p className="planner-rail__state">{eventsState.userMessage}</p>}
+          {eventsState.kind === "READY" && upcomingEvents.length === 0 && <p className="planner-rail__state">No tienes eventos próximos.</p>}
+          {eventsState.kind === "READY" && upcomingEvents.length > 0 && (
+            <ol className="planner-rail__events">
+              {upcomingEvents.map((event) => <li key={event.id}><time dateTime={event.startAt}>{formatEventTime(event.startAt)}</time><span>{event.title}</span></li>)}
+            </ol>
+          )}
+        </aside>
       </section>
     </main>
   );
