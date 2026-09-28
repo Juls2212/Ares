@@ -15,6 +15,7 @@ import {
   getAssistantContextService,
   type AssistantContextService
 } from "../assistant/assistant-context-service";
+import { speechService } from "../voice/speech-composition";
 
 export type AssistantIpcHandler = (input: unknown, webContentsId?: number) => Promise<OperationResult<unknown>>;
 export type AssistantIpcHandlerRegistrar = (channel: string, handler: AssistantIpcHandler) => void;
@@ -84,11 +85,34 @@ export const createAssistantIpcRegistration = (
   };
 };
 
+const speechWindows = new WeakSet<Electron.WebContents>();
+export const attachSpokenAssistantResponse = (
+  webContentsId: number,
+  result: AssistantOperationResult<AssistantInterpretation>
+): AssistantOperationResult<AssistantInterpretation> => {
+  if (!result.ok) return result;
+  speechService.clear(webContentsId);
+  result.data.spokenResponse = speechService.remember(webContentsId, result.data.summary);
+  return result;
+};
+
 const registerElectronHandler: AssistantIpcHandlerRegistrar = (channel, handler): void => {
-  ipcMain.handle(channel, (event, input: unknown) => {
+  ipcMain.handle(channel, async (event, input: unknown) => {
     const contextService = getAssistantContextService();
     contextService.bindWindow(event.sender.id, (listener) => event.sender.once("destroyed", listener));
-    return handler(input, event.sender.id);
+    if (!speechWindows.has(event.sender)) {
+      const windowId = event.sender.id;
+      speechWindows.add(event.sender);
+      event.sender.once("destroyed", () => speechService.clear(windowId));
+    }
+    const result = await handler(input, event.sender.id);
+    if (channel === IPC_CHANNELS.assistant.interpret && result.ok) {
+      return attachSpokenAssistantResponse(
+        event.sender.id,
+        result as AssistantOperationResult<AssistantInterpretation>
+      );
+    }
+    return result;
   });
 };
 

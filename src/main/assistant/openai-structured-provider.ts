@@ -42,10 +42,11 @@ export type StructuredInterpretationProvider = {
 export const OPENAI_INTERPRETATION_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["state", "summary", "drafts", "clarifications"],
+  required: ["state", "summary", "responseText", "drafts", "clarifications"],
   properties: {
-    state: { type: "string", enum: ["READY", "NEEDS_CLARIFICATION", "REJECTED"] },
+    state: { type: "string", enum: ["READY", "CONVERSATIONAL", "NEEDS_CLARIFICATION", "REJECTED"] },
     summary: { type: "string", maxLength: 500 },
+    responseText: { type: "string", maxLength: 400 },
     drafts: {
       type: "array",
       maxItems: 8,
@@ -98,6 +99,8 @@ const buildInstructions = (reference: AssistantInterpretationReference): string 
     "Nunca ejecutes acciones ni propongas comandos, rutas absolutas, URLs, argumentos, shell, SQL, herramientas, cuentas, ajustes o acciones fuera del catálogo. La única eliminación permitida es un borrador DELETE_EVENT que Main debe resolver y confirmar explícitamente.",
     "El catálogo permitido es: CREATE_TASK, UPDATE_TASK, COMPLETE_TASK, CREATE_EVENT, UPDATE_EVENT, DELETE_EVENT, CREATE_REMINDER, GET_TODAY_SCHEDULE, GET_WEEK_SCHEDULE, OPEN_APPLICATION, OPEN_WEB_PAGE, SEARCH_FILES, CREATE_FOLDER, RENAME_FILE, RENAME_FOLDER, MOVE_FILE y ORGANIZE_FILES.",
     "DELETE_EVENT requiere confirmación reforzada y nunca elimina durante la interpretación. Para un evento seleccionado válido usa {eventId: \"$CURRENT_CONTEXT\"}. En otro caso usa {eventTitle: \"título exacto mencionado por el usuario\", startAt?: \"instante ISO con offset explícito\"}; Main buscará una coincidencia única existente. startAt solo puede copiar un instante ISO que el usuario haya escrito literalmente; nunca lo inventes para desambiguar. Nunca inventes un UUID ni el título. Si falta el título, usa input {} para que Main pida el dato mínimo. Nunca propongas borrar tareas, recordatorios u otros recursos.",
+    "Para conversación, saludos, agradecimientos, preguntas generales o solicitudes que no correspondan a una acción aprobada, usa CONVERSATIONAL con drafts: [], clarifications: [], summary: \"Conversación\" y responseText en español natural, cálido y conciso. responseText tiene un máximo de 400 caracteres. Puedes dirigirte a la persona como Juli cuando sea natural. No afirmes acceso a información que Ares no puede verificar: si preguntan por salud de servidores, OpenAI u otros sistemas externos, explica brevemente que no puedes verificarlo. Nunca uses CONVERSATIONAL para inventar tareas, eventos, resultados, datos del planificador o confirmaciones.",
+    "Para una solicitud sobre las tareas, eventos, agenda o programación de hoy, usa READY con exactamente un borrador GET_TODAY_SCHEDULE e input \"{}\". No describas datos de agenda en responseText: Main consultará la agenda real al ejecutar la acción. Para toda salida READY, NEEDS_CLARIFICATION o REJECTED usa responseText: \"\".",
     "Si faltan datos requeridos, una referencia es ambigua o la solicitud no es segura, usa NEEDS_CLARIFICATION o REJECTED y no inventes identificadores UUID, alias, raíces ni referencias de archivos.",
     `Referencia temporal confiable: ${reference.now}. Zona horaria IANA confiable: ${reference.timeZone}.`,
     `Aplicaciones registradas y habilitadas disponibles: ${applications}.`,

@@ -39,6 +39,9 @@ export type ManualVoiceRecorderDependencies = {
   onUnavailable: (message: string, reason?: VoiceCaptureUnavailableReason) => void;
   onCancelled: () => void;
   onAudio: (audio: Blob, mimeType: VoiceMimeType, durationMs: number) => void;
+  onStream?: (stream: StreamLike) => void;
+  maximumDurationMs?: number;
+  onMaximumDuration?: () => void;
   now?: () => number;
   isUserActivationActive?: () => boolean;
 };
@@ -106,6 +109,7 @@ export const createManualVoiceRecorder = (
       try {
         stream = await dependencies.getUserMedia();
         if (cancelled || disposed) { release(); dependencies.onCancelled(); return; }
+        dependencies.onStream?.(stream);
         recorder = dependencies.createRecorder(stream, mimeType);
         recorder.ondataavailable = (event) => {
           if (cancelled || disposed) return;
@@ -133,7 +137,10 @@ export const createManualVoiceRecorder = (
         };
         startedAt = now();
         recorder.start(250);
-        timer = dependencies.setTimer(cancel, VOICE_MAX_RECORDING_DURATION_MS);
+        timer = dependencies.setTimer(
+          dependencies.onMaximumDuration ?? cancel,
+          dependencies.maximumDurationMs ?? VOICE_MAX_RECORDING_DURATION_MS
+        );
         dependencies.onRecording();
       } catch (error) {
         release();

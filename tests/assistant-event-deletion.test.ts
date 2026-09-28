@@ -14,7 +14,7 @@ const record = (id = eventId, startAt = "2026-09-28T15:00:00Z"): EventRecord => 
 const fixture = (events: EventRecord[], input: unknown = { eventTitle: "Reunión" }) => {
   const listEvents = vi.fn(async () => ({ ok: true as const, data: { items: events, total: events.length } }));
   const provider = vi.fn(async () => JSON.stringify({
-    state: "READY", summary: "provider text", drafts: [{ action: "DELETE_EVENT", input: JSON.stringify(input) }], clarifications: []
+    state: "READY", summary: "provider text", responseText: "", drafts: [{ action: "DELETE_EVENT", input: JSON.stringify(input) }], clarifications: []
   }));
   const interpreter = createAssistantInterpreter({
     getConfiguration: () => ({ apiKey: "", model: "" }),

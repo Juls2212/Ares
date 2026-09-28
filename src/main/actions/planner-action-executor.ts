@@ -11,6 +11,7 @@ import type {
 } from "../../shared/action-contracts";
 import { getPlannerService } from "../planner/planner-composition";
 import type { PlannerService } from "../planner/planner-service";
+import type { TodayScheduleData } from "../../shared/planner-contracts";
 
 export type PlannerActionExecutor = {
   execute: (proposal: PlannerActionProposal, policy: ActionPolicy) => Promise<ActionOutcome>;
@@ -39,6 +40,17 @@ const failureStatus = (errorCode: string): TerminalActionStatus =>
     ? "EXECUTION_FAILED"
     : "VALIDATION_FAILED";
 
+const describeTodaySchedule = (schedule: TodayScheduleData): string => {
+  const taskCount = schedule.tasks.length;
+  const eventCount = schedule.events.length;
+  if (taskCount === 0 && eventCount === 0) return "Hoy no tienes tareas ni eventos.";
+  const taskText = `${taskCount} ${taskCount === 1 ? "tarea" : "tareas"}`;
+  const eventText = `${eventCount} ${eventCount === 1 ? "evento" : "eventos"}`;
+  if (taskCount === 0) return `Hoy tienes ${eventText}.`;
+  if (eventCount === 0) return `Hoy tienes ${taskText}.`;
+  return `Hoy tienes ${taskText} y ${eventText}.`;
+};
+
 const toOutcome = <T extends PlannerActionData>(
   proposal: PlannerActionProposal,
   policy: ActionPolicy,
@@ -51,7 +63,10 @@ const toOutcome = <T extends PlannerActionData>(
       riskLevel: policy.riskLevel,
       status: "SUCCEEDED",
       data: result.data,
-      userSummary: successSummaries[proposal.action]
+      userSummary:
+        proposal.action === "GET_TODAY_SCHEDULE"
+          ? describeTodaySchedule(result.data as TodayScheduleData)
+          : successSummaries[proposal.action]
     };
   }
 

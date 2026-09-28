@@ -74,7 +74,9 @@ describe("assistant interpretation composition", () => {
     await expect(service.interpret({ text: "Crear una tarea" })).resolves.toEqual(readyResult);
     expect(interpret).toHaveBeenCalledWith(
       { instruction: "Crear una tarea" },
-      { knownApplicationAliases: [], knownApplications: [] }
+      {},
+      undefined,
+      expect.any(Function)
     );
   });
 
@@ -121,8 +123,24 @@ describe("assistant interpretation composition", () => {
     expect(JSON.stringify(result)).not.toContain(secret);
   });
 
-  it("supplies only enabled public display-name and alias references to the Main interpreter", async () => {
-    const interpret = vi.fn(async () => readyResult);
+  it("supplies enabled public application references only after a structured action requests them", async () => {
+    const interpret = vi.fn(async (_input, _reference, _context, resolveTrustedReference) => {
+      const resolved = await resolveTrustedReference(["OPEN_APPLICATION"]);
+      expect(resolved).toEqual({
+        reference: {
+          knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"],
+          knownApplications: [
+            { displayName: "Google Chrome", alias: "chrome" },
+            { displayName: "Visual Studio Code", alias: "vscode" },
+            { displayName: "Visual Studio", alias: "visualstudio" },
+            { displayName: "Spotify", alias: "spotify" },
+            { displayName: "Example App", alias: "example-app" }
+          ]
+        },
+        currentContext: undefined
+      });
+      return readyResult;
+    });
     const listApplications = vi.fn(async () => ({ ok: true as const, data: { items: [...catalogRecords, customRecord], total: 5 } }));
     const service = createAssistantInterpretationService({
       getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
@@ -131,35 +149,39 @@ describe("assistant interpretation composition", () => {
 
     await expect(service.interpret({ text: "Abre Google Chrome" })).resolves.toEqual(readyResult);
     expect(listApplications).toHaveBeenCalledWith({ enabled: true, limit: 100 });
-    expect(interpret).toHaveBeenCalledWith(
-      { instruction: "Abre Google Chrome" },
-      {
-        knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"],
-        knownApplications: [
-          { displayName: "Google Chrome", alias: "chrome" },
-          { displayName: "Visual Studio Code", alias: "vscode" },
-          { displayName: "Visual Studio", alias: "visualstudio" },
-          { displayName: "Spotify", alias: "spotify" },
-          { displayName: "Example App", alias: "example-app" }
-        ]
-      }
-    );
     expect(JSON.stringify(interpret.mock.calls)).not.toContain("executablePath");
   });
 
-  it("does not invoke the interpreter when trusted application lookup fails", async () => {
-    const interpret = vi.fn(async () => readyResult);
+  it("lets a structured conversational result bypass application lookup and action resolution", async () => {
+    const interpret = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        state: "CONVERSATIONAL" as const,
+        summary: "Hola, Juli. Estoy listo para ayudarte.",
+        drafts: [],
+        clarifications: []
+      }
+    }));
+    const listApplications = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "APPLICATION_DATABASE_UNAVAILABLE", userMessage: "private" }
+    }));
     const service = createAssistantInterpretationService({
       getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
-      getApplicationService: () => ({
-        listApplications: vi.fn(async () => ({ ok: false as const, error: { code: "APPLICATION_DATABASE_UNAVAILABLE", userMessage: "private" } }))
-      } as unknown as Pick<ApplicationService, "listApplications">)
+      getApplicationService: () => ({ listApplications } as unknown as Pick<ApplicationService, "listApplications">)
     });
 
-    const result = await service.interpret({ text: "Abre Google Chrome" });
-    expect(result).toMatchObject({ ok: true, data: { state: "UNAVAILABLE", errorCode: "ASSISTANT_IPC_UNAVAILABLE" } });
-    expect(JSON.stringify(result)).not.toContain("private");
-    expect(interpret).not.toHaveBeenCalled();
+    await expect(service.interpret({ text: "Hola Ares, ¿qué tal están tus servidores hoy?" })).resolves.toEqual({
+      ok: true,
+      data: {
+        state: "CONVERSATIONAL",
+        summary: "Hola, Juli. Estoy listo para ayudarte.",
+        drafts: [],
+        clarifications: []
+      }
+    });
+    expect(listApplications).not.toHaveBeenCalled();
+    expect(interpret).toHaveBeenCalledOnce();
   });
 
   it("passes only the validated context token, kind, and label to the provider boundary", async () => {
@@ -171,13 +193,17 @@ describe("assistant interpretation composition", () => {
     const service = createAssistantInterpretationService({
       getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
       getApplicationService: () => applicationServiceFor(),
-      getContextService: () => ({ getValidated: vi.fn(async () => context) } as unknown as AssistantContextService)
+      getContextService: () => ({
+        getCachedProviderContext: vi.fn(() => context.providerContext),
+        getValidated: vi.fn(async () => context)
+      } as unknown as AssistantContextService)
     });
     await service.interpret({ text: "Organiza esta carpeta" }, 42);
     expect(interpret).toHaveBeenCalledWith(
       { instruction: "Organiza esta carpeta" },
-      { knownApplicationAliases: [], knownApplications: [], currentContext: context.providerContext },
-      context
+      { currentContext: context.providerContext },
+      undefined,
+      expect.any(Function)
     );
   });
 });

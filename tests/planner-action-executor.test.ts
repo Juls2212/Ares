@@ -75,4 +75,36 @@ describe("planner action executor", () => {
       userSummary: "La información del planificador no es válida."
     });
   });
+
+  it("summarizes only real today task and event counts from the planner result", async () => {
+    const plannerService = createPlannerService();
+    vi.mocked(plannerService.getTodaySchedule).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        localDate: "2026-09-17",
+        tasks: [{ id: "task-1" }, { id: "task-2" }],
+        events: [{ id: "event-1" }],
+        reminders: []
+      }
+    } as never);
+    const executor = createPlannerActionExecutor({ plannerService, logError: vi.fn() });
+    const outcome = await executor.execute(
+      { actionId: "11111111-1111-4111-8111-111111111111", action: "GET_TODAY_SCHEDULE", input: {} },
+      getActionPolicy("GET_TODAY_SCHEDULE")
+    );
+
+    expect(outcome.userSummary).toBe("Hoy tienes 2 tareas y 1 evento.");
+    expect(outcome.userSummary).not.toContain("task-1");
+
+    vi.mocked(plannerService.getTodaySchedule).mockResolvedValueOnce({
+      ok: true,
+      data: { localDate: "2026-09-17", tasks: [], events: [], reminders: [] }
+    });
+    await expect(
+      executor.execute(
+        { actionId: "11111111-1111-4111-8111-111111111111", action: "GET_TODAY_SCHEDULE", input: {} },
+        getActionPolicy("GET_TODAY_SCHEDULE")
+      )
+    ).resolves.toMatchObject({ userSummary: "Hoy no tienes tareas ni eventos." });
+  });
 });

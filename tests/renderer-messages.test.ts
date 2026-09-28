@@ -77,8 +77,11 @@ describe("temporary renderer messaging", () => {
 
   it("routes successful voice input into the shared submission path without confirming actions", () => {
     expect(rendererSource).toContain("Iniciar grabación");
-    expect(rendererSource).toContain("Detener y transcribir");
+    expect(rendererSource).toContain("Escuchando…");
+    expect(rendererSource).not.toContain("Detener y transcribir");
     expect(rendererSource).toContain(">Cancelar</button>");
+    expect(rendererSource).toContain("createSpeechEndDetector");
+    expect(rendererSource).toContain("maximumDurationMs: 10_000");
     expect(rendererSource).toContain("window.ares.voice.transcribe");
     const transcriptionFlow = rendererSource.slice(
       rendererSource.indexOf("const transcribeAudio ="),

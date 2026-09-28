@@ -80,11 +80,16 @@ const registerElectronHandler: ActionIpcHandlerRegistrar = (channel, handler): v
     }
     speechService.clear(event.sender.id);
     const result = await handler(input);
-    if (result.ok && result.data && typeof result.data === "object" && "status" in result.data) {
-      const outcome = result.data as import("../../shared/action-contracts").ActionOutcome;
-      const text = composeFinalResponse(outcome);
-      if (text) {
-        outcome.userSummary = text;
+    if (!result.ok) {
+      result.error.spokenResponse = speechService.remember(event.sender.id, result.error.userMessage);
+    } else if (result.data && typeof result.data === "object") {
+      if ("lifecycleState" in result.data) {
+        const awaiting = result.data as import("../../shared/action-contracts").AwaitingActionConfirmation;
+        awaiting.spokenResponse = speechService.remember(event.sender.id, awaiting.confirmation.summary);
+      } else if ("status" in result.data) {
+        const outcome = result.data as import("../../shared/action-contracts").ActionOutcome;
+        const text = composeFinalResponse(outcome) ?? outcome.userSummary;
+        if (composeFinalResponse(outcome)) outcome.userSummary = text;
         outcome.spokenResponse = speechService.remember(event.sender.id, text);
       }
     }

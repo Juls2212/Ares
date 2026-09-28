@@ -30,11 +30,57 @@ const interpreterFor = (output: unknown) =>
 const ready = (drafts: Array<{ action: string; input: unknown }>) => ({
   state: "READY",
   summary: "Preparé las acciones solicitadas.",
+  responseText: "",
   drafts: drafts.map((draft) => ({ ...draft, input: JSON.stringify(draft.input) })),
   clarifications: []
 });
 
 describe("Main-only assistant interpreter", () => {
+  it("accepts varied structured conversational replies without an action draft", async () => {
+    const replies: Record<string, string> = {
+      "Hola Ares, ¿qué tal están tus servidores hoy?": "Hola, Juli. No puedo verificar el estado de servidores externos, pero puedo ayudarte con tus tareas.",
+      "Hola, ¿cómo estás?": "Hola, Juli. Estoy listo para ayudarte.",
+      Gracias: "Con gusto, Juli."
+    };
+    const provider = vi.fn(async ({ instruction }: { instruction: string }) => JSON.stringify({
+      state: "CONVERSATIONAL",
+      summary: "Conversación",
+      responseText: replies[instruction],
+      drafts: [],
+      clarifications: []
+    }));
+    const interpreter = createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => ({ interpret: provider }),
+      now: () => new Date(reference.now),
+      timeZone: () => reference.timeZone
+    });
+
+    for (const [instruction, summary] of Object.entries(replies)) {
+      await expect(interpreter.interpret({ instruction }, reference)).resolves.toEqual({
+        ok: true,
+        data: { state: "CONVERSATIONAL", summary, drafts: [], clarifications: [] }
+      });
+    }
+    expect(provider).toHaveBeenCalledTimes(3);
+  });
+
+  it("routes a structured request for today's agenda to the existing typed schedule action", async () => {
+    const provider = vi.fn(async () => JSON.stringify(ready([{ action: "GET_TODAY_SCHEDULE", input: {} }])));
+    const result = await createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => ({ interpret: provider }),
+      now: () => new Date(reference.now),
+      timeZone: () => reference.timeZone
+    }).interpret({ instruction: "¿Qué tareas y eventos tengo hoy?" }, reference);
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { state: "READY", drafts: [{ action: "GET_TODAY_SCHEDULE", input: {} }] }
+    });
+    expect(provider).toHaveBeenCalledOnce();
+  });
+
   it("replaces the Main-only current-context token for a selected folder without execution", async () => {
     const context: ResolvedAssistantContext = {
       selection: { section: "FILES", kind: "FOLDER", reference: { rootId: "DOCUMENTS", relativePath: "inbox" } },
@@ -165,6 +211,7 @@ describe("Main-only assistant interpreter", () => {
       {
         state: "READY",
         summary: "Provider-authored summary is never surfaced.",
+        responseText: "",
         drafts: [
           {
             action: "OPEN_WEB_PAGE",
@@ -300,12 +347,14 @@ describe("Main-only assistant interpreter", () => {
     const readyResult = await interpreterFor({
       state: "READY",
       summary: "raw-provider-secret-or-path",
+      responseText: "",
       drafts: [{ action: "GET_TODAY_SCHEDULE", input: "{}" }],
       clarifications: []
     }).interpret({ instruction: "Muéstrame mi agenda" }, reference);
     const clarificationResult = await interpreterFor({
       state: "NEEDS_CLARIFICATION",
       summary: "raw-provider-detail",
+      responseText: "",
       drafts: [],
       clarifications: [{ question: "raw-provider-question" }]
     }).interpret({ instruction: "Solicitud incompleta" }, reference);

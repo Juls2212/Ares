@@ -27,7 +27,6 @@ type AresViewProperties = {
   onInstructionChange: (instruction: string) => void;
   onInterpret: (event: FormEvent<HTMLFormElement>) => void;
   onStartRecording: () => void;
-  onStopRecording: () => void;
   onCancelRecording: () => void;
   onPropose: (index: number, draft: ActionSubmission) => void;
   onResolveConfirmation: (index: number, confirmation: AwaitingActionConfirmation, decision: "CONFIRM" | "CANCEL") => void;
@@ -51,7 +50,6 @@ export const AresView = ({
   onInstructionChange,
   onInterpret,
   onStartRecording,
-  onStopRecording,
   onCancelRecording,
   onPropose,
   onResolveConfirmation
@@ -86,14 +84,14 @@ export const AresView = ({
     </div>
     <section aria-label="Comando asistido" className="command-input-area command-entry-zone command-dock">
       <p className="eyebrow command-dock__label">Entrada de comando</p>
-      <VoiceCommandControls disabled={isInterpreting} processingInstruction={isInterpreting || voiceMessage === "Procesando instrucción…"} message={voiceMessage} onCancel={onCancelRecording} onStart={onStartRecording} onStop={onStopRecording} state={voiceState} />
+      <VoiceCommandControls disabled={isInterpreting} processingInstruction={isInterpreting || voiceMessage === "Procesando instrucción…"} message={voiceMessage} onCancel={onCancelRecording} onStart={onStartRecording} state={voiceState} />
       <form className="command-entry-form" onSubmit={onInterpret}>
         <label className="sr-only" htmlFor="assistant-instruction">Instrucción para Ares</label>
         <textarea disabled={isInterpreting} id="assistant-instruction" onChange={(event) => onInstructionChange(event.target.value)} placeholder="Escribe una instrucción para Ares" value={instruction} />
         <button className="interpret-button" disabled={isInterpreting || voiceState !== "IDLE"} type="submit">{isInterpreting ? "Interpretando..." : "Interpretar"}</button>
       </form>
       <InterpretationResult draftStates={draftStates} interpretation={interpretation} onPropose={onPropose} onResolveConfirmation={onResolveConfirmation} />
-      <ResponseSpeechControls automatic={automaticSpeech} onAutomaticChange={onAutomaticSpeechChange} blocked={isInterpreting || voiceState !== "IDLE" || Object.values(draftStates).some((state) => state.busy || state.confirmation)} response={spokenResponse} />
+      <ResponseSpeechControls automatic={automaticSpeech} onAutomaticChange={onAutomaticSpeechChange} blocked={isInterpreting || voiceState !== "IDLE" || Object.values(draftStates).some((state) => state.busy)} response={spokenResponse} />
     </section>
   </section>
 

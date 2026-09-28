@@ -41,6 +41,20 @@ describe("explicit voice instruction submission", () => {
       expect(f.showTranscript).not.toHaveBeenCalled(); expect(f.interpret).not.toHaveBeenCalled();
     }
   });
+  it("uses the shared interpretation route for a conversational transcript without proposing an action", async () => {
+    const f = fixture({
+      state: "CONVERSATIONAL",
+      summary: "Hola, Juli. Estoy muy bien, ¿en qué quieres que trabajemos hoy?",
+      drafts: [],
+      clarifications: []
+    });
+
+    await createVoiceTranscriptSubmission().submit(f);
+
+    expect(f.showTranscript).toHaveBeenCalledWith(f.text);
+    expect(f.interpret).toHaveBeenCalledOnce();
+    expect(f.propose).not.toHaveBeenCalled();
+  });
   it("ignores concurrent/replayed delivery and cancellation while interpretation is pending", async () => {
     let complete!: (result: AssistantInterpretation) => void; let current = true;
     const f = { ...fixture(), isCurrent: () => current, interpret: vi.fn(() => new Promise<AssistantInterpretation>(resolve => { complete = resolve; })) };
