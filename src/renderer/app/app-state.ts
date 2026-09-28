@@ -49,7 +49,7 @@ export const orbStateFor = (voiceState: VoiceState, isInterpreting: boolean): Pa
 
 export const voiceLabelFor = (voiceState: VoiceState, isInterpreting: boolean): string => {
   if (isInterpreting) return "Interpretando";
-  if (voiceState === "RECORDING") return "Grabando";
-  if (voiceState === "PROCESSING") return "Transcribiendo";
+  if (voiceState === "RECORDING") return "Escuchando";
+  if (voiceState === "PROCESSING") return "Procesando";
   return "En espera";
 };

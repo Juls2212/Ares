@@ -25,6 +25,12 @@ describe("OpenAI structured interpretation provider", () => {
     expect(objectSchemas.every((schema) => schema.additionalProperties === false)).toBe(true);
   });
 
+  it("has a bounded conversational response variant alongside the typed action states", () => {
+    expect(OPENAI_INTERPRETATION_OUTPUT_SCHEMA.required).toContain("responseText");
+    expect(OPENAI_INTERPRETATION_OUTPUT_SCHEMA.properties.responseText).toEqual({ type: "string", maxLength: 400 });
+    expect(OPENAI_INTERPRETATION_OUTPUT_SCHEMA.properties.state.enum).toContain("CONVERSATIONAL");
+  });
+
   it("uses a bounded JSON input string that the Main interpreter validates before draft creation", () => {
     const drafts = OPENAI_INTERPRETATION_OUTPUT_SCHEMA.properties.drafts;
     if (!drafts || !("items" in drafts)) throw new Error("Expected draft schema.");

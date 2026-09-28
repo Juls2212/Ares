@@ -26,6 +26,8 @@ type AssistantInterpretationServiceDependencies = {
 };
 
 const maximumTrustedApplicationReferences = 100;
+const requiresTrustedApplicationReferences = (actions: readonly string[]): boolean =>
+  actions.some((action) => action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE");
 
 const unavailable = (
   code: "ASSISTANT_BUSY" | "ASSISTANT_IPC_UNAVAILABLE"
@@ -76,31 +78,44 @@ export const createAssistantInterpretationService = (
 
       inFlight = true;
       try {
-        const applications = await dependencies.getApplicationService().listApplications({
-          enabled: true,
-          limit: 100
-        });
-        if (!applications.ok) return unavailable(ASSISTANT_ERROR_CODES.ipcUnavailable);
-
-        const trustedApplications = applications.data.items
-          .flatMap((record) =>
-            record.aliases.map((entry) => ({ displayName: record.name, alias: entry.alias }))
-          )
-          .slice(0, maximumTrustedApplicationReferences);
-        const knownApplicationAliases = trustedApplications.map((entry) => entry.alias);
-        const currentContext =
-          webContentsId === undefined || !dependencies.getContextService
-            ? undefined
-            : await dependencies.getContextService().getValidated(webContentsId);
-
+        const contextService = dependencies.getContextService?.();
+        const cachedContext =
+          webContentsId === undefined ? undefined : contextService?.getCachedProviderContext?.(webContentsId);
         const reference = {
-          knownApplicationAliases,
-          knownApplications: trustedApplications,
-          ...(currentContext ? { currentContext: currentContext.providerContext } : {})
+          ...(cachedContext ? { currentContext: cachedContext } : {})
         };
-        return currentContext
-          ? await dependencies.getInterpreter().interpret(normalizedInput, reference, currentContext)
-          : await dependencies.getInterpreter().interpret(normalizedInput, reference);
+        return await dependencies.getInterpreter().interpret(
+          normalizedInput,
+          reference,
+          undefined,
+          async (draftActions) => {
+            let trustedApplications: Array<{ displayName: string; alias: string }> = [];
+            if (requiresTrustedApplicationReferences(draftActions)) {
+              const applications = await dependencies.getApplicationService().listApplications({
+                enabled: true,
+                limit: 100
+              });
+              if (!applications.ok) return undefined;
+              trustedApplications = applications.data.items
+                .flatMap((record) =>
+                  record.aliases.map((entry) => ({ displayName: record.name, alias: entry.alias }))
+                )
+                .slice(0, maximumTrustedApplicationReferences);
+            }
+            const currentContext =
+              webContentsId === undefined || !contextService
+                ? undefined
+                : await contextService.getValidated(webContentsId);
+            return {
+              reference: {
+                knownApplicationAliases: trustedApplications.map((entry) => entry.alias),
+                knownApplications: trustedApplications,
+                ...(currentContext ? { currentContext: currentContext.providerContext } : {})
+              },
+              currentContext
+            };
+          }
+        );
       } catch {
         return unavailable(ASSISTANT_ERROR_CODES.ipcUnavailable);
       } finally {

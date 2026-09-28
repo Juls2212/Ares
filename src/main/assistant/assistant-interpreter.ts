@@ -66,6 +66,15 @@ export type AssistantInterpreterDependencies = {
   resolveEventDeletion?: ResolveEventDeletion;
 };
 
+export type TrustedAssistantReference = {
+  reference: Partial<AssistantInterpretationReference>;
+  currentContext?: ResolvedAssistantContext;
+};
+
+export type TrustedAssistantReferenceResolver = (
+  draftActions: readonly string[]
+) => Promise<TrustedAssistantReference | undefined>;
+
 const success = (data: AssistantInterpretation): AssistantOperationResult<AssistantInterpretation> => ({
   ok: true,
   data
@@ -136,7 +145,8 @@ const createReference = (
     ? { knownApplicationAliases: overrides.knownApplicationAliases }
     : {}),
   ...(overrides?.knownApplications ? { knownApplications: overrides.knownApplications } : {}),
-  ...(overrides?.knownFileReferences ? { knownFileReferences: overrides.knownFileReferences } : {})
+  ...(overrides?.knownFileReferences ? { knownFileReferences: overrides.knownFileReferences } : {}),
+  ...(overrides?.currentContext ? { currentContext: overrides.currentContext } : {})
 });
 
 const hasKnownReference = (
@@ -448,7 +458,8 @@ const parseProviderOutput = async (
   temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
-  instruction = ""
+  instruction = "",
+  resolveTrustedReference?: TrustedAssistantReferenceResolver
 ): Promise<AssistantOperationResult<AssistantInterpretation>> => {
   if (typeof raw !== "string") {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
@@ -462,36 +473,68 @@ const parseProviderOutput = async (
   } catch {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
   }
-  if (!isRecord(parsed) || !hasOnlyKeys(parsed, ["state", "summary", "drafts", "clarifications"])) {
+  if (!isRecord(parsed) || !hasOnlyKeys(parsed, ["state", "summary", "responseText", "drafts", "clarifications"])) {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
   }
-  if (!isSafeText(parsed.summary, 500) || !Array.isArray(parsed.drafts) || !Array.isArray(parsed.clarifications)) {
+  if (
+    !isSafeText(parsed.summary, 500) ||
+    typeof parsed.responseText !== "string" ||
+    parsed.responseText.length > 400 ||
+    /[\u0000-\u001f]/.test(parsed.responseText) ||
+    !Array.isArray(parsed.drafts) ||
+    !Array.isArray(parsed.clarifications)
+  ) {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
   }
   if (!parsed.clarifications.every((item) => isRecord(item) && hasOnlyKeys(item, ["question"]) && isSafeText(item.question, 300))) {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
   }
+  if (parsed.state === "CONVERSATIONAL") {
+    return parsed.drafts.length === 0 && parsed.clarifications.length === 0 && isSafeText(parsed.responseText, 400)
+      ? success({ state: "CONVERSATIONAL", summary: parsed.responseText.trim(), drafts: [], clarifications: [] })
+      : rejection(ASSISTANT_ERROR_CODES.malformed);
+  }
   if (parsed.state === "NEEDS_CLARIFICATION") {
-    return parsed.drafts.length === 0
+    return parsed.responseText.trim().length === 0 && parsed.drafts.length === 0
       ? clarification()
       : rejection(ASSISTANT_ERROR_CODES.malformed);
   }
   if (parsed.state === "REJECTED") {
-    return parsed.drafts.length === 0 && parsed.clarifications.length === 0
+    return parsed.responseText.trim().length === 0 && parsed.drafts.length === 0 && parsed.clarifications.length === 0
       ? rejection(ASSISTANT_ERROR_CODES.rejected)
       : rejection(ASSISTANT_ERROR_CODES.malformed);
   }
-  if (parsed.state !== "READY" || parsed.drafts.length === 0 || parsed.drafts.length > MAX_DRAFTS || parsed.clarifications.length !== 0) {
+  if (
+    parsed.state !== "READY" ||
+    parsed.responseText.trim().length !== 0 ||
+    parsed.drafts.length === 0 ||
+    parsed.drafts.length > MAX_DRAFTS ||
+    parsed.clarifications.length !== 0
+  ) {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
+  }
+  let trustedReference = reference;
+  let trustedContext = currentContext;
+  if (resolveTrustedReference) {
+    try {
+      const resolved = await resolveTrustedReference(
+        parsed.drafts.map((draft) => isRecord(draft) && typeof draft.action === "string" ? draft.action : "")
+      );
+      if (!resolved) return unavailable(ASSISTANT_ERROR_CODES.ipcUnavailable);
+      trustedReference = { ...reference, ...resolved.reference };
+      trustedContext = resolved.currentContext;
+    } catch {
+      return unavailable(ASSISTANT_ERROR_CODES.ipcUnavailable);
+    }
   }
   const drafts: ActionSubmission[] = [];
   for (const [index, candidate] of parsed.drafts.entries()) {
     if (!isRecord(candidate)) return rejection(ASSISTANT_ERROR_CODES.malformed);
     const draft = await validateDraft(
       { ...candidate, input: parseDraftInput(candidate.input) },
-      reference,
+      trustedReference,
       temporalResolver,
-      currentContext,
+      trustedContext,
       resolveEventDeletion,
       instruction
     );
@@ -542,7 +585,8 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
     async interpret(
       input: unknown,
       referenceOverrides?: Partial<AssistantInterpretationReference>,
-      currentContext?: ResolvedAssistantContext
+      currentContext?: ResolvedAssistantContext,
+      resolveTrustedReference?: TrustedAssistantReferenceResolver
     ): Promise<AssistantOperationResult<AssistantInterpretation>> {
       if (!isRecord(input) || !hasOnlyKeys(input, ["instruction"]) || !isSafeText(input.instruction, MAX_INSTRUCTION_LENGTH)) {
         return clarification();
@@ -595,7 +639,15 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           now: () => new Date(reference.now),
           timeZone: () => reference.timeZone
         });
-        const result = await parseProviderOutput(output, reference, temporalResolver, currentContext, dependencies.resolveEventDeletion, normalizedInput.instruction);
+        const result = await parseProviderOutput(
+          output,
+          reference,
+          temporalResolver,
+          currentContext,
+          dependencies.resolveEventDeletion,
+          normalizedInput.instruction,
+          resolveTrustedReference
+        );
         if (result.ok && result.data.errorCode === ASSISTANT_ERROR_CODES.malformed) {
           logError(`Assistant interpretation failed [${ASSISTANT_ERROR_CODES.malformed}].`);
         }

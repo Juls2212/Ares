@@ -51,6 +51,7 @@ export type AssistantContextService = {
     input: unknown
   ) => Promise<AssistantOperationResult<AssistantContextData>>;
   clear: (webContentsId: number) => AssistantOperationResult<AssistantContextData>;
+  getCachedProviderContext: (webContentsId: number) => AssistantCurrentContext | undefined;
   getValidated: (webContentsId: number) => Promise<ResolvedAssistantContext | undefined>;
   bindWindow: (webContentsId: number, onDestroyed: (listener: () => void) => void) => void;
 };
@@ -250,13 +251,14 @@ export const createAssistantContextService = (
         dependencies.store.clear(webContentsId);
         return failure(ASSISTANT_ERROR_CODES.contextInvalid);
       }
-      dependencies.store.set(webContentsId, selection.data);
+      dependencies.store.set(webContentsId, selection.data, resolved.providerContext);
       return success({ status: "SET", kind: resolved.providerContext.kind });
     },
     clear: (webContentsId) => {
       dependencies.store.clear(webContentsId);
       return success({ status: "CLEARED" });
     },
+    getCachedProviderContext: (webContentsId) => dependencies.store.getProviderContext(webContentsId),
     getValidated: async (webContentsId) => {
       const selection = dependencies.store.get(webContentsId);
       if (!selection) return undefined;

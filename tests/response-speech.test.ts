@@ -130,16 +130,18 @@ describe("trusted response speech", () => {
     const pending = late.play("reference"); late.stop(); resolve({ ok: true, data: audio() }); await pending;
     expect(player.play).toHaveBeenCalledOnce();
   });
-  it("exposes one reference-only IPC method and defaults automatic playback off", () => {
+  it("exposes one reference-only IPC method and defaults automatic playback on", () => {
     const source = (file: string) => readFileSync(file, "utf8");
     const controls = source("src/renderer/features/voice/response-speech-controls.tsx");
-    expect(source("src/renderer/app/App.tsx")).toContain("[automaticSpeech, setAutomaticSpeech] = useState(false)");
+    expect(source("src/renderer/app/App.tsx")).toContain("[automaticSpeech, setAutomaticSpeech] = useState(true)");
     for (const label of ["Escuchar respuesta", "Detener voz", "La voz de Ares es generada por IA.", "Leer respuestas automáticamente"]) expect(controls).toContain(label);
     for (const label of ["Generando voz…", "Reproduciendo voz…", "Voz finalizada", "No se pudo iniciar o continuar la voz."]) expect(controls).toContain(label);
     for (const lifecycle of ["Escape", "visibilitychange", "pagehide", "controller.stop()", "blocked"]) expect(controls).toContain(lifecycle);
     expect(source("src/preload/preload.ts")).toContain("IPC_CHANNELS.speech.speak, input");
     const provider = source("src/main/voice/openai-speech-provider.ts");
-    expect(provider).toContain('model: "gpt-4o-mini-tts", voice: "onyx"');
+    expect(provider).toContain('OPENAI_SPEECH_MODEL = "gpt-4o-mini-tts"');
+    expect(provider).toContain('OPENAI_SPEECH_VOICE = "onyx"');
+    expect(provider).toContain("OPENAI_SPEECH_SPEED = 1.05");
     expect(provider).toContain("maxRetries: 0");
     // Playback uses a local in-memory object URL, never a remote media source.
     expect(source("vite.renderer.config.ts")).toContain('"media-src blob:"');

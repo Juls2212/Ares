@@ -27,6 +27,7 @@ import {
 import { createGlobalVoiceShortcutController } from "../features/voice/global-voice-shortcut-controller";
 import { createManualVoiceRecorder, type ManualVoiceRecorder } from "../features/voice/manual-voice-recorder";
 import { bindRecordingCancellation } from "../features/voice/recording-cancellation";
+import { createSpeechEndDetector, type SpeechEndDetector } from "../features/voice/speech-end-detector";
 import { createVoiceTranscriptSubmission } from "../features/voice/voice-transcript-submission";
 import type { VoiceMimeType } from "../../shared/voice-contracts";
 import { type DraftActionState } from "../features/assistant/interpretation-result";
@@ -56,7 +57,7 @@ export const App = () => {
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
   const [spokenResponse, setSpokenResponse] = useState<import("../../shared/speech-contracts").SpokenResponse>();
-  const [automaticSpeech, setAutomaticSpeech] = useState(false);
+  const [automaticSpeech, setAutomaticSpeech] = useState(true);
   useEffect(() => { setSpokenResponse(undefined); }, [destination]);
   const [selectedCatalogApplication, setSelectedCatalogApplication] = useState<RegisterableCatalogApplication>("GOOGLE_CHROME");
   const [isRegisteringCatalogApplication, setIsRegisteringCatalogApplication] = useState(false);
@@ -67,6 +68,7 @@ export const App = () => {
   const [voiceMessage, setVoiceMessage] = useState<string>();
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
   const voiceRecorder = useRef<ManualVoiceRecorder | undefined>(undefined);
+  const speechEndDetector = useRef<SpeechEndDetector | undefined>(undefined);
   const voiceStateReference = useRef(voiceState);
   const voiceStartInFlight = useRef(false);
   const voiceGeneration = useRef(0);
@@ -107,6 +109,8 @@ export const App = () => {
   const cancelRecording = (): void => {
     if (voiceStateReference.current === "IDLE" && !voiceStartInFlight.current) return;
     voiceGeneration.current++;
+    speechEndDetector.current?.dispose();
+    speechEndDetector.current = undefined;
     voiceRecorder.current?.cancel();
     if (voiceStateReference.current === "PROCESSING") {
       voiceStateReference.current = "IDLE";
@@ -116,7 +120,7 @@ export const App = () => {
   };
   useEffect(() => {
     const cleanup = bindRecordingCancellation(document, window, () => document.hidden, cancelRecording);
-    return () => { voiceGeneration.current++; voiceRecorder.current?.dispose(); cleanup(); };
+    return () => { voiceGeneration.current++; speechEndDetector.current?.dispose(); voiceRecorder.current?.dispose(); cleanup(); };
   }, []);
   useEffect(() => { if (destination !== "ARES") cancelRecording(); }, [destination]);
   useEffect(() => { voiceStateReference.current = voiceState; }, [voiceState]);
@@ -158,22 +162,45 @@ export const App = () => {
       voiceStartInFlight.current = false;
       return;
     }
+    let levelAnalysisAvailable = true;
+    let maximumWithoutSpeech = false;
+    const detector = createSpeechEndDetector({
+      onSpeechEnded: () => {
+        if (generation === voiceGeneration.current) voiceRecorder.current?.stop();
+      }
+    });
+    speechEndDetector.current = detector;
     voiceRecorder.current = createManualVoiceRecorder({
       getUserMedia: () => browserMedia.getUserMedia({ audio: true }),
       createRecorder: (stream, mimeType) => new MediaRecorder(stream as MediaStream, { mimeType }),
       isMimeTypeSupported: MediaRecorder.isTypeSupported,
       createBlob: (parts, options) => new Blob(parts, options),
       setTimer: (callback, delay) => setTimeout(callback, delay), clearTimer: (timer) => clearTimeout(timer),
+      maximumDurationMs: 10_000,
+      onMaximumDuration: () => {
+        if (!levelAnalysisAvailable || detector.hasDetectedSpeech()) {
+          voiceRecorder.current?.stop();
+          return;
+        }
+        maximumWithoutSpeech = true;
+        voiceRecorder.current?.cancel();
+      },
+      onStream: (stream) => {
+        if (!detector.start(stream as MediaStream)) {
+          levelAnalysisAvailable = false;
+          setVoiceMessage("No se pudo detectar el fin de la voz; la grabación terminará al alcanzar el límite.");
+        }
+      },
       onRecording: () => { voiceStateReference.current = "RECORDING"; setVoiceState("RECORDING"); },
-      onProcessing: () => { voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); },
+      onProcessing: () => { detector.dispose(); voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); setVoiceMessage("Procesando…"); },
       onUnavailable: (message, reason) => {
         voiceStartInFlight.current = false;
         setVoiceState("IDLE");
         setVoiceMessage(fromGlobalShortcut && reason === "USER_GESTURE_REQUIRED" ? "Para iniciar la grabación, usa el botón visible." : message);
       },
       isUserActivationActive: () => navigator.userActivation?.isActive ?? false,
-      onCancelled: () => { voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage("Grabación cancelada"); },
-      onAudio: (recording, recordingMimeType, durationMs) => { void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
+      onCancelled: () => { detector.dispose(); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); },
+      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
     });
     await voiceRecorder.current.start();
     voiceStartInFlight.current = false;
@@ -202,7 +229,7 @@ export const App = () => {
 
     const controller = createGlobalVoiceShortcutController({
       getState: () => voiceStateReference.current,
-      startRecording: () => { void startRecording(true); }, stopRecording: () => voiceRecorder.current?.stop()
+      startRecording: () => { void startRecording(true); }, stopRecording: cancelRecording
     });
     return window.ares.voice.onGlobalShortcut(controller.activate);
   }, []);
@@ -217,6 +244,7 @@ export const App = () => {
       if (!isCurrent()) return;
       if (automaticProposal && result.state === "READY") setDraftStates(Object.fromEntries(result.drafts.map((_draft, index) => [index, { busy: true, resolved: false }])));
       setInterpretation(result);
+      setSpokenResponse(result.spokenResponse);
       return result;
     } catch {
       if (isCurrent()) setInterpretation({ state: "UNAVAILABLE", summary: "La interpretación no está disponible en este momento.", drafts: [], clarifications: [] });
@@ -272,8 +300,16 @@ export const App = () => {
     try {
       const result = await window.ares.actions.propose(draft);
       if (!isCurrent()) return;
-      if (!result.ok) return updateDraftState(index, { busy: false, resolved: true, userMessage: result.error.userMessage });
-      if (isAwaitingConfirmation(result.data)) return updateDraftState(index, { busy: false, resolved: true, confirmation: result.data, userMessage: result.data.confirmation.summary });
+      if (!result.ok) {
+        updateDraftState(index, { busy: false, resolved: true, userMessage: result.error.userMessage });
+        setSpokenResponse(result.error.spokenResponse);
+        return;
+      }
+      if (isAwaitingConfirmation(result.data)) {
+        updateDraftState(index, { busy: false, resolved: true, confirmation: result.data, userMessage: result.data.confirmation.summary });
+        setSpokenResponse(result.data.spokenResponse);
+        return;
+      }
       updateDraftState(index, { busy: false, resolved: true, userMessage: result.data.userSummary, spokenResponse: result.data.spokenResponse });
       setSpokenResponse(result.data.spokenResponse);
     } catch {
@@ -294,8 +330,8 @@ export const App = () => {
     updateDraftState(index, { ...state, busy: true });
     try {
       const result = decision === "CONFIRM" ? await window.ares.actions.confirm(confirmation.confirmationId) : await window.ares.actions.cancel(confirmation.confirmationId);
-      updateDraftState(index, { busy: false, resolved: true, userMessage: result.ok ? result.data.userSummary : result.error.userMessage, spokenResponse: result.ok ? result.data.spokenResponse : undefined });
-      if (result.ok) setSpokenResponse(result.data.spokenResponse);
+      updateDraftState(index, { busy: false, resolved: true, userMessage: result.ok ? result.data.userSummary : result.error.userMessage, spokenResponse: result.ok ? result.data.spokenResponse : result.error.spokenResponse });
+      setSpokenResponse(result.ok ? result.data.spokenResponse : result.error.spokenResponse);
     } catch {
       updateDraftState(index, { busy: false, resolved: true, userMessage: decision === "CONFIRM" ? "No se pudo confirmar la acción." : "No se pudo cancelar la acción." });
     }
@@ -351,7 +387,6 @@ export const App = () => {
       onPropose={(index, draft) => void propose(index, draft)}
       onResolveConfirmation={(index, confirmation, decision) => void resolveConfirmation(index, confirmation, decision)}
       onStartRecording={() => void startRecording()}
-      onStopRecording={() => voiceRecorder.current?.stop()}
       orbState={orbState}
       technicalMessage={viewState.kind === "ERROR" ? viewState.userMessage : undefined}
       technicalState={viewState.kind}

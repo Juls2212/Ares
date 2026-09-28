@@ -1,11 +1,12 @@
 import type { ActionSubmission } from "./action-contracts";
 import type { OperationResult } from "./contracts";
 import type { SafeFileReference } from "./file-contracts";
+import type { SpokenResponse } from "./speech-contracts";
 
 export type AssistantInterpretInput = { instruction: string };
 /** Renderer-facing input. Main maps this to the interpreter-only instruction contract. */
 export type AssistantInterpretRequest = { text: string };
-export type AssistantInterpretationState = "READY" | "NEEDS_CLARIFICATION" | "REJECTED" | "UNAVAILABLE";
+export type AssistantInterpretationState = "READY" | "CONVERSATIONAL" | "NEEDS_CLARIFICATION" | "REJECTED" | "UNAVAILABLE";
 export type AssistantClarification = { question: string };
 export type AssistantActionDraft = ActionSubmission;
 
@@ -50,6 +51,8 @@ export type AssistantInterpretation = {
   drafts: AssistantActionDraft[];
   clarifications: AssistantClarification[];
   errorCode?: AssistantErrorCode;
+  /** A Main-issued, window-bound reference for optional speech playback. */
+  spokenResponse?: SpokenResponse;
 };
 
 /**

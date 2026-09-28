@@ -284,6 +284,8 @@ export type AwaitingActionConfirmation = {
   confirmation: ActionConfirmationRequirement;
   /** Present only for a Main-generated organization proposal preview. */
   preview?: FileOrganizationPlan;
+  /** A Main-issued, window-bound reference for optional speech playback. */
+  spokenResponse?: import("./speech-contracts").SpokenResponse;
 };
 
 export type ActionLifecycleResult = ActionOutcome | AwaitingActionConfirmation;

@@ -8,6 +8,8 @@ export type OperationFailure = {
   error: {
     code: string;
     userMessage: string;
+    /** A Main-issued, window-bound reference for optional speech playback. */
+    spokenResponse?: import("./speech-contracts").SpokenResponse;
   };
 };
 

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("electron", () => ({ ipcMain: { handle: vi.fn() } }));
 
 import {
+  attachSpokenAssistantResponse,
   createAssistantIpcRegistration,
   type AssistantIpcHandler,
   type AssistantIpcHandlerRegistrar
@@ -12,6 +13,24 @@ import type { AssistantContextService } from "../src/main/assistant/assistant-co
 import { IPC_CHANNELS } from "../src/shared/contracts";
 
 describe("assistant IPC registration", () => {
+  it("issues a Main-bound speech reference for a conversational result", () => {
+    const result = attachSpokenAssistantResponse(701, {
+      ok: true,
+      data: {
+        state: "CONVERSATIONAL",
+        summary: "Hola, Juli. Estoy listo para ayudarte.",
+        drafts: [],
+        clarifications: []
+      }
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { state: "CONVERSATIONAL", spokenResponse: { responseId: expect.any(String) } }
+    });
+    if (result.ok) expect(result.data.spokenResponse?.text).toBe(result.data.summary);
+  });
+
   it("registers the explicit interpretation and context channels once", async () => {
     const handlers = new Map<string, AssistantIpcHandler>();
     const interpret = vi.fn(async () => ({ ok: true as const, data: { state: "READY", drafts: [], clarifications: [], summary: "Listo." } }));
