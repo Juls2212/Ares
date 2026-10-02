@@ -10,7 +10,7 @@ Ares acts only after an explicit user instruction or UI interaction. Voice and A
 
 | Classification | Actions |
 | --- | --- |
-| `DIRECT` | `CREATE_TASK`, `UPDATE_TASK`, `COMPLETE_TASK`, `CREATE_EVENT`, `UPDATE_EVENT`, `CREATE_REMINDER`, `GET_TODAY_SCHEDULE`, `GET_WEEK_SCHEDULE`, `OPEN_REGISTERED_APPLICATION`, `OPEN_REGISTERED_PAGE`, `CREATE_FOLDER`, `SEARCH_FILES` |
+| `DIRECT` | `CREATE_TASK`, `UPDATE_TASK`, `COMPLETE_TASK`, `CREATE_EVENT`, `UPDATE_EVENT`, `CREATE_REMINDER`, `GET_TODAY_SCHEDULE`, `GET_WEEK_SCHEDULE`, `GET_CURRENT_DATE_TIME`, `GET_WEATHER`, `OPEN_REGISTERED_APPLICATION`, `OPEN_REGISTERED_PAGE`, `CREATE_FOLDER`, `SEARCH_FILES` |
 | `CONFIRMATION_REQUIRED` | `RENAME_FILE`, `RENAME_FOLDER`, `MOVE_FILE`, `MOVE_FOLDER`, `ORGANIZE_FILES`, `UPDATE_REGISTERED_APPLICATION`, `UPDATE_REGISTERED_PAGE` |
 | `REINFORCED_CONFIRMATION_REQUIRED` | `DELETE_EVENT`, `DELETE_TASK`, `DELETE_FILE`, `DELETE_FOLDER` |
 
@@ -116,6 +116,8 @@ Required fields are validated after natural-language resolution. All paths must 
 | `CREATE_REMINDER` | Create an alert tied to one task, one event, or an independent explicit subject. | Level 1 when explicit and resolved; otherwise clarify. | `remindAt` and either `taskId`, `eventId`, or `title` | `title`, `taskId`, `eventId` | `remindAt` is always required. At most one of `taskId` and `eventId` may exist. Without either reference, `title` is required. Referenced entities must exist and be valid; the result supplies a display title from the independent title or referenced entity. | “Se creó el recordatorio {reminderTitle}.” Failure: Spanish validation message. | Record result. |
 | `GET_TODAY_SCHEDULE` | Retrieve the local-day schedule. | Level 1; no extra confirmation. | none | `includeCompletedTasks` | Use current local date; return tasks, events, and reminders in a stable order. | “Esto es lo que tienes programado hoy.” | Record query result. |
 | `GET_WEEK_SCHEDULE` | Retrieve the local-week schedule. | Level 1; no extra confirmation. | none | `weekStart`, `includeCompletedTasks` | Use local calendar boundaries; validate requested week start if supplied. | “Esto es lo que tienes programado esta semana.” | Record query result. |
+| `GET_CURRENT_DATE_TIME` | Retrieve the current local date and time. | Level 1; no extra confirmation. | none | none | Main derives the result from its local system clock and time zone. | Controlled Spanish date/time response. | Record aggregate query result. |
+| `GET_WEATHER` | Retrieve current and today weather for the fixed initial location. | Level 1; no extra confirmation. | none | none | Main resolves the fixed Pasto, Colombia configuration and validates the weather response before composing it. The model never authors factual weather text. | Controlled Spanish current-weather and today-forecast response. | Record aggregate query result only; never provider payloads, coordinates, or network details. |
 
 ## Unknown actions
 
