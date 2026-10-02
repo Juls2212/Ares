@@ -76,25 +76,43 @@ describe("planner action executor", () => {
     });
   });
 
-  it("summarizes only real today task and event counts from the planner result", async () => {
+  it("composes a bounded grounded schedule from planner task and event records", async () => {
     const plannerService = createPlannerService();
     vi.mocked(plannerService.getTodaySchedule).mockResolvedValueOnce({
       ok: true,
       data: {
         localDate: "2026-09-17",
-        tasks: [{ id: "task-1" }, { id: "task-2" }],
-        events: [{ id: "event-1" }],
+        tasks: [
+          { id: "task-1", title: "Preparar informe", priority: "HIGH", status: "PENDING", dueTime: "09:30" },
+          { id: "task-2", title: "Revisar agenda", priority: "LOW", status: "COMPLETED", dueTime: null },
+          { id: "task-3", title: "Enviar correo", priority: "MEDIUM", status: "IN_PROGRESS", dueTime: "11:00" },
+          { id: "task-4", title: "Tarea restante", priority: "LOW", status: "PENDING", dueTime: null }
+        ],
+        events: [
+          { id: "event-1", title: "Reunión de equipo", startAt: "2026-09-17T15:30:00.000Z" },
+          { id: "event-2", title: "Seguimiento", startAt: "2026-09-17T18:00:00.000Z" },
+          { id: "event-3", title: "Cierre", startAt: "2026-09-17T20:00:00.000Z" },
+          { id: "event-4", title: "Evento restante", startAt: "2026-09-17T22:00:00.000Z" }
+        ],
         reminders: []
       }
     } as never);
-    const executor = createPlannerActionExecutor({ plannerService, logError: vi.fn() });
+    const executor = createPlannerActionExecutor({ plannerService, timeZone: () => "America/Bogota", logError: vi.fn() });
     const outcome = await executor.execute(
       { actionId: "11111111-1111-4111-8111-111111111111", action: "GET_TODAY_SCHEDULE", input: {} },
       getActionPolicy("GET_TODAY_SCHEDULE")
     );
 
-    expect(outcome.userSummary).toBe("Hoy tienes 2 tareas y 1 evento.");
+    expect(outcome.userSummary).toContain("Tareas: Preparar informe (prioridad alta, pendiente, a las 09:30)");
+    expect(outcome.userSummary).toContain("Revisar agenda (prioridad baja, completada)");
+    expect(outcome.userSummary).toContain("Enviar correo (prioridad media, en progreso, a las 11:00)");
+    expect(outcome.userSummary).toContain("Eventos: Reunión de equipo a las 10:30");
+    expect(outcome.userSummary).toContain("Seguimiento a las 13:00");
+    expect(outcome.userSummary).toContain("Cierre a las 15:00");
+    expect(outcome.userSummary).toContain("Además, tienes 2 elementos más.");
     expect(outcome.userSummary).not.toContain("task-1");
+    expect(outcome.userSummary).not.toContain("event-1");
+    expect(outcome.userSummary).not.toContain("2026-09-17T15:30:00.000Z");
 
     vi.mocked(plannerService.getTodaySchedule).mockResolvedValueOnce({
       ok: true,
@@ -106,5 +124,59 @@ describe("planner action executor", () => {
         getActionPolicy("GET_TODAY_SCHEDULE")
       )
     ).resolves.toMatchObject({ userSummary: "Hoy no tienes tareas ni eventos." });
+  });
+
+  it("derives current date and time from the injected Main clock without consulting planner data", async () => {
+    const plannerService = createPlannerService();
+    const executor = createPlannerActionExecutor({
+      plannerService,
+      now: () => new Date("2026-10-02T15:05:00.000Z"),
+      timeZone: () => "America/Bogota",
+      logError: vi.fn()
+    });
+
+    const outcome = await executor.execute(
+      { actionId: "11111111-1111-4111-8111-111111111111", action: "GET_CURRENT_DATE_TIME", input: {} },
+      getActionPolicy("GET_CURRENT_DATE_TIME")
+    );
+
+    expect(outcome).toMatchObject({ status: "SUCCEEDED", action: "GET_CURRENT_DATE_TIME" });
+    expect(outcome.userSummary).toContain("2 de octubre de 2026");
+    expect(outcome.userSummary).toContain("10:05");
+    expect(outcome.userSummary).not.toContain("2026-10-02T15:05:00.000Z");
+    expect(plannerService.getTodaySchedule).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes task-only and event-only schedules from the actual returned records", async () => {
+    const plannerService = createPlannerService();
+    const executor = createPlannerActionExecutor({ plannerService, timeZone: () => "America/Bogota", logError: vi.fn() });
+    vi.mocked(plannerService.getTodaySchedule)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          localDate: "2026-09-17",
+          tasks: [{ title: "Escribir minuta", priority: "MEDIUM", status: "PENDING", dueTime: null }],
+          events: [],
+          reminders: []
+        }
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          localDate: "2026-09-17",
+          tasks: [],
+          events: [{ title: "Llamada", startAt: "2026-09-17T16:00:00.000Z" }],
+          reminders: []
+        }
+      } as never);
+
+    const proposal = { actionId: "11111111-1111-4111-8111-111111111111", action: "GET_TODAY_SCHEDULE" as const, input: {} };
+    const taskOnly = await executor.execute(proposal, getActionPolicy("GET_TODAY_SCHEDULE"));
+    const eventOnly = await executor.execute(proposal, getActionPolicy("GET_TODAY_SCHEDULE"));
+
+    expect(taskOnly.userSummary).toContain("Tareas: Escribir minuta (prioridad media, pendiente)");
+    expect(taskOnly.userSummary).not.toContain("Eventos:");
+    expect(eventOnly.userSummary).toContain("Eventos: Llamada a las 11:00");
+    expect(eventOnly.userSummary).not.toContain("Tareas:");
   });
 });
