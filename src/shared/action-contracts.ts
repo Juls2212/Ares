@@ -48,6 +48,8 @@ export const ACTION_NAMES = [
   "CREATE_REMINDER",
   "GET_TODAY_SCHEDULE",
   "GET_WEEK_SCHEDULE",
+  "GET_CURRENT_DATE_TIME",
+  "GET_WEATHER",
   "DELETE_EVENT",
   "DELETE_TASK"
 ] as const;
@@ -94,6 +96,15 @@ export type TerminalActionStatus = (typeof TERMINAL_ACTION_STATUSES)[number];
 export type ActionAvailability = "IMPLEMENTED" | "DEFERRED" | "UNSUPPORTED";
 export type IsoDateTime = string;
 
+/** This Main-owned read-only action accepts no caller-provided temporal data. */
+export type GetCurrentDateTimeInput = Record<string, never>;
+
+/** The verified result is expressed only through the controlled user summary. */
+export type CurrentDateTimeData = Record<string, never>;
+
+/** The initial weather action is fixed to the Main-owned Pasto configuration. */
+export type GetWeatherInput = Record<string, never>;
+
 type ActionProposalBase = {
   actionId: string;
   dependsOn?: string[];
@@ -108,11 +119,17 @@ export type PlannerActionProposal =
   | (ActionProposalBase & { action: "CREATE_REMINDER"; input: CreateReminderInput })
   | (ActionProposalBase & { action: "GET_TODAY_SCHEDULE"; input: GetTodayScheduleInput })
   | (ActionProposalBase & { action: "GET_WEEK_SCHEDULE"; input: GetWeekScheduleInput })
+  | (ActionProposalBase & { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput })
   | (ActionProposalBase & { action: "DELETE_EVENT"; input: DeleteEventInput })
   | (ActionProposalBase & { action: "DELETE_TASK"; input: DeleteTaskInput });
 
 export type OpenApplicationInput = {
   alias: string;
+};
+
+export type WeatherActionProposal = ActionProposalBase & {
+  action: "GET_WEATHER";
+  input: GetWeatherInput;
 };
 
 /** A fixed Main-owned website identifier, never a caller-provided URL. */
@@ -151,6 +168,7 @@ export type FileActionProposal =
 
 export type ExecutableActionProposal =
   | PlannerActionProposal
+  | WeatherActionProposal
   | OpenApplicationActionProposal
   | OpenWebPageActionProposal
   | FileActionProposal;
@@ -173,8 +191,14 @@ export type PlannerActionSubmission =
   | { action: "CREATE_REMINDER"; input: CreateReminderInput }
   | { action: "GET_TODAY_SCHEDULE"; input: GetTodayScheduleInput }
   | { action: "GET_WEEK_SCHEDULE"; input: GetWeekScheduleInput }
+  | { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput }
   | { action: "DELETE_EVENT"; input: DeleteEventInput }
   | { action: "DELETE_TASK"; input: DeleteTaskInput };
+
+export type WeatherActionSubmission = {
+  action: "GET_WEATHER";
+  input: GetWeatherInput;
+};
 
 export type OpenApplicationActionSubmission = {
   action: "OPEN_APPLICATION";
@@ -201,6 +225,7 @@ export type DeferredActionSubmission = {
 /** External submissions never include the Main-generated action identifier. */
 export type ActionSubmission =
   | PlannerActionSubmission
+  | WeatherActionSubmission
   | OpenApplicationActionSubmission
   | OpenWebPageActionSubmission
   | FileActionSubmission
@@ -246,6 +271,7 @@ export type PlannerActionData =
   | PlannerMutationData<ReminderRecord>
   | TodayScheduleData
   | WeekScheduleData
+  | CurrentDateTimeData
   | DeleteEventData;
 
 export type OpenApplicationActionData = {
