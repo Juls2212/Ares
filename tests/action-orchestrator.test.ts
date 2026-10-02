@@ -152,6 +152,22 @@ describe("action orchestrator", () => {
     expect(executor.execute).toHaveBeenCalledTimes(1);
   });
 
+  it("executes the fixed weather request directly with no caller-controlled location", async () => {
+    const { orchestrator, executor } = createOrchestrator();
+
+    const result = await orchestrator.propose({ action: "GET_WEATHER", input: {} });
+
+    expect(result).toMatchObject({ ok: true, data: { action: "GET_WEATHER", status: "SUCCEEDED", riskLevel: 1 } });
+    expect(executor.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "GET_WEATHER", input: {} }),
+      getActionPolicy("GET_WEATHER")
+    );
+    expect(await orchestrator.propose({ action: "GET_WEATHER", input: { city: "Pasto" } })).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_PROPOSAL_INVALID" }
+    });
+  });
+
   it("never dispatches a deferred destructive action or accepts an unissued confirmation", async () => {
     const { orchestrator, executor } = createOrchestrator();
     const proposal = await orchestrator.propose({ action: "DELETE_FILE", input: { fileId: identifiers[0] } });
