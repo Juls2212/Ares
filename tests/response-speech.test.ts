@@ -112,11 +112,46 @@ describe("trusted response speech", () => {
     expect(JSON.stringify(result)).not.toContain("private");
     expect(result.ok).toBe(false);
   });
-  it("composes only proven success without guessing titles or dates", () => {
-    const outcome = { action: "CREATE_TASK", status: "SUCCEEDED" } as ActionOutcome;
+  it("composes planner acknowledgements only from confirmed Main results", () => {
+    const outcome = { action: "CREATE_TASK", status: "SUCCEEDED", data: { record: {} } } as ActionOutcome;
     expect(composeFinalResponse(outcome)).toBe("Listo, agregué la tarea.");
     for (const status of ["EXECUTION_FAILED", "CANCELLED", "VALIDATION_FAILED"] as const) expect(composeFinalResponse({ ...outcome, status })).toBeUndefined();
+    expect(composeFinalResponse({ ...outcome, data: undefined })).toBeUndefined();
+    expect(composeFinalResponse({ ...outcome, action: "DELETE_EVENT", data: { deleted: true } })).toBe("Listo, eliminé el evento.");
+    expect(composeFinalResponse({ ...outcome, action: "DELETE_EVENT", data: {} })).toBeUndefined();
     expect(composeFinalResponse({ ...outcome, action: "ORGANIZE_FILES" })).toBeUndefined();
+  });
+  it("uses only the Main-resolved application display name and keeps it eligible for response-ID speech", async () => {
+    const outcome = {
+      action: "OPEN_APPLICATION",
+      status: "SUCCEEDED",
+      data: { applicationName: "Google Chrome" }
+    } as ActionOutcome;
+    const text = composeFinalResponse(outcome);
+    expect(text).toBe("Listo, abrí Google Chrome.");
+
+    const provider = vi.fn(async () => audio());
+    const service = createSpeechService(() => provider);
+    const response = service.remember(1, text!)!;
+    expect((await service.speak(1, { responseId: response.responseId })).ok).toBe(true);
+    expect(provider).toHaveBeenCalledWith("Listo, abrí Google Chrome.", expect.any(AbortSignal));
+    expect(composeFinalResponse({ ...outcome, data: { applicationName: "C:\\private\\chrome.exe" } })).toBeUndefined();
+  });
+  it("does not turn failed or malformed application outcomes into a success acknowledgement", () => {
+    const outcome = {
+      action: "OPEN_APPLICATION",
+      status: "EXECUTION_FAILED",
+      data: { applicationName: "Google Chrome" },
+      userSummary: "No se pudo abrir la aplicación registrada."
+    } as ActionOutcome;
+    expect(composeFinalResponse(outcome)).toBeUndefined();
+    expect(composeFinalResponse({ ...outcome, status: "SUCCEEDED", data: undefined })).toBeUndefined();
+    expect(JSON.stringify(outcome)).not.toContain("chrome.exe");
+  });
+  it("preserves Main-grounded schedule and current-time summaries for final display and speech", () => {
+    for (const action of ["GET_TODAY_SCHEDULE", "GET_CURRENT_DATE_TIME", "GET_WEATHER"] as const) {
+      expect(composeFinalResponse({ action, status: "SUCCEEDED" } as ActionOutcome)).toBeUndefined();
+    }
   });
   it("plays only bounded memory audio, revokes URLs and ignores cancelled late results", async () => {
     const player = { play: vi.fn(async () => {}), pause: vi.fn(), load: vi.fn(), removeAttribute: vi.fn(), onended: null, onerror: null };
