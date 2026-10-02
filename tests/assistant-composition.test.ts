@@ -74,7 +74,7 @@ describe("assistant interpretation composition", () => {
     await expect(service.interpret({ text: "Crear una tarea" })).resolves.toEqual(readyResult);
     expect(interpret).toHaveBeenCalledWith(
       { instruction: "Crear una tarea" },
-      {},
+      { knownApplicationAliases: [] },
       undefined,
       expect.any(Function)
     );
@@ -105,7 +105,7 @@ describe("assistant interpretation composition", () => {
     const first = service.interpret({ text: "Primera" });
     const second = await service.interpret({ text: "Segunda" });
     expect(second).toMatchObject({ ok: true, data: { state: "UNAVAILABLE", errorCode: "ASSISTANT_BUSY" } });
-    expect(interpret).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(interpret).toHaveBeenCalledTimes(1));
 
     resolveFirst?.(readyResult);
     await expect(first).resolves.toEqual(readyResult);
@@ -123,25 +123,20 @@ describe("assistant interpretation composition", () => {
     expect(JSON.stringify(result)).not.toContain(secret);
   });
 
-  it("supplies enabled public application references only after a structured action requests them", async () => {
-    const interpret = vi.fn(async (_input, _reference, _context, resolveTrustedReference) => {
+  it("supplies only normalized enabled aliases before the provider request and validates them again for application drafts", async () => {
+    const disabledRecord = { ...chromeRecord, id: "550e8400-e29b-41d4-a716-446655440005", isEnabled: false, aliases: [{ ...chromeRecord.aliases[0], applicationId: "550e8400-e29b-41d4-a716-446655440005", alias: "disabled" }] };
+    const interpret = vi.fn(async (_input, reference, _context, resolveTrustedReference) => {
+      expect(reference).toEqual({ knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"] });
       const resolved = await resolveTrustedReference(["OPEN_APPLICATION"]);
       expect(resolved).toEqual({
         reference: {
-          knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"],
-          knownApplications: [
-            { displayName: "Google Chrome", alias: "chrome" },
-            { displayName: "Visual Studio Code", alias: "vscode" },
-            { displayName: "Visual Studio", alias: "visualstudio" },
-            { displayName: "Spotify", alias: "spotify" },
-            { displayName: "Example App", alias: "example-app" }
-          ]
+          knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"]
         },
         currentContext: undefined
       });
       return readyResult;
     });
-    const listApplications = vi.fn(async () => ({ ok: true as const, data: { items: [...catalogRecords, customRecord], total: 5 } }));
+    const listApplications = vi.fn(async () => ({ ok: true as const, data: { items: [...catalogRecords, customRecord, disabledRecord], total: 6 } }));
     const service = createAssistantInterpretationService({
       getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
       getApplicationService: () => ({ listApplications } as unknown as Pick<ApplicationService, "listApplications">)
@@ -149,10 +144,37 @@ describe("assistant interpretation composition", () => {
 
     await expect(service.interpret({ text: "Abre Google Chrome" })).resolves.toEqual(readyResult);
     expect(listApplications).toHaveBeenCalledWith({ enabled: true, limit: 100 });
-    expect(JSON.stringify(interpret.mock.calls)).not.toContain("executablePath");
+    expect(listApplications).toHaveBeenCalledTimes(2);
+    const providerReference = interpret.mock.calls[0]?.[1];
+    expect(JSON.stringify(providerReference)).not.toContain("executablePath");
+    expect(JSON.stringify(providerReference)).not.toContain("Google Chrome");
+    expect(JSON.stringify(providerReference)).not.toContain("disabled");
+    expect(JSON.stringify(providerReference)).not.toContain(chromeRecord.id);
   });
 
-  it("lets a structured conversational result bypass application lookup and action resolution", async () => {
+  it("keeps a mocked chrome draft on the existing ready path", async () => {
+    const chromeDraft = {
+      ok: true as const,
+      data: {
+        state: "READY" as const,
+        summary: "Preparé los borradores solicitados.",
+        drafts: [{ action: "OPEN_APPLICATION" as const, input: { alias: "chrome" } }],
+        clarifications: []
+      }
+    };
+    const interpret = vi.fn(async (_input, reference) => {
+      expect(reference.knownApplicationAliases).toContain("chrome");
+      return chromeDraft;
+    });
+    const service = createAssistantInterpretationService({
+      getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
+      getApplicationService: () => applicationServiceFor([chromeRecord])
+    });
+
+    await expect(service.interpret({ text: "Abre Chrome" })).resolves.toEqual(chromeDraft);
+  });
+
+  it("keeps a conversational result available when the alias lookup fails", async () => {
     const interpret = vi.fn(async () => ({
       ok: true as const,
       data: {
@@ -180,7 +202,7 @@ describe("assistant interpretation composition", () => {
         clarifications: []
       }
     });
-    expect(listApplications).not.toHaveBeenCalled();
+    expect(listApplications).toHaveBeenCalledWith({ enabled: true, limit: 100 });
     expect(interpret).toHaveBeenCalledOnce();
   });
 
@@ -201,7 +223,7 @@ describe("assistant interpretation composition", () => {
     await service.interpret({ text: "Organiza esta carpeta" }, 42);
     expect(interpret).toHaveBeenCalledWith(
       { instruction: "Organiza esta carpeta" },
-      { currentContext: context.providerContext },
+      { knownApplicationAliases: [], currentContext: context.providerContext },
       undefined,
       expect.any(Function)
     );
