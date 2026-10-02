@@ -162,6 +162,24 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       scopeSummary: "Agenda local de la semana"
     }
   },
+  GET_CURRENT_DATE_TIME: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará la fecha y hora locales actuales.",
+      affectedItemCount: null,
+      scopeSummary: "Fecha y hora locales actuales"
+    }
+  },
+  GET_WEATHER: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará el clima actual de Pasto.",
+      affectedItemCount: null,
+      scopeSummary: "Clima actual de Pasto"
+    }
+  },
   OPEN_REGISTERED_APPLICATION: {
     approval: "DIRECT",
     availability: "DEFERRED",
