@@ -13,7 +13,8 @@ import {
   type FileActionData,
   type OpenWebPageActionProposal,
   type PlannerActionProposal,
-  type SafeHistoryMetadata
+  type SafeHistoryMetadata,
+  type WeatherActionProposal
 } from "../../shared/action-contracts";
 import { createActionHistoryService, type ActionHistoryService } from "./action-history-service";
 import { evaluateActionProposal, getActionPolicy } from "./action-policy";
@@ -81,6 +82,7 @@ const isPlannerAction = (action: ActionSubmission["action"]): action is PlannerA
     "CREATE_REMINDER",
     "GET_TODAY_SCHEDULE",
     "GET_WEEK_SCHEDULE",
+    "GET_CURRENT_DATE_TIME",
     "DELETE_EVENT",
     "DELETE_TASK"
   ].includes(action as PlannerActionProposal["action"]);
@@ -106,6 +108,14 @@ const isOpenWebPageSubmission = (
 
 const isApplicationAction = (action: ActionSubmission["action"]): boolean =>
   action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE";
+
+const isWeatherAction = (action: ActionSubmission["action"]): action is WeatherActionProposal["action"] =>
+  action === "GET_WEATHER";
+
+const isWeatherActionSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: "GET_WEATHER"; input: Record<string, never> } =>
+  submission.action === "GET_WEATHER" && isRecord(submission.input) && Object.keys(submission.input).length === 0;
 
 const isFileAction = (action: ActionSubmission["action"]): action is FileActionProposal["action"] =>
   ["SEARCH_FILES", "CREATE_FOLDER", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES"].includes(
@@ -153,6 +163,8 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
     scopeKind:
       isApplicationAction(outcome.action)
         ? "APPLICATION"
+        : isWeatherAction(outcome.action)
+          ? "WEATHER"
         : isFileAction(outcome.action)
           ? "FILES"
           : "PLANNER",
@@ -294,6 +306,7 @@ export const createActionOrchestrator = (
         !isPlannerAction(submission.action) &&
         !isOpenApplicationSubmission(submission) &&
         !isOpenWebPageSubmission(submission) &&
+        !isWeatherActionSubmission(submission) &&
         !isFileActionSubmission(submission)
       ) {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
@@ -319,6 +332,12 @@ export const createActionOrchestrator = (
               action: submission.action,
               input: submission.input as FileActionProposal["input"]
             } as FileActionProposal
+          : isWeatherActionSubmission(submission)
+            ? {
+                actionId,
+                action: "GET_WEATHER",
+                input: {}
+              } as WeatherActionProposal
           : {
               actionId,
               action: submission.action as PlannerActionProposal["action"],
