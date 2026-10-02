@@ -60,8 +60,10 @@ describe("OpenAI structured interpretation provider", () => {
         "ORGANIZE_FILES"
       ])
     });
-    expect(action.enum).toHaveLength(17);
+    expect(action.enum).toHaveLength(19);
     expect(action.enum).toContain("DELETE_EVENT");
+    expect(action.enum).toContain("GET_CURRENT_DATE_TIME");
+    expect(action.enum).toContain("GET_WEATHER");
     expect(drafts.maxItems).toBe(8);
   });
 });
