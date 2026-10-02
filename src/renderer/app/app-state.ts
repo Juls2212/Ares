@@ -15,6 +15,8 @@ export const actionLabels: Record<ActionSubmission["action"], string> = {
   CREATE_REMINDER: "Crear recordatorio",
   GET_TODAY_SCHEDULE: "Consultar agenda de hoy",
   GET_WEEK_SCHEDULE: "Consultar agenda semanal",
+  GET_CURRENT_DATE_TIME: "Consultar fecha y hora actuales",
+  GET_WEATHER: "Consultar clima de Pasto",
   OPEN_APPLICATION: "Abrir aplicación registrada",
   OPEN_WEB_PAGE: "Abrir página web autorizada",
   SEARCH_FILES: "Buscar archivos",
