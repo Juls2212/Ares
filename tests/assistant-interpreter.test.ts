@@ -81,6 +81,72 @@ describe("Main-only assistant interpreter", () => {
     expect(provider).toHaveBeenCalledOnce();
   });
 
+  it("routes a structured current-date request to the typed Main-owned date-time action", async () => {
+    const provider = vi.fn(async () => JSON.stringify(ready([{ action: "GET_CURRENT_DATE_TIME", input: {} }])));
+    const result = await createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => ({ interpret: provider }),
+      now: () => new Date(reference.now),
+      timeZone: () => reference.timeZone
+    }).interpret({ instruction: "¿Qué hora y fecha es?" }, reference);
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        state: "READY",
+        summary: "Preparé los borradores solicitados.",
+        drafts: [{ action: "GET_CURRENT_DATE_TIME", input: {} }],
+        clarifications: []
+      }
+    });
+    expect(provider).toHaveBeenCalledOnce();
+  });
+
+  it("routes a structured weather request to the fixed typed Pasto weather action", async () => {
+    const provider = vi.fn(async () => JSON.stringify(ready([{ action: "GET_WEATHER", input: {} }])));
+    const result = await createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => ({ interpret: provider }),
+      now: () => new Date(reference.now),
+      timeZone: () => reference.timeZone
+    }).interpret({ instruction: "¿Cómo está el clima hoy?" }, reference);
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { state: "READY", drafts: [{ action: "GET_WEATHER", input: {} }] }
+    });
+    expect(provider).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a weather draft with model-authored location or weather data", async () => {
+    const result = await interpreterFor(
+      ready([{ action: "GET_WEATHER", input: { city: "Pasto", temperature: 16 } }])
+    ).interpret({ instruction: "Dime el clima" }, reference);
+
+    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
+  });
+
+  it("rejects provider-authored weather prose so Main remains the factual response source", async () => {
+    const result = await interpreterFor({
+      state: "READY",
+      summary: "Preparé la acción.",
+      responseText: "En Pasto llueve.",
+      drafts: [{ action: "GET_WEATHER", input: "{}" }],
+      clarifications: []
+    }).interpret({ instruction: "¿Cómo está el clima?" }, reference);
+
+    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
+    expect(JSON.stringify(result)).not.toContain("llueve");
+  });
+
+  it("rejects a current-date draft that attempts to supply model-authored temporal facts", async () => {
+    const result = await interpreterFor(
+      ready([{ action: "GET_CURRENT_DATE_TIME", input: { date: "2026-10-02", time: "10:05" } }])
+    ).interpret({ instruction: "Dime la hora" }, reference);
+
+    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
+  });
+
   it("replaces the Main-only current-context token for a selected folder without execution", async () => {
     const context: ResolvedAssistantContext = {
       selection: { section: "FILES", kind: "FOLDER", reference: { rootId: "DOCUMENTS", relativePath: "inbox" } },
