@@ -4,7 +4,8 @@ import type {
   ExecutableActionProposal,
   FileActionProposal,
   OpenApplicationActionProposal,
-  OpenWebPageActionProposal
+  OpenWebPageActionProposal,
+  WeatherActionProposal
 } from "../../shared/action-contracts";
 import type { FileOperationResult, FileOrganizationPlan } from "../../shared/file-contracts";
 import {
@@ -13,6 +14,7 @@ import {
 } from "./application-action-executor";
 import { createPlannerActionExecutor, type PlannerActionExecutor } from "./planner-action-executor";
 import { createFileActionExecutor, type FileActionExecutor } from "./file-action-executor";
+import { createWeatherActionExecutor, type WeatherActionExecutor } from "./weather-action-executor";
 
 export type ActionExecutor = {
   execute: (proposal: ExecutableActionProposal, policy: ActionPolicy) => Promise<ActionOutcome>;
@@ -25,6 +27,7 @@ type ActionExecutorDependencies = {
   plannerExecutor?: PlannerActionExecutor;
   applicationExecutor?: ApplicationActionExecutor;
   fileExecutor?: FileActionExecutor;
+  weatherExecutor?: WeatherActionExecutor;
 };
 
 const isFileAction = (proposal: ExecutableActionProposal): proposal is FileActionProposal =>
@@ -37,18 +40,24 @@ const isApplicationAction = (
 ): proposal is OpenApplicationActionProposal | OpenWebPageActionProposal =>
   proposal.action === "OPEN_APPLICATION" || proposal.action === "OPEN_WEB_PAGE";
 
+const isWeatherAction = (proposal: ExecutableActionProposal): proposal is WeatherActionProposal =>
+  proposal.action === "GET_WEATHER";
+
 export const createActionExecutor = (
   overrides: Partial<ActionExecutorDependencies> = {}
 ): ActionExecutor => {
   const plannerExecutor = overrides.plannerExecutor ?? createPlannerActionExecutor();
   const applicationExecutor = overrides.applicationExecutor ?? createApplicationActionExecutor();
   const fileExecutor = overrides.fileExecutor ?? createFileActionExecutor();
+  const weatherExecutor = overrides.weatherExecutor ?? createWeatherActionExecutor();
 
   return {
     prepareOrganization: fileExecutor.prepareOrganization,
     execute: (proposal, policy) =>
       isApplicationAction(proposal)
         ? applicationExecutor.execute(proposal, policy)
+        : isWeatherAction(proposal)
+          ? weatherExecutor.execute(proposal, policy)
         : isFileAction(proposal)
           ? fileExecutor.execute(proposal, policy)
           : plannerExecutor.execute(proposal, policy)
