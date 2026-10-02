@@ -4,11 +4,12 @@ import { getActionPolicy } from "../src/main/actions/action-policy";
 import type { ApplicationActionExecutor } from "../src/main/actions/application-action-executor";
 import type { FileActionExecutor } from "../src/main/actions/file-action-executor";
 import type { PlannerActionExecutor } from "../src/main/actions/planner-action-executor";
+import type { WeatherActionExecutor } from "../src/main/actions/weather-action-executor";
 
 const actionId = "11111111-1111-4111-8111-111111111111";
 
 describe("action executor routing", () => {
-  it("routes application, file, and planner actions only to their dedicated Main executors", async () => {
+  it("routes application, file, planner, and weather actions only to their dedicated Main executors", async () => {
     const plannerExecutor: PlannerActionExecutor = {
       execute: vi.fn(async (proposal, policy) => ({
         actionId: proposal.actionId,
@@ -36,7 +37,16 @@ describe("action executor routing", () => {
         userSummary: "Se completó la acción de archivos autorizada."
       }))
     };
-    const executor = createActionExecutor({ plannerExecutor, applicationExecutor, fileExecutor });
+    const weatherExecutor: WeatherActionExecutor = {
+      execute: vi.fn(async (proposal, policy) => ({
+        actionId: proposal.actionId,
+        action: proposal.action,
+        riskLevel: policy.riskLevel,
+        status: "SUCCEEDED" as const,
+        userSummary: "Se consultó el clima de Pasto."
+      }))
+    };
+    const executor = createActionExecutor({ plannerExecutor, applicationExecutor, fileExecutor, weatherExecutor });
 
     await executor.execute(
       {
@@ -58,9 +68,14 @@ describe("action executor routing", () => {
       { actionId, action: "CREATE_TASK", input: { title: "Review report" } },
       getActionPolicy("CREATE_TASK")
     );
+    await executor.execute(
+      { actionId, action: "GET_WEATHER", input: {} },
+      getActionPolicy("GET_WEATHER")
+    );
 
     expect(fileExecutor.execute).toHaveBeenCalledTimes(1);
     expect(plannerExecutor.execute).toHaveBeenCalledTimes(1);
     expect(applicationExecutor.execute).toHaveBeenCalledTimes(1);
+    expect(weatherExecutor.execute).toHaveBeenCalledTimes(1);
   });
 });
