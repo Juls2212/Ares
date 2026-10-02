@@ -346,6 +346,12 @@ const validateDraft = async (
       const result = validateGetWeekScheduleInput(input);
       return result.ok ? { action, input: result.data } : null;
     }
+    case "GET_CURRENT_DATE_TIME": {
+      return isRecord(input) && hasOnlyKeys(input, []) ? { action, input: {} } : null;
+    }
+    case "GET_WEATHER": {
+      return isRecord(input) && hasOnlyKeys(input, []) ? { action, input: {} } : null;
+    }
     case "OPEN_APPLICATION": {
       const alias = isRecord(input) ? input.alias : undefined;
       const result = isRecord(input) && hasOnlyKeys(input, ["alias"])
