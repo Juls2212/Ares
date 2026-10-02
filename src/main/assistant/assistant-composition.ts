@@ -25,9 +25,20 @@ type AssistantInterpretationServiceDependencies = {
   getContextService?: () => AssistantContextService;
 };
 
-const maximumTrustedApplicationReferences = 100;
+const maximumTrustedApplicationAliases = 100;
 const requiresTrustedApplicationReferences = (actions: readonly string[]): boolean =>
   actions.some((action) => action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE");
+
+const toTrustedApplicationAliases = (
+  applications: Awaited<ReturnType<ApplicationService["listApplications"]>>
+): string[] => {
+  if (!applications.ok) return [];
+  return [...new Set(applications.data.items
+    .filter((record) => record.isEnabled)
+    .flatMap((record) => record.aliases.map((entry) => entry.alias.trim().toLocaleLowerCase("en-US"))))]
+    .filter((alias) => alias.length > 0)
+    .slice(0, maximumTrustedApplicationAliases);
+};
 
 const unavailable = (
   code: "ASSISTANT_BUSY" | "ASSISTANT_IPC_UNAVAILABLE"
@@ -81,7 +92,12 @@ export const createAssistantInterpretationService = (
         const contextService = dependencies.getContextService?.();
         const cachedContext =
           webContentsId === undefined ? undefined : contextService?.getCachedProviderContext?.(webContentsId);
+        const initialApplications = await dependencies.getApplicationService().listApplications({
+          enabled: true,
+          limit: maximumTrustedApplicationAliases
+        }).catch(() => undefined);
         const reference = {
+          knownApplicationAliases: initialApplications ? toTrustedApplicationAliases(initialApplications) : [],
           ...(cachedContext ? { currentContext: cachedContext } : {})
         };
         return await dependencies.getInterpreter().interpret(
@@ -89,18 +105,14 @@ export const createAssistantInterpretationService = (
           reference,
           undefined,
           async (draftActions) => {
-            let trustedApplications: Array<{ displayName: string; alias: string }> = [];
+            let trustedApplicationAliases: string[] = [];
             if (requiresTrustedApplicationReferences(draftActions)) {
               const applications = await dependencies.getApplicationService().listApplications({
                 enabled: true,
-                limit: 100
+                limit: maximumTrustedApplicationAliases
               });
               if (!applications.ok) return undefined;
-              trustedApplications = applications.data.items
-                .flatMap((record) =>
-                  record.aliases.map((entry) => ({ displayName: record.name, alias: entry.alias }))
-                )
-                .slice(0, maximumTrustedApplicationReferences);
+              trustedApplicationAliases = toTrustedApplicationAliases(applications);
             }
             const currentContext =
               webContentsId === undefined || !contextService
@@ -108,8 +120,7 @@ export const createAssistantInterpretationService = (
                 : await contextService.getValidated(webContentsId);
             return {
               reference: {
-                knownApplicationAliases: trustedApplications.map((entry) => entry.alias),
-                knownApplications: trustedApplications,
+                knownApplicationAliases: trustedApplicationAliases,
                 ...(currentContext ? { currentContext: currentContext.providerContext } : {})
               },
               currentContext
