@@ -3,10 +3,20 @@ import type { OperationResult } from "./contracts";
 export const TASK_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED"] as const;
 export const TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH"] as const;
 export const REMINDER_STATUSES = ["PENDING", "TRIGGERED", "CANCELLED"] as const;
+export const WEEKDAYS = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY"
+] as const;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
+export type Weekday = (typeof WEEKDAYS)[number];
 export type IsoCalendarDate = string;
 export type IsoLocalTime = string;
 export type IsoDateTime = string;
@@ -54,6 +64,28 @@ export type ReminderRecord = {
   eventId: string | null;
   status: ReminderStatus;
   deliveredAt: IsoDateTime | null;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+};
+
+export type WeeklyRoutineRecord = {
+  id: string;
+  weeklyScheduleId: string;
+  title: string;
+  weekday: Weekday;
+  startTime: IsoLocalTime;
+  endTime: IsoLocalTime;
+  categoryId: string | null;
+  location: string | null;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+};
+
+export type WeeklyScheduleRecord = {
+  id: string;
+  title: string;
+  description: string | null;
+  color: string | null;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
 };
@@ -178,6 +210,64 @@ export type ReminderListInput = {
   remindAtTo?: IsoDateTime;
 };
 
+export type CreateWeeklyRoutineInput = {
+  weeklyScheduleId?: string;
+  title: string;
+  weekday: Weekday;
+  startTime: IsoLocalTime;
+  endTime: IsoLocalTime;
+  categoryId?: string;
+  location?: string;
+};
+
+export type UpdateWeeklyRoutineInput = {
+  routineId: string;
+  weeklyScheduleId?: string;
+  title?: string;
+  weekday?: Weekday;
+  startTime?: IsoLocalTime;
+  endTime?: IsoLocalTime;
+  categoryId?: string | null;
+  location?: string | null;
+};
+
+export type WeeklyRoutineListInput = {
+  weeklyScheduleId?: string;
+  weekday?: Weekday;
+  categoryId?: string;
+};
+
+export type DeleteWeeklyRoutineInput = {
+  routineId: string;
+};
+
+export type DeleteWeeklyRoutineData = {
+  deleted: true;
+};
+
+export type CreateWeeklyScheduleInput = {
+  title: string;
+  description?: string;
+  color?: string;
+};
+
+export type UpdateWeeklyScheduleInput = {
+  weeklyScheduleId: string;
+  title?: string;
+  description?: string | null;
+  color?: string | null;
+};
+
+export type WeeklyScheduleListInput = Record<string, never>;
+
+export type DeleteWeeklyScheduleInput = {
+  weeklyScheduleId: string;
+};
+
+export type DeleteWeeklyScheduleData = {
+  deleted: true;
+};
+
 export type GetTodayScheduleInput = {
   includeCompletedTasks?: boolean;
 };
@@ -238,6 +328,18 @@ export type PlannerApi = {
     create: (input: CreateReminderInput) => Promise<PlannerOperationResult<PlannerMutationData<ReminderRecord>>>;
     list: (input: ReminderListInput) => Promise<PlannerOperationResult<PlannerListData<ReminderRecord>>>;
   };
+  weeklyRoutines: {
+    create: (input: CreateWeeklyRoutineInput) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyRoutineRecord>>>;
+    list: (input: WeeklyRoutineListInput) => Promise<PlannerOperationResult<PlannerListData<WeeklyRoutineRecord>>>;
+    update: (input: UpdateWeeklyRoutineInput) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyRoutineRecord>>>;
+    delete: (input: DeleteWeeklyRoutineInput) => Promise<PlannerOperationResult<DeleteWeeklyRoutineData>>;
+  };
+  weeklySchedules: {
+    create: (input: CreateWeeklyScheduleInput) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyScheduleRecord>>>;
+    list: (input: WeeklyScheduleListInput) => Promise<PlannerOperationResult<PlannerListData<WeeklyScheduleRecord>>>;
+    update: (input: UpdateWeeklyScheduleInput) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyScheduleRecord>>>;
+    delete: (input: DeleteWeeklyScheduleInput) => Promise<PlannerOperationResult<DeleteWeeklyScheduleData>>;
+  };
   schedule: {
     getToday: (input: GetTodayScheduleInput) => Promise<PlannerOperationResult<TodayScheduleData>>;
     getWeek: (input: GetWeekScheduleInput) => Promise<PlannerOperationResult<WeekScheduleData>>;
@@ -260,6 +362,7 @@ export const PLANNER_ERROR_CODES = {
   taskDueTimeRequiresDate: "PLANNER_TASK_DUE_TIME_REQUIRES_DATE",
   taskCompletionStateInvalid: "PLANNER_TASK_COMPLETION_STATE_INVALID",
   eventTimeRangeInvalid: "PLANNER_EVENT_TIME_RANGE_INVALID",
+  weeklyRoutineTimeRangeInvalid: "PLANNER_WEEKLY_ROUTINE_TIME_RANGE_INVALID",
   reminderAssociationInvalid: "PLANNER_REMINDER_ASSOCIATION_INVALID",
   reminderDeliveryStateInvalid: "PLANNER_REMINDER_DELIVERY_STATE_INVALID",
   updateEmpty: "PLANNER_UPDATE_EMPTY",
