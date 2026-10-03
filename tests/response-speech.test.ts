@@ -29,17 +29,21 @@ describe("trusted response speech", () => {
     expect(JSON.stringify(onFailure.mock.calls)).not.toContain("private");
   });
   it("uses real media events for playback and completion, not promise resolution", async () => {
-    const element = { play: vi.fn(async () => {}), pause: vi.fn(), load: vi.fn(), removeAttribute: vi.fn() } as unknown as HTMLAudioElement;
+    const element = { duration: 2.5, play: vi.fn(async () => {}), pause: vi.fn(), load: vi.fn(), removeAttribute: vi.fn() } as unknown as HTMLAudioElement;
     const onState = vi.fn(); const onDiagnostic = vi.fn();
-    const controller = createResponsePlayback({ speak: async () => ({ ok: true, data: audio() }), createUrl: () => "blob:memory", revokeUrl: vi.fn(), createAudio: () => element, onState, onDiagnostic });
+    const onPlaybackEvent = vi.fn();
+    const controller = createResponsePlayback({ speak: async () => ({ ok: true, data: audio() }), createUrl: () => "blob:memory", revokeUrl: vi.fn(), createAudio: () => element, onState, onDiagnostic, onPlaybackEvent });
     await controller.play("reference");
     expect(onState).not.toHaveBeenCalledWith("PLAYING");
+    expect(onPlaybackEvent).not.toHaveBeenCalled();
     element.onloadedmetadata?.call(element, new Event("loadedmetadata"));
     element.oncanplay?.call(element, new Event("canplay"));
     element.onplaying?.call(element, new Event("playing"));
     expect(onState).toHaveBeenLastCalledWith("PLAYING");
+    expect(onPlaybackEvent).toHaveBeenLastCalledWith({ type: "PLAYING", responseId: "reference", durationSeconds: 2.5 });
     element.onended?.call(element, new Event("ended"));
     expect(onState).toHaveBeenLastCalledWith("FINISHED");
+    expect(onPlaybackEvent).toHaveBeenLastCalledWith({ type: "ENDED", responseId: "reference" });
     expect(onDiagnostic.mock.calls.map(([category]) => category)).toEqual(["MP3_RECEIVED", "BLOB_READY", "LOADED_METADATA", "CAN_PLAY", "PLAYING", "ENDED", "STOPPED"]);
     expect(element.onplaying).toBeNull();
   });
@@ -149,7 +153,7 @@ describe("trusted response speech", () => {
     expect(JSON.stringify(outcome)).not.toContain("chrome.exe");
   });
   it("preserves Main-grounded schedule and current-time summaries for final display and speech", () => {
-    for (const action of ["GET_TODAY_SCHEDULE", "GET_CURRENT_DATE_TIME", "GET_WEATHER"] as const) {
+    for (const action of ["GET_TODAY_SCHEDULE", "GET_CURRENT_DATE_TIME", "GET_WEATHER", "GET_WEEKLY_SCHEDULE_DETAILS", "ANALYZE_WEEKLY_SCHEDULE", "GET_TODAY_AVAILABILITY"] as const) {
       expect(composeFinalResponse({ action, status: "SUCCEEDED" } as ActionOutcome)).toBeUndefined();
     }
   });
@@ -165,11 +169,13 @@ describe("trusted response speech", () => {
     const pending = late.play("reference"); late.stop(); resolve({ ok: true, data: audio() }); await pending;
     expect(player.play).toHaveBeenCalledOnce();
   });
-  it("exposes one reference-only IPC method and defaults automatic playback on", () => {
+  it("exposes one reference-only IPC method and keeps automatic playback fixed on", () => {
     const source = (file: string) => readFileSync(file, "utf8");
     const controls = source("src/renderer/features/voice/response-speech-controls.tsx");
-    expect(source("src/renderer/app/App.tsx")).toContain("[automaticSpeech, setAutomaticSpeech] = useState(true)");
-    for (const label of ["Escuchar respuesta", "Detener voz", "La voz de Ares es generada por IA.", "Leer respuestas automáticamente"]) expect(controls).toContain(label);
+    expect(controls).toContain("enabled: true");
+    expect(source("src/renderer/app/App.tsx")).not.toContain("automaticSpeech");
+    for (const label of ["Escuchar respuesta", "Detener voz"]) expect(controls).toContain(label);
+    for (const removedLabel of ["La voz de Ares es generada por IA.", "Leer respuestas automáticamente"]) expect(controls).not.toContain(removedLabel);
     for (const label of ["Generando voz…", "Reproduciendo voz…", "Voz finalizada", "No se pudo iniciar o continuar la voz."]) expect(controls).toContain(label);
     for (const lifecycle of ["Escape", "visibilitychange", "pagehide", "controller.stop()", "blocked"]) expect(controls).toContain(lifecycle);
     expect(source("src/preload/preload.ts")).toContain("IPC_CHANNELS.speech.speak, input");
