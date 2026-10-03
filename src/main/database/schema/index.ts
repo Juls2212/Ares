@@ -9,3 +9,5 @@ export * from "./relations";
 export * from "./reminders";
 export * from "./settings";
 export * from "./tasks";
+export * from "./weekly-routines";
+export * from "./weekly-schedules";
