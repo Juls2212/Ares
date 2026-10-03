@@ -3,16 +3,20 @@ import { type CSSProperties, useEffect, useRef, useState } from "react";
 export type ParticleOrbState = "idle" | "recording" | "transcribing" | "interpreting" | "speaking";
 
 type Particle = {
-  angle: number;
-  layer: "contour" | "interior" | "foreground";
-  radius: number;
+  x: number;
+  y: number;
+  velocityX: number;
+  velocityY: number;
   size: number;
-  phase: number;
+  opacity: number;
+  focal: boolean;
 };
 
 type ParticleOrbProps = {
   state: ParticleOrbState;
   label: string;
+  responseText?: string;
+  responsePhase?: "REVEALING" | "COMPLETED" | "FADING";
 };
 
 type DotStyle = CSSProperties & Record<"--dot-x" | "--dot-y" | "--dot-size" | "--dot-opacity", string>;
@@ -30,9 +34,9 @@ export const particleOrbAllowsMotion = (
 ): boolean => !reducedMotion && !documentHidden;
 
 export const PARTICLE_LAYER_COUNTS = {
-  contour: 220,
-  interior: 360,
-  foreground: 56
+  contour: 48,
+  interior: 180,
+  foreground: 40
 } as const;
 
 export const PARTICLE_CORE_DENSITY = Object.values(PARTICLE_LAYER_COUNTS)
@@ -48,11 +52,8 @@ export const createParticleOrbLoop = (
   const tick = (): void => {
     if (!running) return;
     dependencies.draw();
-    if (dependencies.canAnimate()) {
-      frame = dependencies.requestFrame(tick);
-    } else {
-      frame = undefined;
-    }
+    if (dependencies.canAnimate()) frame = dependencies.requestFrame(tick);
+    else frame = undefined;
   };
 
   return {
@@ -70,90 +71,82 @@ export const createParticleOrbLoop = (
   };
 };
 
-const createParticles = (): Particle[] => {
-  const contour = Array.from({ length: PARTICLE_LAYER_COUNTS.contour }, (_, index) => ({
-    angle: (index / PARTICLE_LAYER_COUNTS.contour) * Math.PI * 2 + (Math.random() - 0.5) * 0.035,
-    layer: "contour" as const,
-    radius: 0.68 + Math.random() * 0.29,
-    size: 0.85 + Math.random() * 1.25,
-    phase: Math.random() * Math.PI * 2
-  }));
-  const interior = Array.from({ length: PARTICLE_LAYER_COUNTS.interior }, () => ({
-    angle: Math.random() * Math.PI * 2,
-    layer: "interior" as const,
-    radius: Math.sqrt(Math.random()) * 0.87,
-    size: 0.78 + Math.random() * 1.45,
-    phase: Math.random() * Math.PI * 2
-  }));
-  const foreground = Array.from({ length: PARTICLE_LAYER_COUNTS.foreground }, () => ({
-    angle: Math.random() * Math.PI * 2,
-    layer: "foreground" as const,
-    radius: 0.12 + Math.sqrt(Math.random()) * 0.7,
-    size: 1.6 + Math.random() * 1.65,
-    phase: Math.random() * Math.PI * 2
-  }));
-
-  return [...contour, ...interior, ...foreground];
+const particleFor = (layer: "contour" | "interior" | "foreground", index: number, count: number): Particle => {
+  const angle = layer === "contour"
+    ? (index / count) * Math.PI * 2 + Math.sin(index * 1.7) * 0.08
+    : Math.random() * Math.PI * 2;
+  const radius = layer === "contour"
+    ? 0.7 + Math.random() * 0.19
+    : Math.sqrt(Math.random()) * (layer === "foreground" ? 0.7 : 0.83);
+  const speed = layer === "foreground" ? 0.035 : layer === "contour" ? 0.018 : 0.028;
+  const direction = Math.random() * Math.PI * 2;
+  return {
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius,
+    velocityX: Math.cos(direction) * speed,
+    velocityY: Math.sin(direction) * speed,
+    size: layer === "foreground" ? 2.1 + Math.random() * 1.35 : layer === "contour" ? 1.12 + Math.random() * 1.08 : 0.96 + Math.random() * 1.1,
+    opacity: layer === "foreground" ? 0.88 : layer === "contour" ? 0.68 : 0.57,
+    focal: layer === "foreground" && index % 8 === 0
+  };
 };
 
-const createFallbackDots = (): DotStyle[] => {
-  const contour = Array.from({ length: 112 }, (_, index) => {
-    const angle = (index / 112) * Math.PI * 2 + Math.sin(index * 1.41) * 0.035;
-    const radius = 39 + Math.sin(index * 1.91) * 4.3 + Math.sin(index * 0.47) * 2.1;
-    return {
-      "--dot-x": `${50 + Math.cos(angle) * radius}%`,
-      "--dot-y": `${50 + Math.sin(angle) * radius}%`,
-      "--dot-size": `${1.15 + (index % 4) * 0.24}px`,
-      "--dot-opacity": `${0.31 + (index % 5) * 0.055}`
-    };
-  });
-  const interior = Array.from({ length: 216 }, (_, index) => {
-    const fraction = (index + 0.5) / 216;
-    const angle = index * 2.399963229728653;
-    const radius = Math.sqrt(fraction) * (41 + Math.sin(index * 1.73) * 3);
-    return {
-      "--dot-x": `${50 + Math.cos(angle) * radius}%`,
-      "--dot-y": `${50 + Math.sin(angle) * radius}%`,
-      "--dot-size": `${1.05 + (index % 5) * 0.23}px`,
-      "--dot-opacity": `${0.31 + (index % 7) * 0.055}`
-    };
-  });
-  const foreground = Array.from({ length: 32 }, (_, index) => {
-    const angle = index * 2.399963229728653 + 0.55;
-    const radius = 12 + ((index * 19) % 59);
-    return {
-      "--dot-x": `${50 + Math.cos(angle) * radius}%`,
-      "--dot-y": `${50 + Math.sin(angle) * radius}%`,
-      "--dot-size": `${1.8 + (index % 4) * 0.35}px`,
-      "--dot-opacity": `${0.56 + (index % 5) * 0.06}`
-    };
-  });
+const createParticles = (): Particle[] => [
+  ...Array.from({ length: PARTICLE_LAYER_COUNTS.contour }, (_, index) => particleFor("contour", index, PARTICLE_LAYER_COUNTS.contour)),
+  ...Array.from({ length: PARTICLE_LAYER_COUNTS.interior }, (_, index) => particleFor("interior", index, PARTICLE_LAYER_COUNTS.interior)),
+  ...Array.from({ length: PARTICLE_LAYER_COUNTS.foreground }, (_, index) => particleFor("foreground", index, PARTICLE_LAYER_COUNTS.foreground))
+];
 
-  return [...contour, ...interior, ...foreground];
-};
+const fallbackDots: DotStyle[] = Array.from({ length: PARTICLE_CORE_DENSITY }, (_, index) => {
+  const angle = index * 2.399963229728653;
+  const radius = Math.sqrt((index + 0.5) / PARTICLE_CORE_DENSITY) * (40 + Math.sin(index * 1.9) * 3.5);
+  return {
+    "--dot-x": `${50 + Math.cos(angle) * radius}%`,
+    "--dot-y": `${50 + Math.sin(angle) * radius}%`,
+    "--dot-size": `${0.9 + (index % 5) * 0.24}px`,
+    "--dot-opacity": `${0.3 + (index % 7) * 0.055}`
+  };
+});
 
-const fallbackDots = createFallbackDots();
-
-const motionFor = (state: ParticleOrbState, now: number): { pulse: number; rotation: number; drift: number; twinkle: number } => {
+const speedFor = (state: ParticleOrbState): number => {
   switch (state) {
-    case "recording":
-      return { pulse: 1 + Math.sin(now * 0.008) * 0.11, rotation: now * 0.0002, drift: 0.105, twinkle: 0.36 };
-    case "transcribing":
-      return { pulse: 0.985 + Math.sin(now * 0.004) * 0.038, rotation: now * 0.00048, drift: 0.06, twinkle: 0.26 };
-    case "interpreting":
-      return { pulse: 0.99 + Math.sin(now * 0.005) * 0.045, rotation: -now * 0.00041, drift: 0.052, twinkle: 0.3 };
-    case "speaking":
-      return { pulse: 1 + Math.sin(now * 0.011) * 0.08, rotation: now * 0.00026, drift: 0.08, twinkle: 0.33 };
-    default:
-      return { pulse: 1 + Math.sin(now * 0.00085) * 0.018, rotation: now * 0.000065, drift: 0.026, twinkle: 0.17 };
+    case "recording": return 1.85;
+    case "transcribing": return 1.3;
+    case "interpreting": return 1.5;
+    case "speaking": return 1.15;
+    default: return 0.72;
   }
 };
 
-const drawOrb = (
+const updateParticles = (particles: Particle[], elapsedSeconds: number, speed: number): void => {
+  for (const particle of particles) {
+    particle.x += particle.velocityX * elapsedSeconds * speed;
+    particle.y += particle.velocityY * elapsedSeconds * speed;
+    const distance = Math.hypot(particle.x, particle.y);
+    if (distance <= 0.9) continue;
+    const normalX = particle.x / distance;
+    const normalY = particle.y / distance;
+    particle.x = normalX * 0.9;
+    particle.y = normalY * 0.9;
+    const radialVelocity = particle.velocityX * normalX + particle.velocityY * normalY;
+    particle.velocityX -= 2 * radialVelocity * normalX;
+    particle.velocityY -= 2 * radialVelocity * normalY;
+  }
+};
+
+const getColor = (canvas: HTMLCanvasElement, name: "--neural-primary-rgb" | "--neural-focal-rgb", fallback: string): string => {
+  try {
+    return getComputedStyle(canvas).getPropertyValue(name).trim() || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const drawNeuralNetwork = (
   canvas: HTMLCanvasElement,
   particles: Particle[],
   state: ParticleOrbState,
-  accentRgb: string
+  previousTime: { value: number }
 ): void => {
   const context = canvas.getContext("2d");
   if (!context) return;
@@ -165,67 +158,74 @@ const drawOrb = (
     canvas.width = width;
     canvas.height = height;
   }
-  context.setTransform?.(scale, 0, 0, scale, 0, 0);
+  context.setTransform(scale, 0, 0, scale, 0, 0);
   context.clearRect(0, 0, bounds.width, bounds.height);
 
   const now = performance.now();
-  const motion = motionFor(state, now);
+  const elapsedSeconds = Math.min((now - previousTime.value) / 1000, 0.05);
+  previousTime.value = now;
+  updateParticles(particles, elapsedSeconds, speedFor(state));
+
   const centerX = bounds.width / 2;
   const centerY = bounds.height / 2;
-  const radius = Math.min(bounds.width, bounds.height) * 0.43 * motion.pulse;
-  const positions = particles.map((particle) => {
-    const layerDrift = particle.layer === "contour" ? motion.drift * 0.42 : motion.drift;
-    const shimmer = Math.sin(now * 0.0012 + particle.phase) * layerDrift;
-    const densityBreath = Math.sin(now * 0.0008 + particle.phase * 0.7) * (particle.layer === "interior" ? 0.022 : 0.012);
-    const parallax = Math.sin(now * 0.00055 + particle.phase) * (particle.layer === "foreground" ? 0.016 : particle.layer === "interior" ? 0.008 : 0.003);
-    const particleRadius = radius * Math.max(0.08, particle.radius + shimmer + densityBreath + parallax);
-    const angle = particle.angle + motion.rotation + Math.sin(now * 0.0007 + particle.phase) * layerDrift;
-    const layerAlpha = particle.layer === "contour" ? 0.5 : particle.layer === "foreground" ? 0.72 : 0.42;
-    const twinkle = Math.max(0, Math.sin(now * 0.0033 + particle.phase * 2.7)) * motion.twinkle;
-    return {
-      x: centerX + Math.cos(angle) * particleRadius,
-      y: centerY + Math.sin(angle) * particleRadius,
-      alpha: Math.min(0.98, layerAlpha + twinkle),
-      layer: particle.layer,
-      size: particle.size * (1 + twinkle * 0.18)
-    };
-  });
+  const radius = Math.min(bounds.width, bounds.height) * 0.43;
+  const positions = particles.map((particle) => ({
+    ...particle,
+    x: centerX + particle.x * radius,
+    y: centerY + particle.y * radius
+  }));
+  const primaryBlue = getColor(canvas, "--neural-primary-rgb", "16 61 118");
+  const focalBlue = getColor(canvas, "--neural-focal-rgb", "45 124 222");
+  const connectionDistance = radius * 0.22;
 
-  context.lineWidth = 0.45;
-  const connectedPositions = positions.filter((point, index) => point.layer !== "contour" && index % 3 === 0);
-  for (let left = 0; left < connectedPositions.length; left += 1) {
-    for (let right = left + 1; right < connectedPositions.length; right += 1) {
-      const xDistance = connectedPositions[left].x - connectedPositions[right].x;
-      const yDistance = connectedPositions[left].y - connectedPositions[right].y;
-      const distance = Math.hypot(xDistance, yDistance);
-      if (distance > radius * 0.23) continue;
-      context.strokeStyle = `rgb(${accentRgb} / ${0.08 * (1 - distance / (radius * 0.23))})`;
+  context.save();
+  context.strokeStyle = `rgb(${primaryBlue} / 0.72)`;
+  context.lineWidth = 0.8;
+  context.beginPath();
+  context.arc(centerX, centerY, radius * 1.04, 0, Math.PI * 2);
+  context.stroke();
+  context.strokeStyle = `rgb(${primaryBlue} / 0.34)`;
+  context.lineWidth = 0.55;
+  context.setLineDash([2, 6]);
+  context.beginPath();
+  context.arc(centerX, centerY, radius * 0.78, 0, Math.PI * 2);
+  context.stroke();
+  context.setLineDash([1, 8]);
+  context.beginPath();
+  context.arc(centerX, centerY, radius * 0.57, 0, Math.PI * 2);
+  context.stroke();
+  context.setLineDash([]);
+  context.beginPath();
+  context.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  context.clip();
+  context.lineWidth = 0.55;
+  for (let left = 0; left < positions.length; left += 1) {
+    for (let right = left + 1; right < positions.length; right += 1) {
+      const distance = Math.hypot(positions[left].x - positions[right].x, positions[left].y - positions[right].y);
+      if (distance > connectionDistance) continue;
+      const strength = 1 - distance / connectionDistance;
+      const color = positions[left].focal || positions[right].focal ? focalBlue : primaryBlue;
+      context.strokeStyle = `rgb(${color} / ${0.34 * strength})`;
       context.beginPath();
-      context.moveTo(connectedPositions[left].x, connectedPositions[left].y);
-      context.lineTo(connectedPositions[right].x, connectedPositions[right].y);
+      context.moveTo(positions[left].x, positions[left].y);
+      context.lineTo(positions[right].x, positions[right].y);
       context.stroke();
     }
   }
-
-  for (const point of positions) {
-    const alpha = point.layer === "foreground" ? Math.min(1, point.alpha + 0.08) : point.alpha;
-    context.fillStyle = `rgb(${accentRgb} / ${alpha})`;
+  for (const particle of positions) {
+    context.fillStyle = `rgb(${particle.focal ? focalBlue : primaryBlue} / ${particle.opacity})`;
+    context.shadowBlur = particle.focal ? 8 : 0;
+    context.shadowColor = `rgb(${focalBlue} / 0.72)`;
     context.beginPath();
-    context.arc(point.x, point.y, point.size, 0, Math.PI * 2);
+    context.arc(particle.x, particle.y, particle.size * (particle.focal ? 1.35 : 1), 0, Math.PI * 2);
     context.fill();
   }
+  context.shadowBlur = 0;
+  context.restore();
 };
 
-const getAccentRgb = (canvas: HTMLCanvasElement): string => {
-  try {
-    return getComputedStyle(canvas).getPropertyValue("--accent-rgb").trim() || "0 129 166";
-  } catch {
-    return "0 129 166";
-  }
-};
-
-/** A decorative command-center field driven only by existing renderer state. */
-export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
+/** Decorative bounded canvas network driven only by existing renderer state. */
+export const ParticleOrb = ({ state, label, responseText, responsePhase }: ParticleOrbProps) => {
   const canvasReference = useRef<HTMLCanvasElement>(null);
   const stateReference = useRef(state);
   const [isDocumentHidden, setIsDocumentHidden] = useState(() =>
@@ -241,11 +241,11 @@ export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
       const cancelFrame = window.cancelAnimationFrame?.bind(window);
       if (!requestFrame || !cancelFrame || !canvas.getContext("2d")) return;
       const particles = createParticles();
-      let accentRgb = getAccentRgb(canvas);
+      const previousTime = { value: performance.now() };
       const mediaQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
       const loop = createParticleOrbLoop({
         canAnimate: () => particleOrbAllowsMotion(mediaQuery?.matches ?? true, document.hidden),
-        draw: () => drawOrb(canvas, particles, stateReference.current, accentRgb),
+        draw: () => drawNeuralNetwork(canvas, particles, stateReference.current, previousTime),
         requestFrame,
         cancelFrame
       });
@@ -253,63 +253,37 @@ export const ParticleOrb = ({ state, label }: ParticleOrbProps) => {
         loop.stop();
         loop.start();
       };
-      const ResizeObserverConstructor = window.ResizeObserver;
-      const resizeObserver = ResizeObserverConstructor ? new ResizeObserverConstructor(refresh) : undefined;
+      const resizeObserver = window.ResizeObserver ? new window.ResizeObserver(refresh) : undefined;
       resizeObserver?.observe(canvas);
-      const MutationObserverConstructor = window.MutationObserver;
-      const themeObserver = MutationObserverConstructor
-        ? new MutationObserverConstructor(() => {
-          accentRgb = getAccentRgb(canvas);
-          refresh();
-        })
-        : undefined;
-      themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+      const onResize = (): void => refresh();
       const onVisibilityChange = (): void => {
         setIsDocumentHidden(document.hidden);
         refresh();
       };
+      window.addEventListener("resize", onResize);
       document.addEventListener("visibilitychange", onVisibilityChange);
       mediaQuery?.addEventListener?.("change", refresh);
       loop.start();
       return () => {
         loop.stop();
         resizeObserver?.disconnect();
-        themeObserver?.disconnect();
+        window.removeEventListener("resize", onResize);
         document.removeEventListener("visibilitychange", onVisibilityChange);
         mediaQuery?.removeEventListener?.("change", refresh);
       };
     } catch {
-      // The static dot field remains available when an optional visual API fails.
+      // The static dot field remains available when optional visual APIs fail.
       return;
     }
-  }, [state]);
+  }, []);
 
   return (
-    <div className={`particle-orb particle-orb--${state}`} data-paused={isDocumentHidden || undefined} data-state={state}>
-      <svg aria-hidden="true" className="particle-orb__hud" viewBox="0 0 100 100">
-        <defs>
-          <linearGradient id="ares-core-scan-tail" x1="0%" x2="100%" y1="0%" y2="0%">
-            <stop offset="0%" stopColor="var(--core-active)" stopOpacity="0" />
-            <stop offset="65%" stopColor="var(--core-active)" stopOpacity=".18" />
-            <stop offset="100%" stopColor="var(--core-active)" stopOpacity=".9" />
-          </linearGradient>
-        </defs>
-        <path className="particle-orb__ring particle-orb__ring--outer" d="M17 17A46 46 0 0 1 89 29M95 50A46 46 0 0 1 64 94M42 96A46 46 0 0 1 7 56M9 35A46 46 0 0 1 17 17" />
-        <path className="particle-orb__ring particle-orb__ring--middle" d="M25 22A39 39 0 0 1 69 14M86 28A39 39 0 0 1 91 62M73 84A39 39 0 0 1 34 86M16 69A39 39 0 0 1 18 42" />
-        <path className="particle-orb__ring particle-orb__ring--inner" d="M35 31A29 29 0 0 1 76 38M77 65A29 29 0 0 1 43 78M25 57A29 29 0 0 1 35 31" />
-        <path className="particle-orb__orbit particle-orb__orbit--one" d="M11 58C32 27 77 25 92 43M87 61C60 83 31 79 13 63" />
-        <path className="particle-orb__orbit particle-orb__orbit--two" d="M42 9C71 27 75 67 55 91M38 86C18 64 20 32 37 12" />
-        <path className="particle-orb__guides" d="M0 51H16M83 49H100M49 0V13M52 87V100M17 20L24 27M82 79L76 73" />
-        <circle className="particle-orb__ticks" cx="51" cy="49" r="48" />
-        <path className="particle-orb__direction" d="M49 2L52 0L55 2M97 46L100 49L97 52M54 97L51 100L48 97" />
-        <path className="particle-orb__trace" d="M6 28H12V22M84 8H90V14M94 71H88V77M18 92H12V86" />
-        <path className="particle-orb__travel" d="M84 20A46 46 0 0 1 94 41" />
-        <path className="particle-orb__scan" d="M20 50H80" />
-      </svg>
-      <div aria-hidden="true" className="particle-orb__fallback">
+    <div aria-hidden="true" className={`particle-orb particle-orb--${state}`} data-paused={isDocumentHidden || undefined} data-state={state}>
+      <div className="particle-orb__fallback">
         {fallbackDots.map((style, index) => <i key={index} style={style} />)}
       </div>
-      <canvas aria-hidden="true" ref={canvasReference} />
+      <canvas ref={canvasReference} />
+      {responseText && <p className={`particle-orb__response${responsePhase ? ` particle-orb__response--${responsePhase.toLowerCase()}` : ""}`}>{responseText}</p>}
       <span className="particle-orb__label">{label}</span>
     </div>
   );
