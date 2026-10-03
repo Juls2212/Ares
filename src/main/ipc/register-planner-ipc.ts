@@ -134,6 +134,38 @@ export const createPlannerIpcRegistration = (dependencies: PlannerIpcDependencie
       createHandler(dependencies.getService, (service, input) => service.listReminders(input), dependencies.logError)
     );
     dependencies.registerHandler(
+      IPC_CHANNELS.planner.weeklyRoutines.create,
+      createHandler(dependencies.getService, (service, input) => service.createWeeklyRoutine(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.weeklyRoutines.list,
+      createHandler(dependencies.getService, (service, input) => service.listWeeklyRoutines(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.weeklyRoutines.update,
+      createHandler(dependencies.getService, (service, input) => service.updateWeeklyRoutine(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.weeklyRoutines.delete,
+      createHandler(dependencies.getService, (service, input) => service.deleteWeeklyRoutine(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.weeklySchedules.create,
+      createHandler(dependencies.getService, (service, input) => service.createWeeklySchedule(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.weeklySchedules.list,
+      createHandler(dependencies.getService, (service, input) => service.listWeeklySchedules(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.weeklySchedules.update,
+      createHandler(dependencies.getService, (service, input) => service.updateWeeklySchedule(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
+      IPC_CHANNELS.planner.weeklySchedules.delete,
+      createHandler(dependencies.getService, (service, input) => service.deleteWeeklySchedule(input), dependencies.logError)
+    );
+    dependencies.registerHandler(
       IPC_CHANNELS.planner.schedule.getToday,
       createHandler(dependencies.getService, (service, input) => service.getTodaySchedule(input), dependencies.logError)
     );
