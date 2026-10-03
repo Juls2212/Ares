@@ -7,8 +7,11 @@ import {
   type CreateEventInput,
   type CreateReminderInput,
   type CreateTaskInput,
+  type CreateWeeklyScheduleInput,
   type DeleteEventData,
   type DeleteTaskData,
+  type DeleteWeeklyRoutineData,
+  type DeleteWeeklyScheduleData,
   type EventListInput,
   type EventRecord,
   type GetTodayScheduleInput,
@@ -25,6 +28,12 @@ import {
   type UpdateCategoryInput,
   type UpdateEventInput,
   type UpdateTaskInput,
+  type UpdateWeeklyRoutineInput,
+  type UpdateWeeklyScheduleInput,
+  type WeeklyRoutineListInput,
+  type WeeklyRoutineRecord,
+  type WeeklyScheduleListInput,
+  type WeeklyScheduleRecord,
   type WeekScheduleData
 } from "../../shared/planner-contracts";
 import {
@@ -36,6 +45,8 @@ import {
   validateCreateTaskInput,
   validateDeleteEventInput,
   validateDeleteTaskInput,
+  validateDeleteWeeklyRoutineInput,
+  validateDeleteWeeklyScheduleInput,
   validateEventListInput,
   validateGetTodayScheduleInput,
   validateGetWeekScheduleInput,
@@ -44,6 +55,12 @@ import {
   validateUpdateCategoryInput,
   validateUpdateEventInput,
   validateUpdateTaskInput
+  , validateCreateWeeklyRoutineInput
+  , validateUpdateWeeklyRoutineInput
+  , validateWeeklyRoutineListInput
+  , validateCreateWeeklyScheduleInput
+  , validateUpdateWeeklyScheduleInput
+  , validateWeeklyScheduleListInput
 } from "./planner-validation";
 import {
   createPlannerRepositories,
@@ -74,6 +91,14 @@ export type PlannerService = {
   updateEvent: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<EventRecord>>>;
   deleteEvent: (input: unknown) => Promise<PlannerOperationResult<DeleteEventData>>;
   deleteTask: (input: unknown) => Promise<PlannerOperationResult<DeleteTaskData>>;
+  createWeeklyRoutine: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyRoutineRecord>>>;
+  listWeeklyRoutines: (input: unknown) => Promise<PlannerOperationResult<PlannerListData<WeeklyRoutineRecord>>>;
+  updateWeeklyRoutine: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyRoutineRecord>>>;
+  deleteWeeklyRoutine: (input: unknown) => Promise<PlannerOperationResult<DeleteWeeklyRoutineData>>;
+  createWeeklySchedule: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyScheduleRecord>>>;
+  listWeeklySchedules: (input: unknown) => Promise<PlannerOperationResult<PlannerListData<WeeklyScheduleRecord>>>;
+  updateWeeklySchedule: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyScheduleRecord>>>;
+  deleteWeeklySchedule: (input: unknown) => Promise<PlannerOperationResult<DeleteWeeklyScheduleData>>;
   createReminder: (input: unknown) => Promise<PlannerOperationResult<PlannerMutationData<ReminderRecord>>>;
   listReminders: (input: unknown) => Promise<PlannerOperationResult<PlannerListData<ReminderRecord>>>;
   getTodaySchedule: (input: unknown) => Promise<PlannerOperationResult<TodayScheduleData>>;
@@ -102,6 +127,7 @@ const serviceMessages: Record<PlannerErrorCode, string> = {
   PLANNER_TASK_DUE_TIME_REQUIRES_DATE: "La hora límite requiere una fecha límite.",
   PLANNER_TASK_COMPLETION_STATE_INVALID: "El estado de finalización de la tarea no es válido.",
   PLANNER_EVENT_TIME_RANGE_INVALID: "La hora de finalización debe ser posterior al inicio.",
+  PLANNER_WEEKLY_ROUTINE_TIME_RANGE_INVALID: "La hora de finalización debe ser posterior al inicio.",
   PLANNER_REMINDER_ASSOCIATION_INVALID: "El recordatorio no puede asociarse a una tarea y un evento al mismo tiempo.",
   PLANNER_REMINDER_DELIVERY_STATE_INVALID: "El estado de entrega del recordatorio no es válido.",
   PLANNER_UPDATE_EMPTY: "Debes indicar al menos un cambio para actualizar.",
@@ -172,6 +198,15 @@ const isValidEventUpdate = (target: EventRecord, update: UpdateEventInput): bool
   return endAt === null || new Date(endAt).getTime() > new Date(startAt).getTime();
 };
 
+const isValidWeeklyRoutineUpdate = (
+  target: WeeklyRoutineRecord,
+  update: UpdateWeeklyRoutineInput
+): boolean => {
+  const startTime = update.startTime ?? target.startTime;
+  const endTime = update.endTime ?? target.endTime;
+  return endTime > startTime;
+};
+
 export const createPlannerService = (
   overrides: Partial<PlannerServiceDependencies> = {}
 ): PlannerService => {
@@ -205,6 +240,13 @@ export const createPlannerService = (
     }
     const category = await dependencies.repositories.findCategoryById(categoryId);
     return category ? undefined : createFailure(PLANNER_ERROR_CODES.referenceNotFound);
+  };
+
+  const verifyWeeklyScheduleReference = async <T>(weeklyScheduleId: string): Promise<
+    PlannerOperationResult<T> | undefined
+  > => {
+    const schedule = await dependencies.repositories.findWeeklyScheduleById(weeklyScheduleId);
+    return schedule ? undefined : createFailure(PLANNER_ERROR_CODES.referenceNotFound);
   };
 
   return {
@@ -366,6 +408,118 @@ export const createPlannerService = (
         if (!(await dependencies.repositories.findTaskById(validation.data.taskId))) return createFailure(PLANNER_ERROR_CODES.notFound);
         return await dependencies.repositories.deleteTask(validation.data)
           ? createSuccess({ deleted: true }) : createFailure(PLANNER_ERROR_CODES.notFound);
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    createWeeklyRoutine: async (input) => {
+      const validation = validateCreateWeeklyRoutineInput(input);
+      if (!validation.ok) return validation;
+      try {
+        const scheduleFailure = await verifyWeeklyScheduleReference<PlannerMutationData<WeeklyRoutineRecord>>(
+          validation.data.weeklyScheduleId!
+        );
+        if (scheduleFailure) return scheduleFailure;
+        const categoryFailure = await verifyCategoryReference<PlannerMutationData<WeeklyRoutineRecord>>(
+          validation.data.categoryId
+        );
+        if (categoryFailure) return categoryFailure;
+        return createSuccess({ record: await dependencies.repositories.createWeeklyRoutine(validation.data) });
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    listWeeklyRoutines: async (input) => {
+      const validation = validateWeeklyRoutineListInput(input);
+      if (!validation.ok) return validation;
+      try {
+        const scheduleFailure = await verifyWeeklyScheduleReference<PlannerListData<WeeklyRoutineRecord>>(
+          validation.data.weeklyScheduleId!
+        );
+        if (scheduleFailure) return scheduleFailure;
+        return createSuccess(toListData(await dependencies.repositories.listWeeklyRoutines(validation.data)));
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    updateWeeklyRoutine: async (input) => {
+      const validation = validateUpdateWeeklyRoutineInput(input);
+      if (!validation.ok) return validation;
+      try {
+        const scheduleFailure = await verifyWeeklyScheduleReference<PlannerMutationData<WeeklyRoutineRecord>>(
+          validation.data.weeklyScheduleId!
+        );
+        if (scheduleFailure) return scheduleFailure;
+        const target = await dependencies.repositories.findWeeklyRoutineById(validation.data.routineId);
+        if (!target) return createFailure(PLANNER_ERROR_CODES.notFound);
+        if (target.weeklyScheduleId !== validation.data.weeklyScheduleId!) {
+          return createFailure(PLANNER_ERROR_CODES.notFound);
+        }
+        if (!isValidWeeklyRoutineUpdate(target, validation.data)) {
+          return createFailure(PLANNER_ERROR_CODES.weeklyRoutineTimeRangeInvalid);
+        }
+        const categoryFailure = await verifyCategoryReference<PlannerMutationData<WeeklyRoutineRecord>>(
+          validation.data.categoryId ?? undefined
+        );
+        if (categoryFailure) return categoryFailure;
+        const record = await dependencies.repositories.updateWeeklyRoutine(validation.data);
+        return record ? createSuccess({ record }) : createFailure(PLANNER_ERROR_CODES.notFound);
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    deleteWeeklyRoutine: async (input) => {
+      const validation = validateDeleteWeeklyRoutineInput(input);
+      if (!validation.ok) return validation;
+      try {
+        if (!(await dependencies.repositories.findWeeklyRoutineById(validation.data.routineId))) {
+          return createFailure(PLANNER_ERROR_CODES.notFound);
+        }
+        return await dependencies.repositories.deleteWeeklyRoutine(validation.data)
+          ? createSuccess({ deleted: true })
+          : createFailure(PLANNER_ERROR_CODES.notFound);
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    createWeeklySchedule: async (input) => {
+      const validation = validateCreateWeeklyScheduleInput(input);
+      if (!validation.ok) return validation;
+      try {
+        return createSuccess({ record: await dependencies.repositories.createWeeklySchedule(validation.data) });
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    listWeeklySchedules: async (input) => {
+      const validation = validateWeeklyScheduleListInput(input);
+      if (!validation.ok) return validation;
+      try {
+        return createSuccess(toListData(await dependencies.repositories.listWeeklySchedules(validation.data)));
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    updateWeeklySchedule: async (input) => {
+      const validation = validateUpdateWeeklyScheduleInput(input);
+      if (!validation.ok) return validation;
+      try {
+        const record = await dependencies.repositories.updateWeeklySchedule(validation.data);
+        return record ? createSuccess({ record }) : createFailure(PLANNER_ERROR_CODES.notFound);
+      } catch (error) {
+        return mapPersistenceFailure(error);
+      }
+    },
+    deleteWeeklySchedule: async (input) => {
+      const validation = validateDeleteWeeklyScheduleInput(input);
+      if (!validation.ok) return validation;
+      try {
+        if (!(await dependencies.repositories.findWeeklyScheduleById(validation.data.weeklyScheduleId))) {
+          return createFailure(PLANNER_ERROR_CODES.notFound);
+        }
+        return await dependencies.repositories.deleteWeeklySchedule(validation.data)
+          ? createSuccess({ deleted: true })
+          : createFailure(PLANNER_ERROR_CODES.notFound);
       } catch (error) {
         return mapPersistenceFailure(error);
       }
