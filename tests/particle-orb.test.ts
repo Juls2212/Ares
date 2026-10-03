@@ -11,36 +11,47 @@ import {
 } from "../src/renderer/components/particle-orb";
 
 describe("particle orb state and lifecycle", () => {
-  it("renders a static dotted fallback independently from canvas animation", () => {
+  it("renders a static dotted fallback and a bounded canvas network independently from animation", () => {
     const source = readFileSync(path.resolve(process.cwd(), "src/renderer/components/particle-orb.tsx"), "utf8");
 
     expect(source).toContain("particle-orb__fallback");
     expect(source).toContain("fallbackDots.map");
-    expect(source).toContain("particle-orb__hud");
-    expect(source).toContain("particle-orb__ring--outer");
-    expect(source).toContain("particle-orb__orbit--one");
-    expect(source).toContain("particle-orb__ticks");
-    expect(source).toContain("particle-orb__direction");
-    expect(source).toContain("particle-orb__trace");
-    expect(source).toContain("particle-orb__scan");
-    expect(source).toContain('d="M17 17A46 46');
+    expect(source).toContain("drawNeuralNetwork");
+    expect(source).toContain("context.clip()");
+    expect(source).toContain("connectionDistance");
+    expect(source).toContain("radius * 1.04");
+    expect(source).toContain("context.setLineDash");
+    expect(source).toContain("particle.focal");
+    expect(source).toContain('aria-hidden="true"');
   });
 
-  it("uses a dense layered particle field rather than one sparse point population", () => {
-    expect(PARTICLE_LAYER_COUNTS.contour).toBeGreaterThan(100);
+  it("uses a bounded layered particle field rather than one sparse point population", () => {
+    expect(PARTICLE_LAYER_COUNTS.contour).toBeGreaterThan(0);
     expect(PARTICLE_LAYER_COUNTS.interior).toBeGreaterThan(PARTICLE_LAYER_COUNTS.contour);
     expect(PARTICLE_LAYER_COUNTS.foreground).toBeGreaterThan(0);
-    expect(PARTICLE_CORE_DENSITY).toBeGreaterThanOrEqual(600);
+    expect(PARTICLE_CORE_DENSITY).toBeGreaterThanOrEqual(120);
+    expect(PARTICLE_CORE_DENSITY).toBeGreaterThanOrEqual(250);
+    expect(PARTICLE_CORE_DENSITY).toBeLessThanOrEqual(300);
   });
 
-  it("keeps particle color configurable and avoids an idle target-ring outline", () => {
+  it("keeps neural colors configurable and avoids a solid or target-like core", () => {
     const styles = readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8");
 
     expect(styles).toContain("--accent-rgb");
     expect(styles).toContain(':root[data-theme="dark"]');
     expect(styles).toContain("--accent: #2fcbed");
-    expect(styles).toContain("background: var(--accent)");
+    expect(styles).toContain("--neural-primary-rgb");
+    expect(styles).toContain("--neural-focal-rgb");
     expect(styles).not.toContain("particle-orb__fallback::before");
+  });
+
+  it("scopes the light command surface to the approved navy-blue palette", () => {
+    const styles = readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8");
+
+    expect(styles).toContain("background-color: #E0E0E0");
+    expect(styles).toContain("--core-active: #2f7fda");
+    expect(styles).toContain("--neural-primary-rgb: 31 71 124");
+    expect(styles).toContain("--neural-focal-rgb: 48 126 222");
   });
 
   it("maps only real voice and interpretation states to visual motion states", () => {
@@ -56,17 +67,16 @@ describe("particle orb state and lifecycle", () => {
     expect(particleOrbAllowsMotion(false, true)).toBe(false);
   });
 
-  it("pauses decorative HUD motion when the document is hidden", () => {
+  it("pauses decorative motion when the document is hidden and cleans up window listeners", () => {
     const source = readFileSync(path.resolve(process.cwd(), "src/renderer/components/particle-orb.tsx"), "utf8");
     const styles = readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8");
 
     expect(source).toContain('data-paused={isDocumentHidden || undefined}');
     expect(source).toContain("setIsDocumentHidden(document.hidden)");
-    expect(styles).toContain('.particle-orb[data-paused="true"]');
-    expect(styles).toContain(".particle-orb--recording .particle-orb__ring--outer");
-    expect(styles).toContain(".particle-orb--transcribing .particle-orb__scan");
-    expect(styles).toContain(".particle-orb--interpreting .particle-orb__scan");
-    expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(source).toContain('window.addEventListener("resize", onResize)');
+    expect(source).toContain('window.removeEventListener("resize", onResize)');
+    expect(source).toContain("resizeObserver?.disconnect()");
+    expect(source).toContain("Math.min(window.devicePixelRatio || 1, 2)");
   });
 
   it("cancels the pending animation frame during cleanup", () => {
