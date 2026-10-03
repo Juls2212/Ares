@@ -22,9 +22,14 @@ import type {
   CreateEventInput,
   CreateReminderInput,
   CreateTaskInput,
+  CreateWeeklyScheduleInput,
   DeleteEventData,
   DeleteTaskData,
   DeleteTaskInput,
+  DeleteWeeklyRoutineData,
+  DeleteWeeklyRoutineInput,
+  DeleteWeeklyScheduleData,
+  DeleteWeeklyScheduleInput,
   TaskDeletionCancellationData,
   TaskDeletionConfirmationInput,
   TaskDeletionRequestData,
@@ -47,7 +52,14 @@ import type {
   UpdateCategoryInput,
   UpdateEventInput,
   UpdateTaskInput,
-  WeekScheduleData
+  WeekScheduleData,
+  CreateWeeklyRoutineInput,
+  UpdateWeeklyRoutineInput,
+  WeeklyRoutineListInput,
+  WeeklyRoutineRecord,
+  UpdateWeeklyScheduleInput,
+  WeeklyScheduleListInput,
+  WeeklyScheduleRecord
 } from "../shared/planner-contracts";
 import type {
   ApplicationListData,
@@ -172,6 +184,42 @@ const aresApi = {
       list: (input: ReminderListInput) =>
         ipcRenderer.invoke(IPC_CHANNELS.planner.reminders.list, input) as Promise<
           PlannerOperationResult<PlannerListData<ReminderRecord>>
+        >
+    },
+    weeklyRoutines: {
+      create: (input: CreateWeeklyRoutineInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.weeklyRoutines.create, input) as Promise<
+          PlannerOperationResult<PlannerMutationData<WeeklyRoutineRecord>>
+        >,
+      list: (input: WeeklyRoutineListInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.weeklyRoutines.list, input) as Promise<
+          PlannerOperationResult<PlannerListData<WeeklyRoutineRecord>>
+        >,
+      update: (input: UpdateWeeklyRoutineInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.weeklyRoutines.update, input) as Promise<
+          PlannerOperationResult<PlannerMutationData<WeeklyRoutineRecord>>
+        >,
+      delete: (input: DeleteWeeklyRoutineInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.weeklyRoutines.delete, input) as Promise<
+          PlannerOperationResult<DeleteWeeklyRoutineData>
+        >
+    },
+    weeklySchedules: {
+      create: (input: CreateWeeklyScheduleInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.weeklySchedules.create, input) as Promise<
+          PlannerOperationResult<PlannerMutationData<WeeklyScheduleRecord>>
+        >,
+      list: (input: WeeklyScheduleListInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.weeklySchedules.list, input) as Promise<
+          PlannerOperationResult<PlannerListData<WeeklyScheduleRecord>>
+        >,
+      update: (input: UpdateWeeklyScheduleInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.weeklySchedules.update, input) as Promise<
+          PlannerOperationResult<PlannerMutationData<WeeklyScheduleRecord>>
+        >,
+      delete: (input: DeleteWeeklyScheduleInput) =>
+        ipcRenderer.invoke(IPC_CHANNELS.planner.weeklySchedules.delete, input) as Promise<
+          PlannerOperationResult<DeleteWeeklyScheduleData>
         >
     },
     schedule: {
