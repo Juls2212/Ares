@@ -1,18 +1,22 @@
-import { type FormEvent } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { AssistantInterpretation } from "../../shared/assistant-contracts";
 import type { ActionSubmission, AwaitingActionConfirmation } from "../../shared/action-contracts";
 import type { VoiceShortcutEffectiveStatus } from "../../shared/settings-contracts";
-import { voiceShortcutStatusLabels } from "../app/app-state";
 import { ParticleOrb, type ParticleOrbState } from "../components/particle-orb";
-import { InterpretationResult, type DraftActionState } from "../features/assistant/interpretation-result";
+import {
+  AresTodaySummaryPanel,
+  AresUpcomingEventsPanel
+} from "../features/assistant/ares-information-panels";
+import { loadAresToday, type AresTodayState } from "../features/assistant/ares-today-summary";
+import { hasAssistantReview, InterpretationResult, type DraftActionState } from "../features/assistant/interpretation-result";
+import { createResponseCoreReveal } from "../features/assistant/response-core-reveal";
+import type { PlaybackEvent } from "../features/voice/response-playback";
 import { VoiceCommandControls } from "../features/voice/voice-command-controls";
 import { ResponseSpeechControls } from "../features/voice/response-speech-controls";
 
 type AresViewProperties = {
   spokenResponse?: import("../../shared/speech-contracts").SpokenResponse;
-  automaticSpeech: boolean;
-  onAutomaticSpeechChange: (enabled: boolean) => void;
   technicalState: "LOADING" | "SUCCESS" | "ERROR";
   technicalMessage?: string;
   voiceLabel: string;
@@ -32,17 +36,13 @@ type AresViewProperties = {
   onResolveConfirmation: (index: number, confirmation: AwaitingActionConfirmation, decision: "CONFIRM" | "CANCEL") => void;
 };
 
+type CoreVisualState = "IDLE" | "PLAYING" | "COMPLETED" | "FADING" | "FAILURE";
+
 export const AresView = ({
   spokenResponse,
-  automaticSpeech,
-  onAutomaticSpeechChange,
-  technicalState,
-  technicalMessage,
-  voiceLabel,
   voiceState,
   voiceMessage,
   orbState,
-  voiceShortcutStatus,
   instruction,
   isInterpreting,
   interpretation,
@@ -54,20 +54,104 @@ export const AresView = ({
   onPropose,
   onResolveConfirmation
 }: AresViewProperties) => {
+  const [today, setToday] = useState<AresTodayState>({ kind: "LOADING" });
+  const [coreResponseText, setCoreResponseText] = useState("");
+  const [coreVisualState, setCoreVisualState] = useState<CoreVisualState>("IDLE");
+  const responseReveal = useRef<ReturnType<typeof createResponseCoreReveal> | null>(null);
+  const activeResponseId = useRef<string | undefined>(undefined);
+  const instructionReference = useRef<HTMLTextAreaElement>(null);
+  const needsReview = hasAssistantReview(interpretation, draftStates);
+  const resolvedActionMessage = interpretation?.drafts
+    .map((_draft, index) => draftStates[index])
+    .find((state) => state?.resolved && !state.confirmation)?.userMessage;
+  const coreResponse = spokenResponse?.text ?? resolvedActionMessage ?? (!needsReview ? interpretation?.summary ?? "" : "");
+  const exclusiveCoreState = voiceState === "RECORDING"
+    ? "LISTENING"
+    : voiceState === "PROCESSING" || isInterpreting
+      ? "PROCESSING"
+      : coreVisualState;
+  const coreLabel = exclusiveCoreState === "LISTENING"
+    ? "Escuchando…"
+    : exclusiveCoreState === "PROCESSING"
+      ? "Procesando…"
+      : exclusiveCoreState === "FAILURE" ? "No se pudo reproducir la voz." : "";
+  const visibleOrbState: ParticleOrbState = exclusiveCoreState === "LISTENING"
+    ? "recording"
+    : exclusiveCoreState === "PROCESSING"
+      ? "transcribing"
+      : exclusiveCoreState === "PLAYING" ? "speaking" : orbState;
+  const responsePhase = exclusiveCoreState === "PLAYING"
+    ? "REVEALING"
+    : exclusiveCoreState === "COMPLETED" ? "COMPLETED" : exclusiveCoreState === "FADING" ? "FADING" : undefined;
+  const visibleCoreResponse = responsePhase ? coreResponseText : "";
+
+  const clearCoreForNewInteraction = (): void => {
+    activeResponseId.current = undefined;
+    setCoreVisualState("IDLE");
+    responseReveal.current?.clear();
+  };
+
+  useEffect(() => {
+    let isCurrent = true;
+    void loadAresToday(window.ares?.planner).then((result) => {
+      if (isCurrent) setToday(result);
+    });
+    return () => { isCurrent = false; };
+  }, []);
+
+  useEffect(() => {
+    const controller = createResponseCoreReveal({
+      onTextChange: setCoreResponseText,
+      onCompletionFading: () => setCoreVisualState("FADING"),
+      onCompletionCleared: () => setCoreVisualState("IDLE")
+    });
+    responseReveal.current = controller;
+    return () => controller.dispose();
+  }, []);
+
+  useEffect(() => {
+    activeResponseId.current = spokenResponse?.responseId;
+    setCoreVisualState("IDLE");
+    responseReveal.current?.replace(coreResponse);
+    if (!spokenResponse && coreResponse) {
+      setCoreVisualState("COMPLETED");
+      responseReveal.current?.showFull();
+    }
+  }, [coreResponse, spokenResponse?.responseId, spokenResponse]);
+
+  useEffect(() => {
+    if (voiceState !== "IDLE" || isInterpreting) clearCoreForNewInteraction();
+  }, [isInterpreting, voiceState]);
+
+  const handlePlaybackEvent = (event: PlaybackEvent): void => {
+    if (event.responseId !== activeResponseId.current) return;
+    if (event.type === "PLAYING") {
+      setCoreVisualState("PLAYING");
+      responseReveal.current?.handlePlaybackEvent(event);
+      return;
+    }
+    setCoreVisualState(event.type === "FAILED" ? "FAILURE" : "COMPLETED");
+    responseReveal.current?.handlePlaybackEvent(event);
+  };
+
+  const handlePlaybackState = (state: "IDLE" | "LOADING" | "PLAYING" | "FINISHED" | "ERROR"): void => {
+    if (state !== "LOADING") return;
+    setCoreVisualState("IDLE");
+    responseReveal.current?.hide();
+  };
+
+  const handleStartRecording = (): void => {
+    clearCoreForNewInteraction();
+    onStartRecording();
+  };
+
+  const handleInterpret = (event: FormEvent<HTMLFormElement>): void => {
+    clearCoreForNewInteraction();
+    onInterpret(event);
+  };
+
   return <section aria-label="Espacio de comandos Ares" className="command-layout">
-  <aside className="support-panel support-panel--left">
-    <p className="eyebrow">Sesión actual</p>
-    <dl className="status-list">
-      <div><dt>Texto</dt><dd>{isInterpreting ? "Interpretando" : "Listo para interpretar"}</dd></div>
-      <div><dt>Voz</dt><dd>{voiceLabel}</dd></div>
-      <div><dt>Atajo global</dt><dd>{voiceShortcutStatus ? voiceShortcutStatusLabels[voiceShortcutStatus] : "Verificando"}</dd></div>
-      <div><dt>Confirmación</dt><dd>Cuando se requiere</dd></div>
-    </dl>
-    {technicalState === "ERROR" && <p className="panel-message">{technicalMessage}</p>}
-    {technicalState === "LOADING" && <p className="panel-message">Comprobando la conexión segura.</p>}
-    {technicalState === "SUCCESS" && <p className="panel-message">Ares está listo para preparar acciones supervisadas.</p>}
-    <p className="support-note">Puedes escribir, dictar y revisar cada paso antes de continuar.</p>
-  </aside>
+  <AresTodaySummaryPanel today={today} />
 
   <section className="command-core">
     <div className="command-heading">
@@ -77,32 +161,29 @@ export const AresView = ({
     </div>
     <div className="command-instrument">
       <div className="command-core__visual">
-        <ParticleOrb label={voiceLabel} state={orbState} />
+        <ParticleOrb label={coreLabel} responsePhase={responsePhase} responseText={visibleCoreResponse} state={visibleOrbState} />
       </div>
+      <div className="command-instrument__speech">
+        <ResponseSpeechControls blocked={isInterpreting || voiceState !== "IDLE" || Object.values(draftStates).some((state) => state.busy)} onPlaybackEvent={handlePlaybackEvent} onPlaybackState={handlePlaybackState} response={spokenResponse} />
+      </div>
+      {coreResponse && <p aria-live="polite" className="sr-only">{coreResponse}</p>}
       <span aria-hidden="true" className="command-instrument__axis" />
       <span aria-hidden="true" className="command-instrument__anchor" />
     </div>
     <section aria-label="Comando asistido" className="command-input-area command-entry-zone command-dock">
       <p className="eyebrow command-dock__label">Entrada de comando</p>
-      <VoiceCommandControls disabled={isInterpreting} processingInstruction={isInterpreting || voiceMessage === "Procesando instrucción…"} message={voiceMessage} onCancel={onCancelRecording} onStart={onStartRecording} state={voiceState} />
-      <form className="command-entry-form" onSubmit={onInterpret}>
+      <VoiceCommandControls disabled={isInterpreting} processingInstruction={isInterpreting || voiceMessage === "Procesando instrucción…"} message={voiceMessage} onCancel={onCancelRecording} onStart={handleStartRecording} state={voiceState} />
+      <form className="command-entry-form" onSubmit={handleInterpret}>
         <label className="sr-only" htmlFor="assistant-instruction">Instrucción para Ares</label>
-        <textarea disabled={isInterpreting} id="assistant-instruction" onChange={(event) => onInstructionChange(event.target.value)} placeholder="Escribe una instrucción para Ares" value={instruction} />
+        <textarea disabled={isInterpreting} id="assistant-instruction" onChange={(event) => onInstructionChange(event.target.value)} placeholder="Escribe una instrucción para Ares" ref={instructionReference} value={instruction} />
         <button className="interpret-button" disabled={isInterpreting || voiceState !== "IDLE"} type="submit">{isInterpreting ? "Interpretando..." : "Interpretar"}</button>
       </form>
-      <InterpretationResult draftStates={draftStates} interpretation={interpretation} onPropose={onPropose} onResolveConfirmation={onResolveConfirmation} />
-      <ResponseSpeechControls automatic={automaticSpeech} onAutomaticChange={onAutomaticSpeechChange} blocked={isInterpreting || voiceState !== "IDLE" || Object.values(draftStates).some((state) => state.busy)} response={spokenResponse} />
     </section>
   </section>
 
-  <aside className="support-panel support-panel--right">
-    <p className="eyebrow">Secuencia supervisada</p>
-    <ol className="supervision-sequence">
-      <li><span>01</span>Describe o dicta una intención.</li>
-      <li><span>02</span>Revisa el borrador preparado.</li>
-      <li><span>03</span>Confirma solo cuando se requiera.</li>
-    </ol>
-    <p className="support-note">Ares no realiza acciones por sí solo.</p>
-  </aside>
+  <InterpretationResult draftStates={draftStates} interpretation={interpretation} onPropose={onPropose} onResolveConfirmation={onResolveConfirmation} returnFocusRef={instructionReference} />
+
+  <AresUpcomingEventsPanel today={today} />
+
 </section>;
 };
