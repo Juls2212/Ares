@@ -48,6 +48,9 @@ export const ACTION_NAMES = [
   "CREATE_REMINDER",
   "GET_TODAY_SCHEDULE",
   "GET_WEEK_SCHEDULE",
+  "GET_WEEKLY_SCHEDULE_DETAILS",
+  "ANALYZE_WEEKLY_SCHEDULE",
+  "GET_TODAY_AVAILABILITY",
   "GET_CURRENT_DATE_TIME",
   "GET_WEATHER",
   "DELETE_EVENT",
@@ -105,6 +108,17 @@ export type CurrentDateTimeData = Record<string, never>;
 /** The initial weather action is fixed to the Main-owned Pasto configuration. */
 export type GetWeatherInput = Record<string, never>;
 
+export type WeeklyScheduleReferenceInput =
+  | { scheduleTitle: string }
+  | { allSchedules: true };
+
+export const WEEKLY_SCHEDULE_ANALYSIS_KINDS = ["AVAILABILITY", "BUSIEST_DAY", "OVERLAPS"] as const;
+export type WeeklyScheduleAnalysisKind = (typeof WEEKLY_SCHEDULE_ANALYSIS_KINDS)[number];
+
+export type GetWeeklyScheduleDetailsInput = WeeklyScheduleReferenceInput;
+export type AnalyzeWeeklyScheduleInput = WeeklyScheduleReferenceInput & { analysis: WeeklyScheduleAnalysisKind };
+export type GetTodayAvailabilityInput = { afterTime?: string };
+
 type ActionProposalBase = {
   actionId: string;
   dependsOn?: string[];
@@ -119,6 +133,9 @@ export type PlannerActionProposal =
   | (ActionProposalBase & { action: "CREATE_REMINDER"; input: CreateReminderInput })
   | (ActionProposalBase & { action: "GET_TODAY_SCHEDULE"; input: GetTodayScheduleInput })
   | (ActionProposalBase & { action: "GET_WEEK_SCHEDULE"; input: GetWeekScheduleInput })
+  | (ActionProposalBase & { action: "GET_WEEKLY_SCHEDULE_DETAILS"; input: GetWeeklyScheduleDetailsInput })
+  | (ActionProposalBase & { action: "ANALYZE_WEEKLY_SCHEDULE"; input: AnalyzeWeeklyScheduleInput })
+  | (ActionProposalBase & { action: "GET_TODAY_AVAILABILITY"; input: GetTodayAvailabilityInput })
   | (ActionProposalBase & { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput })
   | (ActionProposalBase & { action: "DELETE_EVENT"; input: DeleteEventInput })
   | (ActionProposalBase & { action: "DELETE_TASK"; input: DeleteTaskInput });
@@ -191,6 +208,9 @@ export type PlannerActionSubmission =
   | { action: "CREATE_REMINDER"; input: CreateReminderInput }
   | { action: "GET_TODAY_SCHEDULE"; input: GetTodayScheduleInput }
   | { action: "GET_WEEK_SCHEDULE"; input: GetWeekScheduleInput }
+  | { action: "GET_WEEKLY_SCHEDULE_DETAILS"; input: GetWeeklyScheduleDetailsInput }
+  | { action: "ANALYZE_WEEKLY_SCHEDULE"; input: AnalyzeWeeklyScheduleInput }
+  | { action: "GET_TODAY_AVAILABILITY"; input: GetTodayAvailabilityInput }
   | { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput }
   | { action: "DELETE_EVENT"; input: DeleteEventInput }
   | { action: "DELETE_TASK"; input: DeleteTaskInput };
@@ -271,6 +291,7 @@ export type PlannerActionData =
   | PlannerMutationData<ReminderRecord>
   | TodayScheduleData
   | WeekScheduleData
+  | Record<string, never>
   | CurrentDateTimeData
   | DeleteEventData;
 

@@ -17,7 +17,9 @@ import {
   categories,
   events,
   reminders,
-  tasks
+  tasks,
+  weeklyRoutines,
+  weeklySchedules
 } from "../database/schema";
 import type {
   CategoryListInput,
@@ -26,8 +28,11 @@ import type {
   CreateEventInput,
   CreateReminderInput,
   CreateTaskInput,
+  CreateWeeklyScheduleInput,
   DeleteEventInput,
   DeleteTaskInput,
+  DeleteWeeklyRoutineInput,
+  DeleteWeeklyScheduleInput,
   EventListInput,
   EventRecord,
   ReminderListInput,
@@ -36,7 +41,14 @@ import type {
   TaskRecord,
   UpdateCategoryInput,
   UpdateEventInput,
-  UpdateTaskInput
+  UpdateTaskInput,
+  CreateWeeklyRoutineInput,
+  UpdateWeeklyRoutineInput,
+  WeeklyRoutineListInput,
+  WeeklyRoutineRecord,
+  UpdateWeeklyScheduleInput,
+  WeeklyScheduleListInput,
+  WeeklyScheduleRecord
 } from "../../shared/planner-contracts";
 
 export class PlannerRepositoryError extends Error {
@@ -75,6 +87,16 @@ export type PlannerRepositories = {
   updateEvent: (input: UpdateEventInput) => Promise<EventRecord | undefined>;
   deleteEvent: (input: DeleteEventInput) => Promise<boolean>;
   deleteTask: (input: DeleteTaskInput) => Promise<boolean>;
+  createWeeklyRoutine: (input: CreateWeeklyRoutineInput) => Promise<WeeklyRoutineRecord>;
+  findWeeklyRoutineById: (routineId: string) => Promise<WeeklyRoutineRecord | undefined>;
+  listWeeklyRoutines: (input: WeeklyRoutineListInput) => Promise<WeeklyRoutineRecord[]>;
+  updateWeeklyRoutine: (input: UpdateWeeklyRoutineInput) => Promise<WeeklyRoutineRecord | undefined>;
+  deleteWeeklyRoutine: (input: DeleteWeeklyRoutineInput) => Promise<boolean>;
+  createWeeklySchedule: (input: CreateWeeklyScheduleInput) => Promise<WeeklyScheduleRecord>;
+  findWeeklyScheduleById: (weeklyScheduleId: string) => Promise<WeeklyScheduleRecord | undefined>;
+  listWeeklySchedules: (_input: WeeklyScheduleListInput) => Promise<WeeklyScheduleRecord[]>;
+  updateWeeklySchedule: (input: UpdateWeeklyScheduleInput) => Promise<WeeklyScheduleRecord | undefined>;
+  deleteWeeklySchedule: (input: DeleteWeeklyScheduleInput) => Promise<boolean>;
   createReminder: (input: CreateReminderInput) => Promise<ReminderRecord>;
   findReminderById: (reminderId: string) => Promise<ReminderRecord | undefined>;
   listReminders: (input: ReminderListInput) => Promise<ReminderRecord[]>;
@@ -127,6 +149,28 @@ const mapReminder = (record: typeof reminders.$inferSelect): ReminderRecord => (
   eventId: record.eventId,
   status: record.status,
   deliveredAt: record.deliveredAt ? toDateTime(record.deliveredAt) : null,
+  createdAt: toDateTime(record.createdAt),
+  updatedAt: toDateTime(record.updatedAt)
+});
+
+const mapWeeklyRoutine = (record: typeof weeklyRoutines.$inferSelect): WeeklyRoutineRecord => ({
+  id: record.id,
+  weeklyScheduleId: record.weeklyScheduleId,
+  title: record.title,
+  weekday: record.weekday,
+  startTime: record.startTime.slice(0, 5),
+  endTime: record.endTime.slice(0, 5),
+  categoryId: record.categoryId,
+  location: record.location,
+  createdAt: toDateTime(record.createdAt),
+  updatedAt: toDateTime(record.updatedAt)
+});
+
+const mapWeeklySchedule = (record: typeof weeklySchedules.$inferSelect): WeeklyScheduleRecord => ({
+  id: record.id,
+  title: record.title,
+  description: record.description,
+  color: record.color,
   createdAt: toDateTime(record.createdAt),
   updatedAt: toDateTime(record.updatedAt)
 });
@@ -326,6 +370,92 @@ export const createPlannerRepositories = (
   deleteTask: async ({ taskId }) =>
     executePersistence(async () => {
       const [record] = await database.delete(tasks).where(eq(tasks.id, taskId)).returning({ id: tasks.id });
+      return record !== undefined;
+    }),
+  createWeeklyRoutine: async (input) =>
+    executePersistence(async () => {
+      const [record] = await database.insert(weeklyRoutines).values({
+        ...input,
+        weeklyScheduleId: input.weeklyScheduleId!
+      }).returning();
+      return mapWeeklyRoutine(record);
+    }),
+  findWeeklyRoutineById: async (routineId) =>
+    executePersistence(async () => {
+      const [record] = await database.select().from(weeklyRoutines).where(eq(weeklyRoutines.id, routineId));
+      return record ? mapWeeklyRoutine(record) : undefined;
+    }),
+  listWeeklyRoutines: async (input) =>
+    executePersistence(async () => {
+      const conditions = [
+        eq(weeklyRoutines.weeklyScheduleId, input.weeklyScheduleId!),
+        ...(input.weekday === undefined ? [] : [eq(weeklyRoutines.weekday, input.weekday)]),
+        ...(input.categoryId === undefined ? [] : [eq(weeklyRoutines.categoryId, input.categoryId)])
+      ];
+      const weekdayOrder = sql<number>`case ${weeklyRoutines.weekday} when 'MONDAY' then 1 when 'TUESDAY' then 2 when 'WEDNESDAY' then 3 when 'THURSDAY' then 4 when 'FRIDAY' then 5 when 'SATURDAY' then 6 when 'SUNDAY' then 7 end`;
+      const records = await database.select().from(weeklyRoutines)
+        .where(conditions.length === 0 ? undefined : and(...conditions))
+        .orderBy(asc(weekdayOrder), asc(weeklyRoutines.startTime), asc(weeklyRoutines.createdAt));
+      return records.map(mapWeeklyRoutine);
+    }),
+  updateWeeklyRoutine: async (input) =>
+    executePersistence(async () => {
+      const changes = {
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.weekday === undefined ? {} : { weekday: input.weekday }),
+        ...(input.startTime === undefined ? {} : { startTime: input.startTime }),
+        ...(input.endTime === undefined ? {} : { endTime: input.endTime }),
+        ...(input.categoryId === undefined ? {} : { categoryId: input.categoryId }),
+        ...(input.location === undefined ? {} : { location: input.location }),
+        updatedAt: new Date()
+      };
+      const [record] = await database.update(weeklyRoutines).set(changes)
+        .where(and(
+          eq(weeklyRoutines.id, input.routineId),
+          eq(weeklyRoutines.weeklyScheduleId, input.weeklyScheduleId!)
+        )).returning();
+      return record ? mapWeeklyRoutine(record) : undefined;
+    }),
+  deleteWeeklyRoutine: async ({ routineId }) =>
+    executePersistence(async () => {
+      const [record] = await database.delete(weeklyRoutines).where(eq(weeklyRoutines.id, routineId))
+        .returning({ id: weeklyRoutines.id });
+      return record !== undefined;
+    }),
+  createWeeklySchedule: async (input) =>
+    executePersistence(async () => {
+      const [record] = await database.insert(weeklySchedules).values(input).returning();
+      return mapWeeklySchedule(record);
+    }),
+  findWeeklyScheduleById: async (weeklyScheduleId) =>
+    executePersistence(async () => {
+      const [record] = await database.select().from(weeklySchedules)
+        .where(eq(weeklySchedules.id, weeklyScheduleId));
+      return record ? mapWeeklySchedule(record) : undefined;
+    }),
+  listWeeklySchedules: async () =>
+    executePersistence(async () => {
+      const records = await database.select().from(weeklySchedules)
+        .orderBy(asc(sql`lower(${weeklySchedules.title})`), asc(weeklySchedules.id));
+      return records.map(mapWeeklySchedule);
+    }),
+  updateWeeklySchedule: async (input) =>
+    executePersistence(async () => {
+      const changes = {
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.description === undefined ? {} : { description: input.description }),
+        ...(input.color === undefined ? {} : { color: input.color }),
+        updatedAt: new Date()
+      };
+      const [record] = await database.update(weeklySchedules).set(changes)
+        .where(eq(weeklySchedules.id, input.weeklyScheduleId)).returning();
+      return record ? mapWeeklySchedule(record) : undefined;
+    }),
+  deleteWeeklySchedule: async ({ weeklyScheduleId }) =>
+    executePersistence(async () => {
+      const [record] = await database.delete(weeklySchedules)
+        .where(eq(weeklySchedules.id, weeklyScheduleId))
+        .returning({ id: weeklySchedules.id });
       return record !== undefined;
     }),
   createReminder: async (input) =>

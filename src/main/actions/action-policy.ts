@@ -162,6 +162,21 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       scopeSummary: "Agenda local de la semana"
     }
   },
+  GET_WEEKLY_SCHEDULE_DETAILS: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se consultará un horario semanal existente.", affectedItemCount: null, scopeSummary: "Horario semanal existente" }
+  },
+  ANALYZE_WEEKLY_SCHEDULE: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se analizará un horario semanal existente.", affectedItemCount: null, scopeSummary: "Horario semanal existente" }
+  },
+  GET_TODAY_AVAILABILITY: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se consultará la disponibilidad estimada de hoy.", affectedItemCount: null, scopeSummary: "Agenda local de hoy" }
+  },
   GET_CURRENT_DATE_TIME: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",

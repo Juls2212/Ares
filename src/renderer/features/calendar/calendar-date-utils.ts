@@ -83,8 +83,10 @@ export const groupCalendarRecordsByDay = (
   return grouped;
 };
 
-export const formatCalendarMonth = (monthStart: Date): string =>
-  new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" }).format(monthStart);
+export const formatCalendarMonth = (monthStart: Date): string => {
+  const formattedMonth = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" }).format(monthStart);
+  return formattedMonth.charAt(0).toLocaleUpperCase("es-ES") + formattedMonth.slice(1);
+};
 
 export const formatCalendarDay = (isoDate: string): string => {
   const [year, month, day] = isoDate.split("-").map(Number);

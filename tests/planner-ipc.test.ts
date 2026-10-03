@@ -30,6 +30,14 @@ const createService = (): { service: PlannerService; methods: Record<ServiceMeth
     updateEvent: vi.fn(async () => successResult),
     deleteEvent: vi.fn(async () => successResult),
     deleteTask: vi.fn(async () => successResult),
+    createWeeklyRoutine: vi.fn(async () => successResult),
+    listWeeklyRoutines: vi.fn(async () => successResult),
+    updateWeeklyRoutine: vi.fn(async () => successResult),
+    deleteWeeklyRoutine: vi.fn(async () => successResult),
+    createWeeklySchedule: vi.fn(async () => successResult),
+    listWeeklySchedules: vi.fn(async () => successResult),
+    updateWeeklySchedule: vi.fn(async () => successResult),
+    deleteWeeklySchedule: vi.fn(async () => successResult),
     createReminder: vi.fn(async () => successResult),
     listReminders: vi.fn(async () => successResult),
     getTodaySchedule: vi.fn(async () => successResult),
@@ -56,6 +64,14 @@ const channelDelegations: ReadonlyArray<{
   { channel: IPC_CHANNELS.planner.events.update, method: "updateEvent", input: {} },
   { channel: IPC_CHANNELS.planner.reminders.create, method: "createReminder", input: {} },
   { channel: IPC_CHANNELS.planner.reminders.list, method: "listReminders", input: {} },
+  { channel: IPC_CHANNELS.planner.weeklyRoutines.create, method: "createWeeklyRoutine", input: {} },
+  { channel: IPC_CHANNELS.planner.weeklyRoutines.list, method: "listWeeklyRoutines", input: {} },
+  { channel: IPC_CHANNELS.planner.weeklyRoutines.update, method: "updateWeeklyRoutine", input: {} },
+  { channel: IPC_CHANNELS.planner.weeklyRoutines.delete, method: "deleteWeeklyRoutine", input: {} },
+  { channel: IPC_CHANNELS.planner.weeklySchedules.create, method: "createWeeklySchedule", input: {} },
+  { channel: IPC_CHANNELS.planner.weeklySchedules.list, method: "listWeeklySchedules", input: {} },
+  { channel: IPC_CHANNELS.planner.weeklySchedules.update, method: "updateWeeklySchedule", input: {} },
+  { channel: IPC_CHANNELS.planner.weeklySchedules.delete, method: "deleteWeeklySchedule", input: {} },
   { channel: IPC_CHANNELS.planner.schedule.getToday, method: "getTodaySchedule", input: {} },
   { channel: IPC_CHANNELS.planner.schedule.getWeek, method: "getWeekSchedule", input: {} }
 ];
@@ -100,7 +116,7 @@ describe("planner IPC registration", () => {
       IPC_CHANNELS.planner.events.cancelDeletion,
       ...channelDelegations.slice(10).map(({ channel }) => channel)
     ]);
-    expect(handlers.size).toBe(20);
+    expect(handlers.size).toBe(28);
     expect(handlers.has("planner:events:delete")).toBe(false);
   });
 

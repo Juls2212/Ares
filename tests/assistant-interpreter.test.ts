@@ -8,6 +8,7 @@ const reference = {
   now: "2026-09-20T15:00:00.000Z",
   timeZone: "America/Bogota",
   knownApplicationAliases: ["notepad", "chrome"],
+  knownWeeklyScheduleTitles: ["Universidad"],
   knownFileReferences: [
     { rootId: "DOCUMENTS" as const, relativePath: "inbox" },
     { rootId: "DOCUMENTS" as const, relativePath: "inbox\\report.pdf" },
@@ -145,6 +146,49 @@ describe("Main-only assistant interpreter", () => {
     ).interpret({ instruction: "Dime la hora" }, reference);
 
     expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
+  });
+
+  it("accepts a resolved weekly-schedule draft while keeping unknown titles controlled", async () => {
+    const interpreter = createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => providerFor(ready([{ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Universidad" } }])),
+      now: () => new Date(reference.now),
+      timeZone: () => reference.timeZone,
+      resolveWeeklyScheduleTitle: async (title) => title === "Universidad"
+        ? { state: "RESOLVED", title: "Universidad" }
+        : { state: "MISSING" }
+    });
+    await expect(interpreter.interpret({ instruction: "¿Qué tengo en mi horario de Universidad?" }, reference)).resolves.toMatchObject({
+      ok: true,
+      data: { state: "READY", drafts: [{ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Universidad" } }] }
+    });
+
+    const missing = createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => providerFor(ready([{ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Trabajo" } }])),
+      now: () => new Date(reference.now),
+      timeZone: () => reference.timeZone,
+      resolveWeeklyScheduleTitle: async () => ({ state: "MISSING" })
+    });
+    await expect(missing.interpret({ instruction: "¿Qué tengo en mi horario de Trabajo?" }, reference)).resolves.toMatchObject({
+      ok: true,
+      data: { state: "NEEDS_CLARIFICATION", drafts: [] }
+    });
+  });
+
+  it("accepts only an availability cutoff derived from the user instruction", async () => {
+    const interpreter = createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => providerFor(ready([{ action: "GET_TODAY_AVAILABILITY", input: { afterTime: "14:00" } }])),
+      now: () => new Date(reference.now),
+      timeZone: () => reference.timeZone
+    });
+    await expect(interpreter.interpret({ instruction: "¿Qué tengo hoy después de las dos?" }, reference)).resolves.toMatchObject({
+      ok: true,
+      data: { state: "READY", drafts: [{ action: "GET_TODAY_AVAILABILITY", input: { afterTime: "14:00" } }] }
+    });
+    const invented = interpreterFor(ready([{ action: "GET_TODAY_AVAILABILITY", input: { afterTime: "14:00" } }]));
+    await expect(invented.interpret({ instruction: "¿Qué espacios libres tengo hoy?" }, reference)).resolves.toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
   });
 
   it("replaces the Main-only current-context token for a selected folder without execution", async () => {

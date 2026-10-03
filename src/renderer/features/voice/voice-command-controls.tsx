@@ -7,10 +7,14 @@ type VoiceCommandControlsProperties = {
   processingInstruction?: boolean;
 };
 
-export const VoiceCommandControls = ({ state, message, onStart, onCancel, disabled, processingInstruction }: VoiceCommandControlsProperties) => (
-  <section aria-label="Controles de voz" className="voice-controls">
-    <p className="support-note">Al terminar de hablar, el audio se enviará a OpenAI para convertirlo en texto y procesar tu instrucción. Las acciones directas pueden ejecutarse; las sensibles requieren confirmación. Puedes cancelarla sin enviarlo.</p>
-    {state === "IDLE" && <><p className="live-status" role="status">Listo para grabar</p><button className="voice-button" disabled={disabled} onClick={onStart} type="button">Iniciar grabación</button></>}
+export const VoiceCommandControls = ({ state, message, onStart, onCancel, disabled, processingInstruction }: VoiceCommandControlsProperties) => {
+  const visibleMessage = message === "Instrucción procesada. Revisa el resultado y confirma si se requiere."
+    ? undefined
+    : message;
+
+  return <section aria-label="Controles de voz" className="voice-controls">
+    <p className="command-prompt">¿En qué trabajamos hoy, Juli?</p>
+    {state === "IDLE" && <button aria-label="Iniciar grabación por voz" className="voice-button voice-button--microphone" disabled={disabled} onClick={onStart} title="Hablar con Ares" type="button"><span aria-hidden="true">🎙</span></button>}
     {state === "RECORDING" && <>
       <p className="live-status" role="status">Escuchando…</p>
       <button className="quiet-button" onClick={onCancel} type="button">Cancelar</button>
@@ -19,6 +23,6 @@ export const VoiceCommandControls = ({ state, message, onStart, onCancel, disabl
       <p className="live-status" role="status">{processingInstruction ? "Procesando instrucción…" : "Procesando…"}</p>
       <button className="quiet-button" onClick={onCancel} type="button">Cancelar</button>
     </>}
-    {message && <p aria-live="polite" className="live-status">{message}</p>}
-  </section>
-);
+    {visibleMessage && <p aria-live="polite" className="live-status">{visibleMessage}</p>}
+  </section>;
+};

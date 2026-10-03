@@ -82,6 +82,9 @@ const isPlannerAction = (action: ActionSubmission["action"]): action is PlannerA
     "CREATE_REMINDER",
     "GET_TODAY_SCHEDULE",
     "GET_WEEK_SCHEDULE",
+    "GET_WEEKLY_SCHEDULE_DETAILS",
+    "ANALYZE_WEEKLY_SCHEDULE",
+    "GET_TODAY_AVAILABILITY",
     "GET_CURRENT_DATE_TIME",
     "DELETE_EVENT",
     "DELETE_TASK"
@@ -116,6 +119,21 @@ const isWeatherActionSubmission = (
   submission: Record<string, unknown>
 ): submission is { action: "GET_WEATHER"; input: Record<string, never> } =>
   submission.action === "GET_WEATHER" && isRecord(submission.input) && Object.keys(submission.input).length === 0;
+
+const isWeeklyScheduleReference = (input: Record<string, unknown>): boolean =>
+  (Object.keys(input).length === 1 && input.allSchedules === true) ||
+  (Object.keys(input).length === 1 && typeof input.scheduleTitle === "string" && input.scheduleTitle.trim().length > 0 && input.scheduleTitle.length <= 160);
+
+const isWeeklyScheduleSubmission = (submission: Record<string, unknown>): boolean => {
+  if (!isRecord(submission.input)) return false;
+  if (submission.action === "GET_WEEKLY_SCHEDULE_DETAILS") return isWeeklyScheduleReference(submission.input);
+  if (submission.action === "ANALYZE_WEEKLY_SCHEDULE") {
+    const { analysis, ...reference } = submission.input;
+    return ["AVAILABILITY", "BUSIEST_DAY", "OVERLAPS"].includes(analysis as string) && isWeeklyScheduleReference(reference);
+  }
+  if (submission.action === "GET_TODAY_AVAILABILITY") return Object.keys(submission.input).length === 0 || (Object.keys(submission.input).length === 1 && typeof submission.input.afterTime === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(submission.input.afterTime));
+  return false;
+};
 
 const isFileAction = (action: ActionSubmission["action"]): action is FileActionProposal["action"] =>
   ["SEARCH_FILES", "CREATE_FOLDER", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES"].includes(
@@ -307,6 +325,7 @@ export const createActionOrchestrator = (
         !isOpenApplicationSubmission(submission) &&
         !isOpenWebPageSubmission(submission) &&
         !isWeatherActionSubmission(submission) &&
+        !isWeeklyScheduleSubmission(submission) &&
         !isFileActionSubmission(submission)
       ) {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);

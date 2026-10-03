@@ -12,6 +12,7 @@ import type {
 import { getPlannerService } from "../planner/planner-composition";
 import type { PlannerService } from "../planner/planner-service";
 import type { EventRecord, TaskPriority, TaskRecord, TaskStatus, TodayScheduleData } from "../../shared/planner-contracts";
+import { createWeeklyScheduleAnalysisService, type WeeklyScheduleAnalysisService } from "./weekly-schedule-analysis";
 
 const MAX_TODAY_SCHEDULE_ITEMS_PER_KIND = 3;
 
@@ -35,6 +36,9 @@ const successSummaries: Record<PlannerActionProposal["action"], string> = {
   CREATE_REMINDER: "Se creó el recordatorio.",
   GET_TODAY_SCHEDULE: "Se consultó la agenda de hoy.",
   GET_WEEK_SCHEDULE: "Se consultó la agenda de la semana.",
+  GET_WEEKLY_SCHEDULE_DETAILS: "Se consultó el horario semanal.",
+  ANALYZE_WEEKLY_SCHEDULE: "Se analizó el horario semanal.",
+  GET_TODAY_AVAILABILITY: "Se consultó la disponibilidad de hoy.",
   GET_CURRENT_DATE_TIME: "Se consultó la fecha y hora actuales.",
   DELETE_EVENT: "Se eliminó el evento.",
   DELETE_TASK: "Se eliminó la tarea."
@@ -140,6 +144,14 @@ const toOutcome = <T extends PlannerActionData>(
   };
 };
 
+const toAnalysisOutcome = (
+  proposal: Extract<PlannerActionProposal, { action: "GET_WEEKLY_SCHEDULE_DETAILS" | "ANALYZE_WEEKLY_SCHEDULE" | "GET_TODAY_AVAILABILITY" }>,
+  policy: ActionPolicy,
+  result: Awaited<ReturnType<WeeklyScheduleAnalysisService["getDetails"]>>
+): ActionOutcome => result.ok
+  ? { actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel, status: "SUCCEEDED", data: {}, userSummary: result.data.summary }
+  : { actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel, status: failureStatus(result.error.code), errorCode: result.error.code, userSummary: result.error.userMessage };
+
 export const createPlannerActionExecutor = (
   overrides: Partial<PlannerActionExecutorDependencies> = {}
 ): PlannerActionExecutor => {
@@ -154,9 +166,14 @@ export const createPlannerActionExecutor = (
       })
   };
   let plannerService = dependencies.plannerService;
+  let weeklyScheduleAnalysisService: WeeklyScheduleAnalysisService | undefined;
   const getService = (): PlannerService => {
     plannerService ??= getPlannerService();
     return plannerService;
+  };
+  const getWeeklyScheduleAnalysisService = (): WeeklyScheduleAnalysisService => {
+    weeklyScheduleAnalysisService ??= createWeeklyScheduleAnalysisService({ plannerService: getService(), timeZone: dependencies.timeZone });
+    return weeklyScheduleAnalysisService;
   };
 
   return {
@@ -179,6 +196,12 @@ export const createPlannerActionExecutor = (
             return toOutcome(proposal, policy, await getService().getTodaySchedule(proposal.input), dependencies.timeZone());
           case "GET_WEEK_SCHEDULE":
             return toOutcome(proposal, policy, await getService().getWeekSchedule(proposal.input), dependencies.timeZone());
+          case "GET_WEEKLY_SCHEDULE_DETAILS":
+            return toAnalysisOutcome(proposal, policy, await getWeeklyScheduleAnalysisService().getDetails(proposal.input));
+          case "ANALYZE_WEEKLY_SCHEDULE":
+            return toAnalysisOutcome(proposal, policy, await getWeeklyScheduleAnalysisService().analyze(proposal.input));
+          case "GET_TODAY_AVAILABILITY":
+            return toAnalysisOutcome(proposal, policy, await getWeeklyScheduleAnalysisService().getTodayAvailability(proposal.input));
           case "GET_CURRENT_DATE_TIME":
             return {
               actionId: proposal.actionId,

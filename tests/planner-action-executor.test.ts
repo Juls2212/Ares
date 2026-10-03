@@ -15,6 +15,11 @@ const createPlannerService = (): PlannerService =>
     updateEvent: vi.fn(async () => success),
     deleteEvent: vi.fn(async () => ({ ok: true, data: { deleted: true } })),
     createReminder: vi.fn(async () => success),
+    createWeeklyRoutine: vi.fn(async () => success),
+    updateWeeklyRoutine: vi.fn(async () => success),
+    deleteWeeklyRoutine: vi.fn(async () => ({ ok: true, data: { deleted: true } })),
+    listWeeklySchedules: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
+    listWeeklyRoutines: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
     getTodaySchedule: vi.fn(async () => ({ ok: true, data: { localDate: "2026-09-17", tasks: [], events: [], reminders: [] } })),
     getWeekSchedule: vi.fn(async () => ({
       ok: true,
@@ -145,6 +150,36 @@ describe("planner action executor", () => {
     expect(outcome.userSummary).toContain("10:05");
     expect(outcome.userSummary).not.toContain("2026-10-02T15:05:00.000Z");
     expect(plannerService.getTodaySchedule).not.toHaveBeenCalled();
+  });
+
+  it("keeps weekly schedule analysis Main-grounded and available through the existing final-response summary", async () => {
+    const plannerService = createPlannerService();
+    vi.mocked(plannerService.listWeeklySchedules).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [{ id: "schedule-private", title: "Universidad", description: null, color: null, createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z" }],
+        total: 1
+      }
+    } as never);
+    vi.mocked(plannerService.listWeeklyRoutines).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [{ id: "routine-private", weeklyScheduleId: "schedule-private", title: "Álgebra", weekday: "MONDAY", startTime: "08:00", endTime: "10:00", categoryId: null, location: null, createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z" }],
+        total: 1
+      }
+    } as never);
+    const executor = createPlannerActionExecutor({ plannerService, timeZone: () => "America/Bogota", logError: vi.fn() });
+
+    const outcome = await executor.execute(
+      { actionId: "11111111-1111-4111-8111-111111111111", action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Universidad" } },
+      getActionPolicy("GET_WEEKLY_SCHEDULE_DETAILS")
+    );
+
+    expect(outcome).toMatchObject({ status: "SUCCEEDED", action: "GET_WEEKLY_SCHEDULE_DETAILS", userSummary: expect.stringContaining("Álgebra") });
+    expect(outcome.userSummary).not.toContain("schedule-private");
+    expect(vi.mocked(plannerService.createWeeklyRoutine)).not.toHaveBeenCalled();
+    expect(vi.mocked(plannerService.updateWeeklyRoutine)).not.toHaveBeenCalled();
+    expect(vi.mocked(plannerService.deleteWeeklyRoutine)).not.toHaveBeenCalled();
   });
 
   it("distinguishes task-only and event-only schedules from the actual returned records", async () => {

@@ -51,6 +51,18 @@ describe("preload surface", () => {
         create: "planner:reminders:create",
         list: "planner:reminders:list"
       },
+      weeklyRoutines: {
+        create: "planner:weekly-routines:create",
+        list: "planner:weekly-routines:list",
+        update: "planner:weekly-routines:update",
+        delete: "planner:weekly-routines:delete"
+      },
+      weeklySchedules: {
+        create: "planner:weekly-schedules:create",
+        list: "planner:weekly-schedules:list",
+        update: "planner:weekly-schedules:update",
+        delete: "planner:weekly-schedules:delete"
+      },
       schedule: {
         getToday: "planner:schedule:get-today",
         getWeek: "planner:schedule:get-week"
@@ -94,6 +106,8 @@ describe("preload surface", () => {
     expect(preloadSource).toContain("tasks: {");
     expect(preloadSource).toContain("events: {");
     expect(preloadSource).toContain("reminders: {");
+    expect(preloadSource).toContain("weeklyRoutines: {");
+    expect(preloadSource).toContain("weeklySchedules: {");
     expect(preloadSource).toContain("schedule: {");
     expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.planner.events.requestDeletion, input)");
     expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.planner.events.confirmDeletion, input)");
@@ -101,6 +115,14 @@ describe("preload surface", () => {
     expect(preloadSource).not.toContain("IPC_CHANNELS.planner.events.delete");
     expect(preloadSource).not.toContain("planner.tasks.delete");
     expect(preloadSource).not.toContain("planner.reminders.delete");
+    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklyRoutines.create, input");
+    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklyRoutines.list, input");
+    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklyRoutines.update, input");
+    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklyRoutines.delete, input");
+    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.create, input");
+    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.list, input");
+    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.update, input");
+    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.delete, input");
     expect(preloadSource).not.toContain("database:");
   });
 

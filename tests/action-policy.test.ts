@@ -30,6 +30,9 @@ const expectedRiskLevels: Record<ActionKind, ActionRiskLevel> = {
   CREATE_REMINDER: 1,
   GET_TODAY_SCHEDULE: 1,
   GET_WEEK_SCHEDULE: 1,
+  GET_WEEKLY_SCHEDULE_DETAILS: 1,
+  ANALYZE_WEEKLY_SCHEDULE: 1,
+  GET_TODAY_AVAILABILITY: 1,
   GET_CURRENT_DATE_TIME: 1,
   GET_WEATHER: 1,
   OPEN_REGISTERED_APPLICATION: 1,
@@ -68,6 +71,9 @@ describe("action policy", () => {
       "CREATE_REMINDER",
       "GET_TODAY_SCHEDULE",
       "GET_WEEK_SCHEDULE",
+      "GET_WEEKLY_SCHEDULE_DETAILS",
+      "ANALYZE_WEEKLY_SCHEDULE",
+      "GET_TODAY_AVAILABILITY",
       "GET_CURRENT_DATE_TIME",
       "GET_WEATHER",
       "DELETE_EVENT",
@@ -97,6 +103,9 @@ describe("action policy", () => {
   it("marks implemented planner, application, and approved file actions as available", () => {
     expect(getActionPolicy("CREATE_TASK").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("GET_WEEK_SCHEDULE").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("GET_WEEKLY_SCHEDULE_DETAILS").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("ANALYZE_WEEKLY_SCHEDULE").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("GET_TODAY_AVAILABILITY").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("OPEN_APPLICATION").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("OPEN_WEB_PAGE").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("SEARCH_FILES").availability).toBe("IMPLEMENTED");
@@ -135,6 +144,9 @@ describe("action policy", () => {
 
     expect(requiresActionConfirmation(createTask)).toBe(false);
     expect(requiresActionConfirmation(completeTask)).toBe(false);
+    expect(requiresActionConfirmation({ actionId: "proposal-7", action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Universidad" } })).toBe(false);
+    expect(requiresActionConfirmation({ actionId: "proposal-8", action: "ANALYZE_WEEKLY_SCHEDULE", input: { scheduleTitle: "Universidad", analysis: "OVERLAPS" } })).toBe(false);
+    expect(requiresActionConfirmation({ actionId: "proposal-9", action: "GET_TODAY_AVAILABILITY", input: {} })).toBe(false);
   });
 
   it("defines OPEN_APPLICATION with an alias-only structured payload", () => {

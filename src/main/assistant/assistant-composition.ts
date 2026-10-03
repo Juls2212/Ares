@@ -8,6 +8,8 @@ import { getApplicationService } from "../applications/application-composition";
 import { createAssistantInterpreter } from "./assistant-interpreter";
 import { createEventDeletionResolver } from "./assistant-event-reference";
 import { getPlannerService } from "../planner/planner-composition";
+import type { PlannerService } from "../planner/planner-service";
+import { createWeeklyScheduleReferenceResolver } from "../actions/weekly-schedule-analysis";
 import {
   getAssistantContextService,
   type AssistantContextService
@@ -22,10 +24,12 @@ export type AssistantInterpretationService = {
 type AssistantInterpretationServiceDependencies = {
   getInterpreter: () => AssistantInterpreter;
   getApplicationService: () => Pick<ApplicationService, "listApplications">;
+  getPlannerService?: () => Pick<PlannerService, "listWeeklySchedules">;
   getContextService?: () => AssistantContextService;
 };
 
 const maximumTrustedApplicationAliases = 100;
+const maximumTrustedWeeklyScheduleTitles = 50;
 const requiresTrustedApplicationReferences = (actions: readonly string[]): boolean =>
   actions.some((action) => action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE");
 
@@ -38,6 +42,16 @@ const toTrustedApplicationAliases = (
     .flatMap((record) => record.aliases.map((entry) => entry.alias.trim().toLocaleLowerCase("en-US"))))]
     .filter((alias) => alias.length > 0)
     .slice(0, maximumTrustedApplicationAliases);
+};
+
+const toTrustedWeeklyScheduleTitles = (
+  schedules: Awaited<ReturnType<PlannerService["listWeeklySchedules"]>>
+): string[] => {
+  if (!schedules.ok) return [];
+  return [...new Set(schedules.data.items
+    .map((schedule) => schedule.title.trim().replace(/\s+/g, " "))
+    .filter((title) => title.length > 0))]
+    .slice(0, maximumTrustedWeeklyScheduleTitles);
 };
 
 const unavailable = (
@@ -96,8 +110,13 @@ export const createAssistantInterpretationService = (
           enabled: true,
           limit: maximumTrustedApplicationAliases
         }).catch(() => undefined);
+        const plannerService = dependencies.getPlannerService?.();
+        const initialWeeklySchedules = plannerService
+          ? await plannerService.listWeeklySchedules({}).catch(() => undefined)
+          : undefined;
         const reference = {
           knownApplicationAliases: initialApplications ? toTrustedApplicationAliases(initialApplications) : [],
+          ...(plannerService ? { knownWeeklyScheduleTitles: initialWeeklySchedules ? toTrustedWeeklyScheduleTitles(initialWeeklySchedules) : [] } : {}),
           ...(cachedContext ? { currentContext: cachedContext } : {})
         };
         return await dependencies.getInterpreter().interpret(
@@ -140,8 +159,12 @@ let assistantInterpretationService: AssistantInterpretationService | undefined;
 
 export const getAssistantInterpretationService = (): AssistantInterpretationService => {
   assistantInterpretationService ??= createAssistantInterpretationService({
-    getInterpreter: () => createAssistantInterpreter({ resolveEventDeletion: createEventDeletionResolver(getPlannerService) }),
+    getInterpreter: () => createAssistantInterpreter({
+      resolveEventDeletion: createEventDeletionResolver(getPlannerService),
+      resolveWeeklyScheduleTitle: createWeeklyScheduleReferenceResolver(getPlannerService)
+    }),
     getApplicationService,
+    getPlannerService,
     getContextService: getAssistantContextService
   });
   return assistantInterpretationService;

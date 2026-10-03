@@ -25,6 +25,11 @@ import {
   taskStatusEnum,
   tasks,
   tasksRelations
+  , weekdayEnum
+  , weeklyRoutines
+  , weeklyRoutinesRelations
+  , weeklySchedules
+  , weeklySchedulesRelations
 } from "../src/main/database/schema";
 
 const schemaDirectory = path.resolve(process.cwd(), "src/main/database/schema");
@@ -83,7 +88,9 @@ describe("Ares MVP database schema", () => {
       applications,
       applicationAliases,
       actionHistory,
-      settings
+      settings,
+      weeklyRoutines,
+      weeklySchedules
     ].map(getTableName)).toEqual([
       "categories",
       "tasks",
@@ -93,7 +100,9 @@ describe("Ares MVP database schema", () => {
       "applications",
       "application_aliases",
       "action_history",
-      "settings"
+      "settings",
+      "weekly_routines",
+      "weekly_schedules"
     ]);
   });
 
@@ -101,6 +110,7 @@ describe("Ares MVP database schema", () => {
     expect(taskStatusEnum.enumValues).toEqual(["PENDING", "IN_PROGRESS", "COMPLETED"]);
     expect(taskPriorityEnum.enumValues).toEqual(["LOW", "MEDIUM", "HIGH"]);
     expect(reminderStatusEnum.enumValues).toEqual(["PENDING", "TRIGGERED", "CANCELLED"]);
+    expect(weekdayEnum.enumValues).toEqual(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]);
     expect(actionResultStatusEnum.enumValues).toEqual([
       "SUCCEEDED",
       "CANCELLED",
@@ -122,6 +132,8 @@ describe("Ares MVP database schema", () => {
       [categories, "categories_name_non_blank_check"],
       [tasks, "tasks_title_non_blank_check"],
       [events, "events_title_non_blank_check"],
+      [weeklyRoutines, "weekly_routines_title_non_blank_check"],
+      [weeklySchedules, "weekly_schedules_title_non_blank_check"],
       [reminders, "reminders_title_non_blank_check"],
       [applications, "applications_name_non_blank_check"],
       [applications, "applications_executable_path_non_blank_check"],
@@ -144,6 +156,7 @@ describe("Ares MVP database schema", () => {
       [categories, "categories_name_lower_unique"],
       [applicationAliases, "application_aliases_alias_lower_unique"],
       [applications, "applications_executable_path_lower_unique"]
+      , [weeklySchedules, "weekly_schedules_title_lower_unique"]
     ] as const;
 
     for (const [table, indexName] of normalizedIndexes) {
@@ -197,6 +210,19 @@ describe("Ares MVP database schema", () => {
     expect(getTableConfig(events).indexes.map((index) => index.config.name)).toEqual(
       expect.arrayContaining(["events_start_at_index", "events_category_id_index"])
     );
+    expect(getTableConfig(weeklyRoutines).indexes.map((index) => index.config.name)).toEqual(
+      expect.arrayContaining(["weekly_routines_schedule_weekday_start_time_index", "weekly_routines_category_id_index"])
+    );
+    expect(getTableConfig(weeklyRoutines).foreignKeys.map((foreignKey) => foreignKey.onDelete)).toEqual(
+      expect.arrayContaining(["set null", "cascade"])
+    );
+    expect(getColumnNames(weeklyRoutines)).toContain("weekly_schedule_id");
+    expect(getTableConfig(weeklySchedules).indexes.map((index) => index.config.name)).toContain(
+      "weekly_schedules_title_lower_unique"
+    );
+    expect(getTableConfig(weeklyRoutines).checks.map((check) => check.name)).toEqual(
+      expect.arrayContaining(["weekly_routines_location_non_blank_check", "weekly_routines_time_range_check"])
+    );
     expect(getTableConfig(reminders).indexes.map((index) => index.config.name)).toEqual(
       expect.arrayContaining([
         "reminders_pending_remind_at_index",
@@ -218,6 +244,8 @@ describe("Ares MVP database schema", () => {
       remindersRelations,
       applicationsRelations,
       applicationAliasesRelations
+      , weeklyRoutinesRelations
+      , weeklySchedulesRelations
     ].every(Boolean)).toBe(true);
     expect(getColumnNames(settings).join(" ")).not.toMatch(
       /secret|credential|password|token|api[_]?key/i

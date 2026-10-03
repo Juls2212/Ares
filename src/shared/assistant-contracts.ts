@@ -63,6 +63,8 @@ export type AssistantInterpretationReference = {
   now: string;
   timeZone: string;
   knownApplicationAliases?: string[];
+  /** Bounded Main-derived labels only; identifiers and routine records are excluded. */
+  knownWeeklyScheduleTitles?: string[];
   knownApplications?: TrustedApplicationReference[];
   knownFileReferences?: SafeFileReference[];
   currentContext?: AssistantCurrentContext;

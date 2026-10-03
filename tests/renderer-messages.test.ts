@@ -16,6 +16,7 @@ const rendererSource = [
   "src/renderer/features/calendar/calendar-task-deletion.ts",
   "src/renderer/features/calendar/calendar-grid.tsx",
   "src/renderer/features/assistant/interpretation-result.tsx",
+  "src/renderer/features/assistant/ares-information-panels.tsx",
   "src/renderer/features/voice/voice-command-controls.tsx",
   "src/renderer/features/settings/utility-panel.tsx",
   "src/renderer/features/settings/theme-preference.ts",
@@ -49,11 +50,11 @@ describe("temporary renderer messaging", () => {
     expect(rendererSource).toContain("displayName: customDisplayName");
   });
 
-  it("uses Spanish loading, success, and controlled error messages", () => {
-    expect(rendererSource).toContain("Comprobando la conexión segura.");
-    expect(rendererSource).toContain("Ares está listo para preparar acciones supervisadas.");
-    expect(rendererSource).toContain("No se pudo consultar el estado técnico de Ares.");
-    expect(rendererSource).toContain("Atajo activo");
+  it("uses Spanish loading, empty, and controlled error messages for real planner panels", () => {
+    expect(rendererSource).toContain("Cargando resumen de hoy…");
+    expect(rendererSource).toContain("No se pudieron cargar los eventos.");
+    expect(rendererSource).toContain("No tienes eventos próximos.");
+    expect(rendererSource).toContain("Resumen de hoy");
   });
 
   it("keeps interpretation, proposal, and confirmation as separate explicit technical steps", () => {
@@ -76,7 +77,7 @@ describe("temporary renderer messaging", () => {
   });
 
   it("routes successful voice input into the shared submission path without confirming actions", () => {
-    expect(rendererSource).toContain("Iniciar grabación");
+    expect(rendererSource).toContain("Iniciar grabación por voz");
     expect(rendererSource).toContain("Escuchando…");
     expect(rendererSource).not.toContain("Detener y transcribir");
     expect(rendererSource).toContain(">Cancelar</button>");
@@ -128,7 +129,7 @@ describe("temporary renderer messaging", () => {
 
   it("keeps Spanish command controls and the renderer-only particle orb", () => {
     expect(rendererSource).toContain("Centro de mando personal");
-    expect(rendererSource).toContain("Iniciar grabación");
+    expect(rendererSource).toContain("Iniciar grabación por voz");
     expect(rendererSource).toContain("Proponer acción");
     expect(rendererSource).toContain("Confirmar");
     expect(rendererSource).toContain("Cancelar");
@@ -155,22 +156,20 @@ describe("temporary renderer messaging", () => {
     expect(aresView).toContain("command-instrument__axis");
     expect(aresView).toContain("command-instrument__anchor");
     expect(aresView).toContain("command-dock__label");
-    expect(aresView.indexOf("<InterpretationResult")).toBeLessThan(aresView.indexOf("</section>\n  </section>"));
+    expect(aresView.indexOf("<InterpretationResult")).toBeLessThan(aresView.indexOf("<ResponseSpeechControls"));
     expect(styles).toContain(".support-panel::before");
     expect(styles).toContain(".command-instrument");
     expect(styles).toContain(".command-dock:focus-within");
     expect(styles).toContain("--command-grid-line");
   });
 
-  it("uses truthful Spanish guidance for the current session and supervised sequence", () => {
-    expect(rendererSource).toContain("Sesión actual");
-    expect(rendererSource).toContain("Texto");
-    expect(rendererSource).toContain("Confirmación");
-    expect(rendererSource).toContain("Secuencia supervisada");
-    expect(rendererSource).toContain("Describe o dicta una intención.");
-    expect(rendererSource).toContain("Revisa el borrador preparado.");
-    expect(rendererSource).toContain("Confirma solo cuando se requiera.");
-    expect(rendererSource).not.toContain("Agenda");
+  it("uses truthful Spanish summary and upcoming-event panels", () => {
+    expect(rendererSource).toContain("Resumen de hoy");
+    expect(rendererSource).toContain("Próximos eventos");
+    expect(rendererSource).toContain("Pendientes");
+    expect(rendererSource).toContain("Eventos hoy");
+    expect(rendererSource).not.toContain("Sesión actual");
+    expect(rendererSource).not.toContain("Secuencia supervisada");
   });
 
   it("keeps calendar today, selected, hover, and keyboard states in the renderer only", () => {

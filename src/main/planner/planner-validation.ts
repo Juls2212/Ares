@@ -3,14 +3,18 @@ import {
   REMINDER_STATUSES,
   TASK_PRIORITIES,
   TASK_STATUSES,
+  WEEKDAYS,
   type CategoryListInput,
   type CompleteTaskInput,
   type CreateCategoryInput,
   type CreateEventInput,
   type CreateReminderInput,
   type CreateTaskInput,
+  type CreateWeeklyScheduleInput,
   type DeleteEventInput,
   type DeleteTaskInput,
+  type DeleteWeeklyRoutineInput,
+  type DeleteWeeklyScheduleInput,
   type EventListInput,
   type GetTodayScheduleInput,
   type GetWeekScheduleInput,
@@ -24,6 +28,11 @@ import {
   type UpdateCategoryInput,
   type UpdateEventInput,
   type UpdateTaskInput
+  , type CreateWeeklyRoutineInput
+  , type UpdateWeeklyRoutineInput
+  , type WeeklyRoutineListInput
+  , type UpdateWeeklyScheduleInput
+  , type WeeklyScheduleListInput
 } from "../../shared/planner-contracts";
 
 type InputObject = Record<string, unknown>;
@@ -44,6 +53,7 @@ const validationMessages: Record<PlannerErrorCode, string> = {
   PLANNER_TASK_DUE_TIME_REQUIRES_DATE: "La hora límite requiere una fecha límite.",
   PLANNER_TASK_COMPLETION_STATE_INVALID: "El estado de finalización de la tarea no es válido.",
   PLANNER_EVENT_TIME_RANGE_INVALID: "La hora de finalización debe ser posterior al inicio.",
+  PLANNER_WEEKLY_ROUTINE_TIME_RANGE_INVALID: "La hora de finalización debe ser posterior al inicio.",
   PLANNER_REMINDER_ASSOCIATION_INVALID: "El recordatorio no puede asociarse a una tarea y un evento al mismo tiempo.",
   PLANNER_REMINDER_DELIVERY_STATE_INVALID: "El estado de entrega del recordatorio no es válido.",
   PLANNER_UPDATE_EMPTY: "Debes indicar al menos un cambio para actualizar.",
@@ -133,6 +143,19 @@ const validateOptionalText = (
   }
 
   return createSuccess(normalizedValue);
+};
+
+const validateOptionalNonBlankText = (
+  input: InputObject,
+  key: string,
+  maximumLength: number,
+  allowNull = false
+): PlannerOperationResult<string | null | undefined> => {
+  const result = validateOptionalText(input, key, maximumLength, allowNull);
+  if (!result.ok || result.data === undefined || result.data === null) return result;
+  return result.data.length === 0
+    ? createFailure(PLANNER_ERROR_CODES.textInvalid)
+    : result;
 };
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -827,4 +850,191 @@ export const validateGetWeekScheduleInput = (
       ? {}
       : { includeCompletedTasks: includeCompletedTasks.data })
   });
+};
+
+const validateWeeklyRoutineTimeRange = (
+  startTime: string | undefined,
+  endTime: string | undefined
+): PlannerOperationResult<undefined> =>
+  startTime !== undefined && endTime !== undefined && endTime <= startTime
+    ? createFailure(PLANNER_ERROR_CODES.weeklyRoutineTimeRangeInvalid)
+    : createSuccess(undefined);
+
+export const validateCreateWeeklyRoutineInput = (
+  input: unknown
+): PlannerOperationResult<CreateWeeklyRoutineInput> => {
+  const objectResult = validateObject(input, [
+    "weeklyScheduleId",
+    "title",
+    "weekday",
+    "startTime",
+    "endTime",
+    "categoryId",
+    "location"
+  ]);
+  if (!objectResult.ok) return objectResult;
+  const weeklyScheduleId = validateUuid(objectResult.data.weeklyScheduleId);
+  if (!weeklyScheduleId.ok) return weeklyScheduleId;
+  const title = validateRequiredText(objectResult.data, "title", 240);
+  if (!title.ok) return title;
+  const weekday = validateEnum(objectResult.data.weekday, WEEKDAYS);
+  if (!weekday.ok) return weekday;
+  const startTime = validateLocalTime(objectResult.data.startTime);
+  if (!startTime.ok) return startTime;
+  const endTime = validateLocalTime(objectResult.data.endTime);
+  if (!endTime.ok) return endTime;
+  const range = validateWeeklyRoutineTimeRange(startTime.data, endTime.data);
+  if (!range.ok) return range;
+  const categoryId = validateOptionalUuid(objectResult.data, "categoryId");
+  if (!categoryId.ok) return categoryId;
+  const location = validateOptionalNonBlankText(objectResult.data, "location", 500);
+  if (!location.ok) return location;
+  return createSuccess({
+    weeklyScheduleId: weeklyScheduleId.data,
+    title: title.data,
+    weekday: weekday.data,
+    startTime: startTime.data,
+    endTime: endTime.data,
+    ...(typeof categoryId.data === "string" ? { categoryId: categoryId.data } : {}),
+    ...(typeof location.data === "string" ? { location: location.data } : {})
+  });
+};
+
+export const validateUpdateWeeklyRoutineInput = (
+  input: unknown
+): PlannerOperationResult<UpdateWeeklyRoutineInput> => {
+  const objectResult = validateObject(input, [
+    "routineId",
+    "weeklyScheduleId",
+    "title",
+    "weekday",
+    "startTime",
+    "endTime",
+    "categoryId",
+    "location"
+  ]);
+  if (!objectResult.ok) return objectResult;
+  if (!Object.keys(objectResult.data).some((key) => !["routineId", "weeklyScheduleId"].includes(key))) {
+    return createFailure(PLANNER_ERROR_CODES.updateEmpty);
+  }
+  const routineId = validateUuid(objectResult.data.routineId);
+  if (!routineId.ok) return routineId;
+  const weeklyScheduleId = validateUuid(objectResult.data.weeklyScheduleId);
+  if (!weeklyScheduleId.ok) return weeklyScheduleId;
+  const title = hasOwn(objectResult.data, "title")
+    ? validateRequiredText(objectResult.data, "title", 240)
+    : createSuccess<string | undefined>(undefined);
+  if (!title.ok) return title;
+  const weekday = hasOwn(objectResult.data, "weekday")
+    ? validateEnum(objectResult.data.weekday, WEEKDAYS)
+    : createSuccess<(typeof WEEKDAYS)[number] | undefined>(undefined);
+  if (!weekday.ok) return weekday;
+  const startTime = validateOptionalLocalTime(objectResult.data, "startTime");
+  if (!startTime.ok) return startTime;
+  const endTime = validateOptionalLocalTime(objectResult.data, "endTime");
+  if (!endTime.ok) return endTime;
+  const range = validateWeeklyRoutineTimeRange(stringValue(startTime.data), stringValue(endTime.data));
+  if (!range.ok) return range;
+  const categoryId = validateOptionalUuid(objectResult.data, "categoryId", true);
+  if (!categoryId.ok) return categoryId;
+  const location = validateOptionalNonBlankText(objectResult.data, "location", 500, true);
+  if (!location.ok) return location;
+  return createSuccess({
+    routineId: routineId.data,
+    weeklyScheduleId: weeklyScheduleId.data,
+    ...(title.data === undefined ? {} : { title: title.data }),
+    ...(weekday.data === undefined ? {} : { weekday: weekday.data }),
+    ...(stringValue(startTime.data) === undefined ? {} : { startTime: stringValue(startTime.data) }),
+    ...(stringValue(endTime.data) === undefined ? {} : { endTime: stringValue(endTime.data) }),
+    ...(categoryId.data === undefined ? {} : { categoryId: categoryId.data }),
+    ...(location.data === undefined ? {} : { location: location.data })
+  });
+};
+
+export const validateWeeklyRoutineListInput = (
+  input: unknown
+): PlannerOperationResult<WeeklyRoutineListInput> => {
+  const objectResult = validateObject(input, ["weeklyScheduleId", "weekday", "categoryId"]);
+  if (!objectResult.ok) return objectResult;
+  const weeklyScheduleId = validateUuid(objectResult.data.weeklyScheduleId);
+  if (!weeklyScheduleId.ok) return weeklyScheduleId;
+  const weekday = hasOwn(objectResult.data, "weekday")
+    ? validateEnum(objectResult.data.weekday, WEEKDAYS)
+    : createSuccess<(typeof WEEKDAYS)[number] | undefined>(undefined);
+  if (!weekday.ok) return weekday;
+  const categoryId = validateOptionalUuid(objectResult.data, "categoryId");
+  if (!categoryId.ok) return categoryId;
+  return createSuccess({
+    weeklyScheduleId: weeklyScheduleId.data,
+    ...(weekday.data === undefined ? {} : { weekday: weekday.data }),
+    ...(typeof categoryId.data === "string" ? { categoryId: categoryId.data } : {})
+  });
+};
+
+export const validateDeleteWeeklyRoutineInput = (
+  input: unknown
+): PlannerOperationResult<DeleteWeeklyRoutineInput> => {
+  const objectResult = validateObject(input, ["routineId"]);
+  if (!objectResult.ok) return objectResult;
+  const routineId = validateUuid(objectResult.data.routineId);
+  return routineId.ok ? createSuccess({ routineId: routineId.data }) : routineId;
+};
+
+export const validateCreateWeeklyScheduleInput = (
+  input: unknown
+): PlannerOperationResult<CreateWeeklyScheduleInput> => {
+  const objectResult = validateObject(input, ["title", "description", "color"]);
+  if (!objectResult.ok) return objectResult;
+  const title = validateRequiredText(objectResult.data, "title", 240);
+  if (!title.ok) return title;
+  const description = validateOptionalNonBlankText(objectResult.data, "description", 4000);
+  if (!description.ok) return description;
+  const color = validateOptionalColor(objectResult.data);
+  if (!color.ok) return color;
+  return createSuccess({
+    title: title.data,
+    ...(typeof description.data === "string" ? { description: description.data } : {}),
+    ...(typeof color.data === "string" ? { color: color.data } : {})
+  });
+};
+
+export const validateUpdateWeeklyScheduleInput = (
+  input: unknown
+): PlannerOperationResult<UpdateWeeklyScheduleInput> => {
+  const objectResult = validateObject(input, ["weeklyScheduleId", "title", "description", "color"]);
+  if (!objectResult.ok) return objectResult;
+  const update = validateNoEmptyUpdate(objectResult.data, "weeklyScheduleId");
+  if (!update.ok) return update;
+  const weeklyScheduleId = validateUuid(objectResult.data.weeklyScheduleId);
+  if (!weeklyScheduleId.ok) return weeklyScheduleId;
+  const title = hasOwn(objectResult.data, "title")
+    ? validateRequiredText(objectResult.data, "title", 240)
+    : createSuccess<string | undefined>(undefined);
+  if (!title.ok) return title;
+  const description = validateOptionalNonBlankText(objectResult.data, "description", 4000, true);
+  if (!description.ok) return description;
+  const color = validateOptionalColor(objectResult.data, true);
+  if (!color.ok) return color;
+  return createSuccess({
+    weeklyScheduleId: weeklyScheduleId.data,
+    ...(title.data === undefined ? {} : { title: title.data }),
+    ...(description.data === undefined ? {} : { description: description.data }),
+    ...(color.data === undefined ? {} : { color: color.data })
+  });
+};
+
+export const validateWeeklyScheduleListInput = (
+  input: unknown
+): PlannerOperationResult<WeeklyScheduleListInput> => {
+  const objectResult = validateObject(input, []);
+  return objectResult.ok ? createSuccess({}) : objectResult;
+};
+
+export const validateDeleteWeeklyScheduleInput = (
+  input: unknown
+): PlannerOperationResult<DeleteWeeklyScheduleInput> => {
+  const objectResult = validateObject(input, ["weeklyScheduleId"]);
+  if (!objectResult.ok) return objectResult;
+  const weeklyScheduleId = validateUuid(objectResult.data.weeklyScheduleId);
+  return weeklyScheduleId.ok ? createSuccess({ weeklyScheduleId: weeklyScheduleId.data }) : weeklyScheduleId;
 };

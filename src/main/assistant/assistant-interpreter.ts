@@ -48,6 +48,7 @@ import { isUnsafeAssistantDraftText, isUnsafeAssistantInstruction } from "./assi
 import type { ResolvedAssistantContext } from "./assistant-context-service";
 import { normalizeEventTitle, type ResolveEventDeletion } from "./assistant-event-reference";
 import { getAssistantProviderFailureCategory } from "./provider-failure-category";
+import type { WeeklyScheduleReferenceResolution } from "../actions/weekly-schedule-analysis";
 
 const MAX_INSTRUCTION_LENGTH = 2_000;
 const MAX_DRAFTS = 8;
@@ -64,6 +65,7 @@ export type AssistantInterpreterDependencies = {
   timeoutMs?: number;
   logError?: (message: string) => void;
   resolveEventDeletion?: ResolveEventDeletion;
+  resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>;
 };
 
 export type TrustedAssistantReference = {
@@ -135,6 +137,32 @@ const hasOnlyKeys = (value: UnknownRecord, allowed: readonly string[]): boolean 
 const isSafeText = (value: unknown, maximumLength: number): value is string =>
   typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximumLength;
 
+const getRequestedAvailabilityTime = (instruction: string): string | undefined => {
+  const explicit = instruction.match(/\b(?:después\s+de\s+las?|a\s+partir\s+de\s+las?)\s+([01]?\d|2[0-3]):([0-5]\d)\b/iu);
+  if (explicit) return `${explicit[1].padStart(2, "0")}:${explicit[2]}`;
+  const named = instruction.match(/\b(?:después\s+de\s+las?|a\s+partir\s+de\s+las?)\s+(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:\s+de\s+la\s+(mañana|tarde|noche))?\b/iu);
+  if (!named) return undefined;
+  const hours: Record<string, number> = { una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12 };
+  const hour = hours[named[1].toLocaleLowerCase("es-CO")];
+  const period = named[2]?.toLocaleLowerCase("es-CO");
+  const normalizedHour = period === "tarde" && hour < 12
+    ? hour + 12
+    : period === "noche" && hour < 12
+      ? hour + 12
+      : period === undefined && hour < 8
+        ? hour + 12
+        : hour;
+  return `${String(normalizedHour).padStart(2, "0")}:00`;
+};
+
+const normalizeScheduleTitle = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("es-CO");
+
 const createReference = (
   dependencies: AssistantInterpreterDependencies,
   overrides?: Partial<AssistantInterpretationReference>
@@ -145,6 +173,7 @@ const createReference = (
     ? { knownApplicationAliases: overrides.knownApplicationAliases }
     : {}),
   ...(overrides?.knownApplications ? { knownApplications: overrides.knownApplications } : {}),
+  ...(overrides?.knownWeeklyScheduleTitles ? { knownWeeklyScheduleTitles: overrides.knownWeeklyScheduleTitles } : {}),
   ...(overrides?.knownFileReferences ? { knownFileReferences: overrides.knownFileReferences } : {}),
   ...(overrides?.currentContext ? { currentContext: overrides.currentContext } : {})
 });
@@ -264,6 +293,7 @@ const validateDraft = async (
   temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
+  resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>,
   instruction = ""
 ): Promise<DraftValidationResult> => {
   if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input"]) || typeof candidate.action !== "string") {
@@ -351,6 +381,36 @@ const validateDraft = async (
     }
     case "GET_WEATHER": {
       return isRecord(input) && hasOnlyKeys(input, []) ? { action, input: {} } : null;
+    }
+    case "GET_WEEKLY_SCHEDULE_DETAILS": {
+      if (!isRecord(input)) return null;
+      if (input.allSchedules === true && hasOnlyKeys(input, ["allSchedules"])) {
+        return /\b(todos|todas)\s+(mis\s+)?horarios\b/iu.test(instruction) ? { action, input: { allSchedules: true } } : draftClarification("Indica cuál de tus horarios quieres consultar.");
+      }
+      if (!hasOnlyKeys(input, ["scheduleTitle"]) || !isSafeText(input.scheduleTitle, 160) || !resolveWeeklyScheduleTitle) return draftClarification("¿Cuál de tus horarios quieres consultar?");
+      const resolution = await resolveWeeklyScheduleTitle(input.scheduleTitle);
+      if (resolution.state === "MISSING") return draftClarification("No encontré ese horario. Indica el nombre exacto de uno de tus horarios.");
+      if (resolution.state === "AMBIGUOUS") return draftClarification("Encontré varios horarios con ese nombre. Indica un nombre más específico.");
+      if (resolution.state !== "RESOLVED") return draftClarification("No se pudieron consultar los horarios. Inténtalo de nuevo.");
+      if (!normalizeScheduleTitle(instruction).includes(normalizeScheduleTitle(resolution.title))) {
+        return draftClarification("¿Cuál de tus horarios quieres consultar?");
+      }
+      return { action, input: { scheduleTitle: resolution.title } };
+    }
+    case "ANALYZE_WEEKLY_SCHEDULE": {
+      if (!isRecord(input) || typeof input.analysis !== "string" || !["AVAILABILITY", "BUSIEST_DAY", "OVERLAPS"].includes(input.analysis)) return null;
+      const referenceInput = { ...input }; delete referenceInput.analysis;
+      const detail = await validateDraft({ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: referenceInput }, reference, temporalResolver, currentContext, resolveEventDeletion, resolveWeeklyScheduleTitle, instruction);
+      if (!detail || isDraftClarification(detail) || detail.action !== "GET_WEEKLY_SCHEDULE_DETAILS") return detail;
+      return { action, input: { ...detail.input, analysis: input.analysis as "AVAILABILITY" | "BUSIEST_DAY" | "OVERLAPS" } };
+    }
+    case "GET_TODAY_AVAILABILITY": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["afterTime"])) return null;
+      const requestedTime = getRequestedAvailabilityTime(instruction);
+      if (input.afterTime === undefined) return requestedTime === undefined ? { action, input: {} } : draftClarification("Indica la hora desde la que quieres consultar la disponibilidad de hoy.");
+      if (typeof input.afterTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.afterTime)) return null;
+      if (requestedTime !== input.afterTime) return draftClarification("Indica una hora válida para consultar la disponibilidad de hoy.");
+      return { action, input: { afterTime: input.afterTime } };
     }
     case "OPEN_APPLICATION": {
       const alias = isRecord(input) ? input.alias : undefined;
@@ -464,6 +524,7 @@ const parseProviderOutput = async (
   temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
+  resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>,
   instruction = "",
   resolveTrustedReference?: TrustedAssistantReferenceResolver
 ): Promise<AssistantOperationResult<AssistantInterpretation>> => {
@@ -542,6 +603,7 @@ const parseProviderOutput = async (
       temporalResolver,
       trustedContext,
       resolveEventDeletion,
+      resolveWeeklyScheduleTitle,
       instruction
     );
     if (isDraftClarification(draft)) return clarification(`El borrador ${index + 1}: ${draft.question}`);
@@ -651,6 +713,7 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           temporalResolver,
           currentContext,
           dependencies.resolveEventDeletion,
+          dependencies.resolveWeeklyScheduleTitle,
           normalizedInput.instruction,
           resolveTrustedReference
         );

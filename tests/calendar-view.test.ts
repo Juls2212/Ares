@@ -10,6 +10,7 @@ import { loadCalendarData } from "../src/renderer/features/calendar/calendar-dat
 import { CalendarEventDeleteDialog, handleCalendarDeleteDialogKey } from "../src/renderer/features/calendar/calendar-event-delete-dialog";
 import { CalendarEventEditDialog } from "../src/renderer/features/calendar/calendar-event-edit-dialog";
 import { eventEditValues, saveCalendarEventEdit } from "../src/renderer/features/calendar/calendar-event-editing";
+import { CALENDAR_DAY_ENTRY_LIMIT, CalendarGrid, calendarDayEntries } from "../src/renderer/features/calendar/calendar-grid";
 import {
   cancelCalendarEventDeletion,
   confirmCalendarEventDeletion,
@@ -100,8 +101,47 @@ describe("calendar date helpers", () => {
     expect(toLocalDateTimeWithOffset(new Date(2026, 8, 1, 0, 0, 0))).toMatch(/T00:00:00[+-]\d{2}:\d{2}$/);
   });
 
-  it("formats Spanish month names with natural lowercase casing", () => {
-    expect(formatCalendarMonth(new Date(2026, 8, 1))).toBe("septiembre de 2026");
+  it("formats Spanish month names with a deliberate capitalized month identity", () => {
+    expect(formatCalendarMonth(new Date(2026, 8, 1))).toBe("Septiembre de 2026");
+  });
+});
+
+describe("calendar month-grid density", () => {
+  it("renders compact real task and event entries in their date cell with an honest overflow indicator", () => {
+    const month = monthStartFor(new Date(2026, 8, 1));
+    const date = "2026-09-15";
+    const items = {
+      events: [event({ title: "Evento visible" })],
+      tasks: [task({ id: "task-1", title: "Tarea uno" }), task({ id: "task-2", title: "Tarea dos" }), task({ id: "task-3", title: "Tarea tres", status: "COMPLETED" })]
+    };
+    const markup = renderToStaticMarkup(createElement(CalendarGrid, {
+      days: createMonthGrid(month),
+      itemsByDay: new Map([[date, items]]),
+      selectedDate: date,
+      todayDate: date,
+      onSelectDate: vi.fn()
+    }));
+
+    expect(CALENDAR_DAY_ENTRY_LIMIT).toBe(3);
+    expect(markup).toContain("Evento visible");
+    expect(markup).toContain("Tarea uno");
+    expect(markup).toContain("Tarea dos");
+    expect(markup).toContain("+1 más");
+    expect(markup).toContain("calendar-day--has-items");
+    expect(markup).toContain("calendar-day-entry--event");
+    expect(markup).toContain("calendar-day-entry--task");
+  });
+
+  it("uses only loaded record fields for compact event and task entries", () => {
+    const entries = calendarDayEntries({
+      events: [event({ title: "Reunión real" })],
+      tasks: [task({ title: "Preparar informe", dueTime: "08:30", status: "COMPLETED" })]
+    });
+
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "EVENT", label: expect.stringContaining("Reunión real") }),
+      expect.objectContaining({ kind: "TASK", label: "08:30 · Preparar informe", isCompleted: true })
+    ]));
   });
 });
 
@@ -169,6 +209,9 @@ describe("calendar workspace presentation", () => {
     expect(calendarViewSource).toContain("<CalendarGrid days={days}");
     expect(calendarViewSource).toContain("<CalendarDayDetails");
     expect(calendarViewSource).toContain("items={selectedItems}");
+    expect(calendarStyles).toContain(".calendar-day__entries");
+    expect(calendarStyles).toContain(".calendar-day-entry--overflow");
+    expect(calendarStyles).toContain(".calendar-details-group");
   });
 
   it("retains visible month controls and distinct keyboard-accessible date states", () => {
@@ -179,6 +222,9 @@ describe("calendar workspace presentation", () => {
     expect(calendarStyles).toContain(".calendar-day.is-today::after");
     expect(calendarStyles).toContain(".calendar-day:focus-visible");
     expect(calendarStyles).toContain(':root[data-theme="dark"] .calendar-shell');
+    expect(calendarStyles).toContain("background-color: #E0E0E0");
+    expect(calendarStyles).toContain(".calendar-surface {\n  background-image: none;");
+    expect(calendarStyles).toContain("@media (prefers-reduced-motion: reduce)");
   });
 });
 
@@ -382,7 +428,7 @@ describe("calendar event deletion", () => {
     expect(cancelFlow).not.toContain("confirmCalendarEventDeletion(");
     expect(confirmFlow).toContain("if (!outcome.deleted)");
     expect(confirmFlow.indexOf("if (!outcome.deleted)")).toBeLessThan(confirmFlow.indexOf("setReloadVersion"));
-    expect(calendarViewSource).toContain("[displayedMonth, reloadVersion]");
+    expect(calendarViewSource).toContain("[displayedMonth, reloadVersion, plannerView]");
     expect(calendarViewSource).toContain('focusAfterClosing.current = "trigger"');
   });
 });
