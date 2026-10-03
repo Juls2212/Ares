@@ -8,8 +8,6 @@ import { AresView } from "../src/renderer/views/ares-view";
 it("renders Ares without audio APIs or automatic speech requests", () => {
   const markup = renderToStaticMarkup(
     createElement(AresView, {
-      automaticSpeech: true,
-      onAutomaticSpeechChange: vi.fn(),
       technicalState: "SUCCESS",
       voiceLabel: "Listo para grabar",
       voiceState: "IDLE",
@@ -27,7 +25,7 @@ it("renders Ares without audio APIs or automatic speech requests", () => {
   );
 
   expect(markup).toContain("Ares");
-  expect(markup).toContain("Iniciar grabación");
+  expect(markup).toContain('aria-label="Iniciar grabación por voz"');
   expect(markup).toContain("Interpretar");
   expect(markup).toContain("particle-orb__fallback");
 });
