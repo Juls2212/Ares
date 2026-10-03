@@ -49,6 +49,9 @@ describe("supervised recorded transcription", () => {
     const transcription = app.slice(app.indexOf("const transcribeAudio"), app.indexOf("const startRecording"));
     expect(transcription).toContain("showTranscript: setInstruction"); expect(transcription).toContain("voiceSubmission.current.submit"); expect(transcription).not.toMatch(/actions\.confirm|actions\.cancel/);
     expect(app).toContain('destination !== "ARES"');
-    const controls = readFileSync("src/renderer/features/voice/voice-command-controls.tsx", "utf8"); expect(controls).toContain("audio se enviará a OpenAI");
+    const controls = readFileSync("src/renderer/features/voice/voice-command-controls.tsx", "utf8");
+    expect(controls).toContain("¿En qué trabajamos hoy, Juli?");
+    expect(controls).toContain('aria-label="Iniciar grabación por voz"');
+    expect(controls).not.toContain("audio se enviará a OpenAI");
   });
 });
