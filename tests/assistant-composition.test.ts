@@ -7,6 +7,7 @@ import {
 import type { ApplicationService } from "../src/main/applications/application-service";
 import type { AssistantContextService } from "../src/main/assistant/assistant-context-service";
 import type { ApplicationRecord } from "../src/shared/application-contracts";
+import type { PlannerService } from "../src/main/planner/planner-service";
 
 const readyResult = {
   ok: true as const,
@@ -62,6 +63,10 @@ const customRecord: ApplicationRecord = {
 const applicationServiceFor = (items: ApplicationRecord[] = []) => ({
   listApplications: vi.fn(async () => ({ ok: true as const, data: { items, total: items.length } }))
 }) as unknown as Pick<ApplicationService, "listApplications">;
+
+const weeklyScheduleServiceFor = (items: unknown[] = []) => ({
+  listWeeklySchedules: vi.fn(async () => ({ ok: true as const, data: { items, total: items.length } }))
+}) as unknown as Pick<PlannerService, "listWeeklySchedules">;
 
 describe("assistant interpretation composition", () => {
   it("maps the public text request to the internal instruction contract", async () => {
@@ -204,6 +209,49 @@ describe("assistant interpretation composition", () => {
     });
     expect(listApplications).toHaveBeenCalledWith({ enabled: true, limit: 100 });
     expect(interpret).toHaveBeenCalledOnce();
+  });
+
+  it("supplies a bounded weekly schedule-title context without identifiers, routine details, or configuration values", async () => {
+    const privateSchedule = {
+      id: "550e8400-e29b-41d4-a716-446655440099",
+      title: "  Universidad  ",
+      description: "private description",
+      color: "#123456",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      updatedAt: "2026-10-03T00:00:00.000Z"
+    };
+    const interpret = vi.fn(async (_input, reference) => {
+      expect(reference).toEqual({ knownApplicationAliases: [], knownWeeklyScheduleTitles: ["Universidad"] });
+      return readyResult;
+    });
+    const service = createAssistantInterpretationService({
+      getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
+      getApplicationService: () => applicationServiceFor(),
+      getPlannerService: () => weeklyScheduleServiceFor([privateSchedule])
+    });
+
+    await expect(service.interpret({ text: "¿Qué tengo en mi horario de Universidad?" })).resolves.toEqual(readyResult);
+    const providerReference = interpret.mock.calls[0]?.[1];
+    expect(JSON.stringify(providerReference)).not.toContain(privateSchedule.id);
+    expect(JSON.stringify(providerReference)).not.toContain("private description");
+    expect(JSON.stringify(providerReference)).not.toContain("#123456");
+  });
+
+  it("continues a conversational interpretation when weekly-title lookup fails", async () => {
+    const interpret = vi.fn(async () => ({
+      ok: true as const,
+      data: { state: "CONVERSATIONAL" as const, summary: "Hola, Juli.", drafts: [], clarifications: [] }
+    }));
+    const service = createAssistantInterpretationService({
+      getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
+      getApplicationService: () => applicationServiceFor(),
+      getPlannerService: () => ({
+        listWeeklySchedules: vi.fn(async () => ({ ok: false as const, error: { code: "PLANNER_DATABASE_UNAVAILABLE", userMessage: "private" } }))
+      } as unknown as Pick<PlannerService, "listWeeklySchedules">)
+    });
+
+    await expect(service.interpret({ text: "Hola" })).resolves.toMatchObject({ ok: true, data: { state: "CONVERSATIONAL" } });
+    expect(interpret).toHaveBeenCalledWith({ instruction: "Hola" }, { knownApplicationAliases: [], knownWeeklyScheduleTitles: [] }, undefined, expect.any(Function));
   });
 
   it("passes only the validated context token, kind, and label to the provider boundary", async () => {
