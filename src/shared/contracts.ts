@@ -84,6 +84,18 @@ export const IPC_CHANNELS = {
       create: "planner:reminders:create",
       list: "planner:reminders:list"
     },
+    weeklyRoutines: {
+      create: "planner:weekly-routines:create",
+      list: "planner:weekly-routines:list",
+      update: "planner:weekly-routines:update",
+      delete: "planner:weekly-routines:delete"
+    },
+    weeklySchedules: {
+      create: "planner:weekly-schedules:create",
+      list: "planner:weekly-schedules:list",
+      update: "planner:weekly-schedules:update",
+      delete: "planner:weekly-schedules:delete"
+    },
     schedule: {
       getToday: "planner:schedule:get-today",
       getWeek: "planner:schedule:get-week"
