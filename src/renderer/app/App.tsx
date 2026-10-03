@@ -57,7 +57,6 @@ export const App = () => {
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
   const [spokenResponse, setSpokenResponse] = useState<import("../../shared/speech-contracts").SpokenResponse>();
-  const [automaticSpeech, setAutomaticSpeech] = useState(true);
   useEffect(() => { setSpokenResponse(undefined); }, [destination]);
   const [selectedCatalogApplication, setSelectedCatalogApplication] = useState<RegisterableCatalogApplication>("GOOGLE_CHROME");
   const [isRegisteringCatalogApplication, setIsRegisteringCatalogApplication] = useState(false);
@@ -347,7 +346,9 @@ export const App = () => {
         <button aria-current={destination === "ARES" ? "page" : undefined} className={destination === "ARES" ? "is-active" : undefined} onClick={() => setDestination("ARES")} type="button">Ares</button>
         <button aria-current={destination === "CALENDAR" ? "page" : undefined} className={destination === "CALENDAR" ? "is-active" : undefined} onClick={() => setDestination("CALENDAR")} type="button">Calendario</button>
       </nav>
-      <button aria-controls="utility-panel" aria-expanded={utilityOpen} aria-label="Controles técnicos" className="utility-toggle" onClick={() => setUtilityOpen((open) => !open)} type="button">⚙</button>
+      <div className="header-utilities">
+        <button aria-controls="utility-panel" aria-expanded={utilityOpen} aria-label="Controles técnicos" className="utility-toggle" onClick={() => setUtilityOpen((open) => !open)} type="button">⚙</button>
+      </div>
     </header>
 
     {utilityOpen && <UtilityPanel
@@ -375,8 +376,6 @@ export const App = () => {
 
     {destination === "ARES" ? <AresView
       spokenResponse={spokenResponse}
-      automaticSpeech={automaticSpeech}
-      onAutomaticSpeechChange={setAutomaticSpeech}
       draftStates={draftStates}
       instruction={instruction}
       interpretation={interpretation}
