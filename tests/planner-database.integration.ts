@@ -17,7 +17,9 @@ import {
   events,
   reminders,
   settings,
-  tasks
+  tasks,
+  weeklyRoutines,
+  weeklySchedules
 } from "../src/main/database/schema";
 import { createPlannerRepositories } from "../src/main/planner/planner-repositories";
 import { createPlannerService, type PlannerClock } from "../src/main/planner/planner-service";
@@ -32,7 +34,9 @@ import type {
   EventRecord,
   PlannerOperationResult,
   ReminderRecord,
-  TaskRecord
+  TaskRecord,
+  WeeklyRoutineRecord,
+  WeeklyScheduleRecord
 } from "../src/shared/planner-contracts";
 import type { ActionHistoryRecord, ActionOperationResult } from "../src/shared/action-contracts";
 import type {
@@ -51,6 +55,8 @@ const createdEventIds: string[] = [];
 const createdReminderIds: string[] = [];
 const createdActionHistoryIds: string[] = [];
 const createdApplicationIds: string[] = [];
+const createdWeeklyRoutineIds: string[] = [];
+const createdWeeklyScheduleIds: string[] = [];
 
 const clock: PlannerClock = {
   getLocalDate: () => "2026-09-17",
@@ -130,6 +136,16 @@ const trackEvent = (record: EventRecord): EventRecord => {
   return record;
 };
 
+const trackWeeklyRoutine = (record: WeeklyRoutineRecord): WeeklyRoutineRecord => {
+  createdWeeklyRoutineIds.push(record.id);
+  return record;
+};
+
+const trackWeeklySchedule = (record: WeeklyScheduleRecord): WeeklyScheduleRecord => {
+  createdWeeklyScheduleIds.push(record.id);
+  return record;
+};
+
 const trackReminder = (record: ReminderRecord): ReminderRecord => {
   createdReminderIds.push(record.id);
   return record;
@@ -146,6 +162,12 @@ const trackApplication = (record: ApplicationRecord): ApplicationRecord => {
 };
 
 afterEach(async () => {
+  if (createdWeeklyRoutineIds.length > 0) {
+    await database.delete(weeklyRoutines).where(inArray(weeklyRoutines.id, createdWeeklyRoutineIds));
+  }
+  if (createdWeeklyScheduleIds.length > 0) {
+    await database.delete(weeklySchedules).where(inArray(weeklySchedules.id, createdWeeklyScheduleIds));
+  }
   if (createdEventIds.length > 0) {
     await database
       .delete(eventNotificationDeliveries)
@@ -175,6 +197,8 @@ afterEach(async () => {
   createdTaskIds.length = 0;
   createdEventIds.length = 0;
   createdCategoryIds.length = 0;
+  createdWeeklyRoutineIds.length = 0;
+  createdWeeklyScheduleIds.length = 0;
   createdApplicationIds.length = 0;
 });
 
@@ -202,6 +226,73 @@ afterAll(async () => {
 });
 
 describe("planner database integration", () => {
+  it("persists, orders, updates, deletes, and clears category references for weekly routines", async () => {
+    const schedules = getSuccessData(await service.listWeeklySchedules({})).items;
+    const primarySchedule = schedules.find((schedule) => schedule.title === "Horario principal");
+    expect(primarySchedule).toBeDefined();
+    const weeklyScheduleId = primarySchedule!.id;
+    const category = trackCategory(
+      getSuccessData(await service.createCategory({ name: `Weekly routine category ${testSuffix}` })).record
+    );
+    const fridayRoutine = trackWeeklyRoutine(
+      getSuccessData(await service.createWeeklyRoutine({
+        weeklyScheduleId,
+        title: `Friday class ${testSuffix}`,
+        weekday: "FRIDAY",
+        startTime: "10:00",
+        endTime: "11:00",
+        categoryId: category.id,
+        location: "Room 2"
+      })).record
+    );
+    const mondayRoutine = trackWeeklyRoutine(
+      getSuccessData(await service.createWeeklyRoutine({
+        weeklyScheduleId,
+        title: `Monday class ${testSuffix}`,
+        weekday: "MONDAY",
+        startTime: "08:00",
+        endTime: "09:00",
+        categoryId: category.id
+      })).record
+    );
+
+    const listed = getSuccessData(await service.listWeeklyRoutines({ weeklyScheduleId }));
+    expect(listed.items.map((routine) => routine.id)).toEqual([mondayRoutine.id, fridayRoutine.id]);
+    expect(getSuccessData(await service.updateWeeklyRoutine({ routineId: mondayRoutine.id, weeklyScheduleId, endTime: "09:30" })).record.endTime).toBe("09:30");
+    expect(getFailureCode(await service.createWeeklyRoutine({ weeklyScheduleId, title: "Invalid", weekday: "MONDAY", startTime: "10:00", endTime: "09:00" }))).toBe("PLANNER_WEEKLY_ROUTINE_TIME_RANGE_INVALID");
+
+    await database.delete(categories).where(eq(categories.id, category.id));
+    const uncategorized = getSuccessData(await service.listWeeklyRoutines({ weeklyScheduleId })).items;
+    expect(uncategorized.every((routine) => routine.categoryId === null)).toBe(true);
+    const deleted = await service.deleteWeeklyRoutine({ routineId: fridayRoutine.id });
+    expect(getSuccessData(deleted)).toEqual({ deleted: true });
+    createdWeeklyRoutineIds.splice(createdWeeklyRoutineIds.indexOf(fridayRoutine.id), 1);
+    createdCategoryIds.splice(createdCategoryIds.indexOf(category.id), 1);
+  });
+  it("keeps the migration-created primary schedule and cascades only its owned routines on schedule deletion", async () => {
+    const primarySchedules = getSuccessData(await service.listWeeklySchedules({})).items
+      .filter((schedule) => schedule.title === "Horario principal");
+    expect(primarySchedules).toHaveLength(1);
+
+    const schedule = trackWeeklySchedule(
+      getSuccessData(await service.createWeeklySchedule({ title: `Routine schedule ${testSuffix}` })).record
+    );
+    const routine = trackWeeklyRoutine(
+      getSuccessData(await service.createWeeklyRoutine({
+        weeklyScheduleId: schedule.id,
+        title: `Owned routine ${testSuffix}`,
+        weekday: "MONDAY",
+        startTime: "08:00",
+        endTime: "09:00"
+      })).record
+    );
+    expect(getSuccessData(await service.listWeeklyRoutines({ weeklyScheduleId: schedule.id })).items)
+      .toEqual([routine]);
+    expect(getSuccessData(await service.deleteWeeklySchedule({ weeklyScheduleId: schedule.id }))).toEqual({ deleted: true });
+    expect(await repositories.findWeeklyRoutineById(routine.id)).toBeUndefined();
+    createdWeeklyRoutineIds.splice(createdWeeklyRoutineIds.indexOf(routine.id), 1);
+    createdWeeklyScheduleIds.splice(createdWeeklyScheduleIds.indexOf(schedule.id), 1);
+  });
   it("deletes one real event while retaining its linked reminder and unrelated events", async () => {
     const target = trackEvent(getSuccessData(await service.createEvent({
       title: `Delete target ${testSuffix}`,
