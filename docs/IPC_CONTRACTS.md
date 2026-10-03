@@ -24,6 +24,14 @@ Phase 3 implements the following narrow planner surface. Every method resolves t
 | `planner.events.update` | `planner:events:update` |
 | `planner.reminders.create` | `planner:reminders:create` |
 | `planner.reminders.list` | `planner:reminders:list` |
+| `planner.weeklyRoutines.create` | `planner:weekly-routines:create` |
+| `planner.weeklyRoutines.list` | `planner:weekly-routines:list` |
+| `planner.weeklyRoutines.update` | `planner:weekly-routines:update` |
+| `planner.weeklyRoutines.delete` | `planner:weekly-routines:delete` |
+| `planner.weeklySchedules.create` | `planner:weekly-schedules:create` |
+| `planner.weeklySchedules.list` | `planner:weekly-schedules:list` |
+| `planner.weeklySchedules.update` | `planner:weekly-schedules:update` |
+| `planner.weeklySchedules.delete` | `planner:weekly-schedules:delete` |
 | `planner.schedule.getToday` | `planner:schedule:get-today` |
 | `planner.schedule.getWeek` | `planner:schedule:get-week` |
 
@@ -96,7 +104,7 @@ Opening an application is intentionally absent from `window.ares.applications`. 
 
 | Group | Planned responsibilities and methods |
 | --- | --- |
-| `window.ares.planner` | Implemented as documented above. Categories, tasks, events, reminders, and local-day/local-week schedules use explicit typed methods only. |
+| `window.ares.planner` | Implemented as documented above. Categories, tasks, events, reminders, weekly routines, and local-day/local-week schedules use explicit typed methods only. |
 | `window.ares.files` | No direct file API is exposed. `SEARCH_FILES`, `CREATE_FOLDER`, `RENAME_FILE`, `RENAME_FOLDER`, `MOVE_FILE`, and `ORGANIZE_FILES` are submitted only through `window.ares.actions.propose` using typed root-relative inputs and controlled action results. Search is Level 1; each mutation and organization plan is Level 2 and requires the existing proposal-correlated confirmation. `ORGANIZE_FILES` returns a Main-generated preview and executes only its stored plan. Results expose no absolute or canonical paths, content, or filesystem details. |
 | `window.ares.applications` | Implemented safe catalog management only: the closed-input `registerCatalogApplication`, display-name-only `registerCustomApplication`, plus existing safe `list` and `update` methods. Opening remains exclusively under `window.ares.actions.propose` with the alias-only `OPEN_APPLICATION` action. |
 | `window.ares.actions` | Implemented as documented above. Only `propose`, `confirm`, `cancel`, and terminal `history.list` are exposed. Level 1 may proceed to execution; Level 2 returns `AWAITING_CONFIRMATION`. |
