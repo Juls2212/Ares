@@ -21,10 +21,13 @@ import {
   toLocalCalendarDate
 } from "../features/calendar/calendar-date-utils";
 import { CalendarGrid } from "../features/calendar/calendar-grid";
+import { WeeklyRoutinePlanner } from "../features/calendar/weekly-routine-planner";
 
 const emptyCalendarData: CalendarLoadData = { tasks: [], events: [] };
 
 export const CalendarView = () => {
+  const [plannerView, setPlannerView] = useState<"CALENDAR" | "WEEKLY_ROUTINES">("CALENDAR");
+  const [weeklyPlannerSession, setWeeklyPlannerSession] = useState(0);
   const [displayedMonth, setDisplayedMonth] = useState(() => monthStartFor(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => firstSelectedDateForMonth(monthStartFor(new Date()), new Date()));
   const [calendarData, setCalendarData] = useState<CalendarLoadData>(emptyCalendarData);
@@ -47,6 +50,7 @@ export const CalendarView = () => {
   const focusAfterClosing = useRef<"trigger" | "rail" | null>(null);
 
   useEffect(() => {
+    if (plannerView !== "CALENDAR") return;
     let current = true;
     setIsLoading(true);
     void loadCalendarData(window.ares?.planner, displayedMonth)
@@ -65,7 +69,7 @@ export const CalendarView = () => {
         if (current) setIsLoading(false);
       });
     return () => { current = false; };
-  }, [displayedMonth, reloadVersion]);
+  }, [displayedMonth, reloadVersion, plannerView]);
 
   useEffect(() => {
     if (eventToDelete || !focusAfterClosing.current) return;
@@ -179,16 +183,22 @@ export const CalendarView = () => {
     <header className="calendar-header">
       <div className="calendar-header__identity">
         <p className="eyebrow">Planificación</p>
-        <h1>{formatCalendarMonth(displayedMonth)}</h1>
+        <h1>{plannerView === "CALENDAR" ? formatCalendarMonth(displayedMonth) : "Horario semanal"}</h1>
       </div>
-      <div aria-label="Navegación del calendario" className="calendar-controls">
-        <button className="calendar-controls__previous" onClick={() => showMonth(new Date(displayedMonth.getFullYear(), displayedMonth.getMonth() - 1, 1))} type="button">Mes anterior</button>
-        <button className="calendar-controls__today" onClick={showToday} type="button">Hoy</button>
-        <button className="calendar-controls__next" onClick={() => showMonth(nextMonthStartFor(displayedMonth))} type="button">Mes siguiente</button>
+      <div className="calendar-header__actions">
+        <div aria-label="Vista del planificador" className="planner-view-switch" role="tablist">
+          <button aria-controls="calendar-month-view" aria-selected={plannerView === "CALENDAR"} onClick={() => setPlannerView("CALENDAR")} role="tab" type="button">Calendario</button>
+          <button aria-controls="weekly-routine-view" aria-selected={plannerView === "WEEKLY_ROUTINES"} onClick={() => { setWeeklyPlannerSession((session) => session + 1); setPlannerView("WEEKLY_ROUTINES"); }} role="tab" type="button">Horario semanal</button>
+        </div>
+        {plannerView === "CALENDAR" ? <div aria-label="Navegación del calendario" className="calendar-controls">
+          <button className="calendar-controls__previous" onClick={() => showMonth(new Date(displayedMonth.getFullYear(), displayedMonth.getMonth() - 1, 1))} type="button">Mes anterior</button>
+          <button className="calendar-controls__today" onClick={showToday} type="button">Hoy</button>
+          <button className="calendar-controls__next" onClick={() => showMonth(nextMonthStartFor(displayedMonth))} type="button">Mes siguiente</button>
+        </div> : null}
       </div>
     </header>
 
-    <div className="calendar-console">
+    {plannerView === "WEEKLY_ROUTINES" ? <WeeklyRoutinePlanner key={weeklyPlannerSession} /> : <div className="calendar-console" id="calendar-month-view" role="tabpanel">
       <div className="calendar-notices">
         {deletionError && !eventToDelete && <p className="calendar-status calendar-status--error" role="alert">{deletionError}</p>}
         {isLoading && <p className="calendar-status calendar-status--loading" role="status">Cargando calendario...</p>}
@@ -218,7 +228,7 @@ export const CalendarView = () => {
           onRequestEventDeletion={eventActionsAvailable ? requestEventDeletion : undefined}
         />
       </aside>
-    </div>
+    </div>}
     {eventToEdit && <CalendarEventEditDialog
       event={eventToEdit}
       onCancel={() => { restoreEditFocus.current = true; setEventToEdit(null); }}
