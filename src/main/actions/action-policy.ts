@@ -177,6 +177,26 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
     availability: "IMPLEMENTED",
     confirmation: { summary: "Se consultará la disponibilidad estimada de hoy.", affectedItemCount: null, scopeSummary: "Agenda local de hoy" }
   },
+  CREATE_WEEKLY_SCHEDULE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se creará un horario semanal.", affectedItemCount: 1, scopeSummary: "Horario semanal nuevo" }
+  },
+  UPDATE_WEEKLY_SCHEDULE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se actualizará un horario semanal.", affectedItemCount: 1, scopeSummary: "Horario semanal existente" }
+  },
+  CREATE_WEEKLY_ROUTINE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se agregará un bloque semanal.", affectedItemCount: 1, scopeSummary: "Bloque semanal nuevo" }
+  },
+  UPDATE_WEEKLY_ROUTINE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se actualizará un bloque semanal.", affectedItemCount: 1, scopeSummary: "Bloque semanal existente" }
+  },
   GET_CURRENT_DATE_TIME: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
@@ -193,6 +213,42 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       summary: "Se consultará el clima actual de Pasto.",
       affectedItemCount: null,
       scopeSummary: "Clima actual de Pasto"
+    }
+  },
+  GET_HABIT_PROGRESS: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará el progreso de hábitos.",
+      affectedItemCount: null,
+      scopeSummary: "Progreso de hábitos"
+    }
+  },
+  CREATE_HABIT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se creará un hábito.",
+      affectedItemCount: 1,
+      scopeSummary: "Hábito nuevo"
+    }
+  },
+  UPDATE_HABIT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se actualizará un hábito existente.",
+      affectedItemCount: 1,
+      scopeSummary: "Hábito existente"
+    }
+  },
+  COMPLETE_HABIT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se marcará un hábito como completado hoy.",
+      affectedItemCount: 1,
+      scopeSummary: "Hábito existente"
     }
   },
   OPEN_REGISTERED_APPLICATION: {

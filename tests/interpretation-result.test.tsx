@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AssistantInterpretation } from "../src/shared/assistant-contracts";
 import type { AwaitingActionConfirmation } from "../src/shared/action-contracts";
 import {
+  describeActionReview,
   handleAssistantReviewDialogKey,
   hasAssistantReview,
   InterpretationResult
@@ -32,6 +33,49 @@ const confirmation: AwaitingActionConfirmation = {
 };
 
 describe("assistant action review dialog", () => {
+  it("describes habit mutations without exposing identifiers", () => {
+    expect(describeActionReview({ action: "CREATE_HABIT", input: { title: "Leer", frequency: "DAILY", targetCount: 1 } })).toBe("Se creará el hábito «Leer» (diario).");
+    expect(describeActionReview({ action: "UPDATE_HABIT", input: { habitTitle: "Leer", title: "Leer más" } })).toBe("Se actualizará el hábito «Leer».");
+    expect(describeActionReview({ action: "COMPLETE_HABIT", input: { habitTitle: "Leer" } })).toBe("Se marcará «Leer» como completado hoy.");
+  });
+
+  it("shows validated weekly schedule and routine details before a confirmation is proposed", () => {
+    const routine = {
+      action: "CREATE_WEEKLY_ROUTINE" as const,
+      input: { scheduleTitle: "Universidad", title: "Cálculo", weekday: "MONDAY" as const, startTime: "08:00", endTime: "10:00" }
+    };
+    expect(describeActionReview(routine)).toBe("Se agregará «Cálculo» el lunes de 08:00 a 10:00 en «Universidad».");
+
+    const markup = renderToStaticMarkup(createElement(InterpretationResult, {
+      interpretation: { state: "READY", summary: "Preparé los borradores solicitados.", drafts: [routine], clarifications: [] },
+      draftStates: {},
+      onPropose: vi.fn(),
+      onResolveConfirmation: vi.fn()
+    }));
+    expect(markup).toContain("Se agregará «Cálculo» el lunes de 08:00 a 10:00 en «Universidad».");
+    expect(markup).toContain("Proponer acción");
+  });
+
+  it("renders every expanded weekly block independently for review", () => {
+    const shared = { scheduleTitle: "Universidad", title: "Gimnasio", startTime: "06:00", endTime: "07:00" };
+    const markup = renderToStaticMarkup(createElement(InterpretationResult, {
+      interpretation: {
+        state: "READY",
+        summary: "Preparé los borradores solicitados.",
+        drafts: [
+          { action: "CREATE_WEEKLY_ROUTINE", input: { ...shared, weekday: "TUESDAY" } },
+          { action: "CREATE_WEEKLY_ROUTINE", input: { ...shared, weekday: "THURSDAY" } }
+        ],
+        clarifications: []
+      },
+      draftStates: {},
+      onPropose: vi.fn(),
+      onResolveConfirmation: vi.fn()
+    }));
+    expect(markup).toContain("el martes de 06:00 a 07:00 en «Universidad»");
+    expect(markup).toContain("el jueves de 06:00 a 07:00 en «Universidad»");
+  });
+
   it("keeps final conversational text out of the former result container", () => {
     const markup = renderToStaticMarkup(createElement(InterpretationResult, {
       interpretation: {

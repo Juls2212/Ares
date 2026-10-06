@@ -11,6 +11,7 @@ import {
   type ExecutableActionProposal,
   type FileActionProposal,
   type FileActionData,
+  type HabitActionProposal,
   type OpenWebPageActionProposal,
   type PlannerActionProposal,
   type SafeHistoryMetadata,
@@ -85,10 +86,17 @@ const isPlannerAction = (action: ActionSubmission["action"]): action is PlannerA
     "GET_WEEKLY_SCHEDULE_DETAILS",
     "ANALYZE_WEEKLY_SCHEDULE",
     "GET_TODAY_AVAILABILITY",
+    "CREATE_WEEKLY_SCHEDULE",
+    "UPDATE_WEEKLY_SCHEDULE",
+    "CREATE_WEEKLY_ROUTINE",
+    "UPDATE_WEEKLY_ROUTINE",
     "GET_CURRENT_DATE_TIME",
     "DELETE_EVENT",
     "DELETE_TASK"
   ].includes(action as PlannerActionProposal["action"]);
+
+const isHabitAction = (action: ActionSubmission["action"]): action is HabitActionProposal["action"] =>
+  ["GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"].includes(action as HabitActionProposal["action"]);
 
 const isOpenApplicationSubmission = (
   submission: Record<string, unknown>
@@ -133,6 +141,89 @@ const isWeeklyScheduleSubmission = (submission: Record<string, unknown>): boolea
   }
   if (submission.action === "GET_TODAY_AVAILABILITY") return Object.keys(submission.input).length === 0 || (Object.keys(submission.input).length === 1 && typeof submission.input.afterTime === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(submission.input.afterTime));
   return false;
+};
+
+const isLocalTime = (value: unknown): value is string =>
+  typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+
+const isWeeklyMutationText = (value: unknown, maximumLength: number): value is string =>
+  typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximumLength;
+
+const isWeekday = (value: unknown): boolean =>
+  ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"].includes(value as string);
+
+const isWeeklyMutationSubmission = (submission: Record<string, unknown>): boolean => {
+  if (!isRecord(submission.input)) return false;
+  const input = submission.input;
+  if (submission.action === "CREATE_WEEKLY_SCHEDULE") {
+    return Object.keys(input).every((key) => ["title", "description", "color"].includes(key)) &&
+      isWeeklyMutationText(input.title, 240) &&
+      (input.description === undefined || isWeeklyMutationText(input.description, 4000)) &&
+      (input.color === undefined || (typeof input.color === "string" && /^#[0-9a-f]{6}$/iu.test(input.color)));
+  }
+  if (submission.action === "UPDATE_WEEKLY_SCHEDULE") {
+    const changes = [input.title, input.description, input.color].filter((value) => value !== undefined);
+    return Object.keys(input).every((key) => ["scheduleTitle", "title", "description", "color"].includes(key)) &&
+      isWeeklyMutationText(input.scheduleTitle, 240) && changes.length > 0 &&
+      (input.title === undefined || isWeeklyMutationText(input.title, 240)) &&
+      (input.description === undefined || input.description === null || isWeeklyMutationText(input.description, 4000)) &&
+      (input.color === undefined || input.color === null || (typeof input.color === "string" && /^#[0-9a-f]{6}$/iu.test(input.color)));
+  }
+  if (submission.action === "CREATE_WEEKLY_ROUTINE") {
+    return Object.keys(input).every((key) => ["scheduleTitle", "title", "weekday", "startTime", "endTime", "location", "categoryName"].includes(key)) &&
+      isWeeklyMutationText(input.scheduleTitle, 240) && isWeeklyMutationText(input.title, 240) && isWeekday(input.weekday) &&
+      isLocalTime(input.startTime) && isLocalTime(input.endTime) && input.endTime > input.startTime &&
+      (input.location === undefined || input.location === null || isWeeklyMutationText(input.location, 500)) &&
+      (input.categoryName === undefined || isWeeklyMutationText(input.categoryName, 160));
+  }
+  if (submission.action === "UPDATE_WEEKLY_ROUTINE") {
+    const changes = [input.title, input.weekday, input.startTime, input.endTime, input.location, input.categoryName].filter((value) => value !== undefined);
+    return Object.keys(input).every((key) => ["scheduleTitle", "routineTitle", "targetWeekday", "targetStartTime", "targetEndTime", "title", "weekday", "startTime", "endTime", "location", "categoryName"].includes(key)) &&
+      isWeeklyMutationText(input.scheduleTitle, 240) && isWeeklyMutationText(input.routineTitle, 240) && changes.length > 0 &&
+      (input.targetWeekday === undefined || isWeekday(input.targetWeekday)) &&
+      (input.targetStartTime === undefined || isLocalTime(input.targetStartTime)) &&
+      (input.targetEndTime === undefined || isLocalTime(input.targetEndTime)) &&
+      (input.title === undefined || isWeeklyMutationText(input.title, 240)) &&
+      (input.weekday === undefined || isWeekday(input.weekday)) &&
+      (input.startTime === undefined || isLocalTime(input.startTime)) &&
+      (input.endTime === undefined || isLocalTime(input.endTime)) &&
+      (input.location === undefined || isWeeklyMutationText(input.location, 500)) &&
+      (input.categoryName === undefined || isWeeklyMutationText(input.categoryName, 160));
+  }
+  return false;
+};
+
+const isHabitText = (value: unknown, maximumLength: number): value is string =>
+  typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximumLength;
+
+const isHabitActionSubmission = (submission: Record<string, unknown>): boolean => {
+  if (!isRecord(submission.input)) return false;
+  const input = submission.input;
+  if (submission.action === "GET_HABIT_PROGRESS") {
+    return Object.keys(input).every((key) => key === "scope" || key === "habitTitle") &&
+      (input.scope === "TODAY" || input.scope === "WEEK") &&
+      (input.habitTitle === undefined || isHabitText(input.habitTitle, 240));
+  }
+  if (submission.action === "CREATE_HABIT") {
+    return Object.keys(input).every((key) => ["title", "description", "frequency", "targetCount", "categoryName", "icon"].includes(key)) &&
+      isHabitText(input.title, 240) && ["DAILY", "WEEKLY"].includes(input.frequency as string) &&
+      typeof input.targetCount === "number" && Number.isInteger(input.targetCount) && input.targetCount >= 1 && input.targetCount <= 7 &&
+      (input.description === undefined || isHabitText(input.description, 4000)) &&
+      (input.categoryName === undefined || isHabitText(input.categoryName, 160)) &&
+      (input.icon === undefined || ["SPARK", "BOOK", "DUMBBELL", "HOME", "HEART", "WATER", "RUNNING", "BRAIN", "LEAF"].includes(input.icon as string));
+  }
+  if (submission.action === "UPDATE_HABIT") {
+    const changes = [input.title, input.description, input.frequency, input.targetCount, input.categoryName, input.icon].filter((value) => value !== undefined);
+    return Object.keys(input).every((key) => ["habitTitle", "title", "description", "frequency", "targetCount", "categoryName", "icon"].includes(key)) &&
+      isHabitText(input.habitTitle, 240) && changes.length > 0 &&
+      (input.title === undefined || isHabitText(input.title, 240)) &&
+      (input.description === undefined || input.description === null || isHabitText(input.description, 4000)) &&
+      (input.frequency === undefined || input.frequency === "DAILY" || input.frequency === "WEEKLY") &&
+      (input.targetCount === undefined || (typeof input.targetCount === "number" && Number.isInteger(input.targetCount) && input.targetCount >= 1 && input.targetCount <= 7)) &&
+      (input.categoryName === undefined || input.categoryName === null || isHabitText(input.categoryName, 160)) &&
+      (input.icon === undefined || ["SPARK", "BOOK", "DUMBBELL", "HOME", "HEART", "WATER", "RUNNING", "BRAIN", "LEAF"].includes(input.icon as string));
+  }
+  return submission.action === "COMPLETE_HABIT" && Object.keys(input).length === 1 && isHabitText(input.habitTitle, 240);
 };
 
 const isFileAction = (action: ActionSubmission["action"]): action is FileActionProposal["action"] =>
@@ -183,7 +274,9 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
         ? "APPLICATION"
         : isWeatherAction(outcome.action)
           ? "WEATHER"
-        : isFileAction(outcome.action)
+          : isHabitAction(outcome.action)
+            ? "HABIT"
+          : isFileAction(outcome.action)
           ? "FILES"
           : "PLANNER",
     resultKind: outcome.status
@@ -322,10 +415,12 @@ export const createActionOrchestrator = (
       }
       if (
         !isPlannerAction(submission.action) &&
+        !isHabitActionSubmission(submission) &&
         !isOpenApplicationSubmission(submission) &&
         !isOpenWebPageSubmission(submission) &&
         !isWeatherActionSubmission(submission) &&
         !isWeeklyScheduleSubmission(submission) &&
+        !isWeeklyMutationSubmission(submission) &&
         !isFileActionSubmission(submission)
       ) {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
@@ -357,6 +452,12 @@ export const createActionOrchestrator = (
                 action: "GET_WEATHER",
                 input: {}
               } as WeatherActionProposal
+          : isHabitAction(submission.action)
+            ? {
+                actionId,
+                action: submission.action,
+                input: submission.input as HabitActionProposal["input"]
+              } as HabitActionProposal
           : {
               actionId,
               action: submission.action as PlannerActionProposal["action"],

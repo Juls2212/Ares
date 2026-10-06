@@ -10,6 +10,11 @@ import { createEventDeletionResolver } from "./assistant-event-reference";
 import { getPlannerService } from "../planner/planner-composition";
 import type { PlannerService } from "../planner/planner-service";
 import { createWeeklyScheduleReferenceResolver } from "../actions/weekly-schedule-analysis";
+import { createWeeklyScheduleMutationReferences } from "../actions/weekly-schedule-mutation-references";
+import { createHabitMutationReferences } from "../actions/habit-mutation-references";
+import { getHabitService } from "../habits/habit-composition";
+import type { HabitService } from "../habits/habit-service";
+import { HABIT_ICON_KEYS } from "../../shared/habit-contracts";
 import {
   getAssistantContextService,
   type AssistantContextService
@@ -25,11 +30,13 @@ type AssistantInterpretationServiceDependencies = {
   getInterpreter: () => AssistantInterpreter;
   getApplicationService: () => Pick<ApplicationService, "listApplications">;
   getPlannerService?: () => Pick<PlannerService, "listWeeklySchedules">;
+  getHabitService?: () => Pick<HabitService, "list">;
   getContextService?: () => AssistantContextService;
 };
 
 const maximumTrustedApplicationAliases = 100;
 const maximumTrustedWeeklyScheduleTitles = 50;
+const maximumTrustedHabitTitles = 100;
 const requiresTrustedApplicationReferences = (actions: readonly string[]): boolean =>
   actions.some((action) => action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE");
 
@@ -52,6 +59,17 @@ const toTrustedWeeklyScheduleTitles = (
     .map((schedule) => schedule.title.trim().replace(/\s+/g, " "))
     .filter((title) => title.length > 0))]
     .slice(0, maximumTrustedWeeklyScheduleTitles);
+};
+
+const toTrustedHabitTitles = (
+  habits: Awaited<ReturnType<HabitService["list"]>>
+): string[] => {
+  if (!habits.ok) return [];
+  return [...new Set(habits.data.items
+    .filter((habit) => habit.active)
+    .map((habit) => habit.title.trim().replace(/\s+/g, " "))
+    .filter((title) => title.length > 0))]
+    .slice(0, maximumTrustedHabitTitles);
 };
 
 const unavailable = (
@@ -114,9 +132,16 @@ export const createAssistantInterpretationService = (
         const initialWeeklySchedules = plannerService
           ? await plannerService.listWeeklySchedules({}).catch(() => undefined)
           : undefined;
+        const initialHabits = dependencies.getHabitService
+          ? await dependencies.getHabitService().list({}).catch(() => undefined)
+          : undefined;
         const reference = {
           knownApplicationAliases: initialApplications ? toTrustedApplicationAliases(initialApplications) : [],
           ...(plannerService ? { knownWeeklyScheduleTitles: initialWeeklySchedules ? toTrustedWeeklyScheduleTitles(initialWeeklySchedules) : [] } : {}),
+          ...(dependencies.getHabitService ? {
+            knownHabitTitles: initialHabits ? toTrustedHabitTitles(initialHabits) : [],
+            allowedHabitIcons: [...HABIT_ICON_KEYS]
+          } : {}),
           ...(cachedContext ? { currentContext: cachedContext } : {})
         };
         return await dependencies.getInterpreter().interpret(
@@ -161,10 +186,16 @@ export const getAssistantInterpretationService = (): AssistantInterpretationServ
   assistantInterpretationService ??= createAssistantInterpretationService({
     getInterpreter: () => createAssistantInterpreter({
       resolveEventDeletion: createEventDeletionResolver(getPlannerService),
-      resolveWeeklyScheduleTitle: createWeeklyScheduleReferenceResolver(getPlannerService)
+      resolveWeeklyScheduleTitle: createWeeklyScheduleReferenceResolver(getPlannerService),
+      resolveWeeklyScheduleMutationReferences: createWeeklyScheduleMutationReferences(getPlannerService),
+      resolveHabitMutationReferences: createHabitMutationReferences(() => ({
+        ...getHabitService(),
+        listCategories: getPlannerService().listCategories
+      }))
     }),
     getApplicationService,
     getPlannerService,
+    getHabitService,
     getContextService: getAssistantContextService
   });
   return assistantInterpretationService;

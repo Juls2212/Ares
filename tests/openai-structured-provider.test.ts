@@ -31,12 +31,33 @@ describe("OpenAI structured interpretation provider", () => {
     expect(OPENAI_INTERPRETATION_OUTPUT_SCHEMA.properties.state.enum).toContain("CONVERSATIONAL");
   });
 
-  it("uses a bounded JSON input string that the Main interpreter validates before draft creation", () => {
+  it("uses explicit strict weekly-routine and habit objects while retaining bounded JSON input strings for other actions", () => {
     const drafts = OPENAI_INTERPRETATION_OUTPUT_SCHEMA.properties.drafts;
     if (!drafts || !("items" in drafts)) throw new Error("Expected draft schema.");
     const input = drafts.items.properties.input;
+    const weeklyRoutine = drafts.items.properties.weeklyRoutine;
+    const habitAction = drafts.items.properties.habitAction;
 
-    expect(input).toEqual({ type: "string", maxLength: 6_000 });
+    expect(input).toEqual({ anyOf: [{ type: "string", maxLength: 6_000 }, { type: "null" }] });
+    expect(weeklyRoutine.anyOf).toContainEqual({ type: "null" });
+    const variants = weeklyRoutine.anyOf;
+    const weeklyRoutineObject = variants.find((variant) => variant.type === "object");
+    if (!weeklyRoutineObject) throw new Error("Expected weekly-routine object schema.");
+    expect(weeklyRoutineObject).toMatchObject({
+      additionalProperties: false,
+      required: ["scheduleTitle", "title", "weekdays", "startTime", "endTime", "location", "categoryName"]
+    });
+    expect(weeklyRoutineObject.properties.weekdays).toMatchObject({ type: "array", minItems: 1, maxItems: 7 });
+    expect(weeklyRoutineObject.properties.weekdays.items.enum).toEqual([
+      "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"
+    ]);
+    const habitObject = habitAction.anyOf.find((variant) => variant.type === "object");
+    if (!habitObject) throw new Error("Expected habit action object schema.");
+    expect(habitObject).toMatchObject({
+      additionalProperties: false,
+      required: ["habitTitle", "title", "description", "frequency", "targetCount", "categoryName", "icon", "scope"]
+    });
+    expect(habitObject.properties.icon.anyOf[0].enum).toContain("DUMBBELL");
   });
 
   it("uses an explicit closed enum and bounded ordered array for every draft", () => {
@@ -60,13 +81,21 @@ describe("OpenAI structured interpretation provider", () => {
         "ORGANIZE_FILES"
       ])
     });
-    expect(action.enum).toHaveLength(22);
+    expect(action.enum).toHaveLength(30);
     expect(action.enum).toContain("DELETE_EVENT");
     expect(action.enum).toContain("GET_WEEKLY_SCHEDULE_DETAILS");
     expect(action.enum).toContain("ANALYZE_WEEKLY_SCHEDULE");
     expect(action.enum).toContain("GET_TODAY_AVAILABILITY");
     expect(action.enum).toContain("GET_CURRENT_DATE_TIME");
     expect(action.enum).toContain("GET_WEATHER");
+    expect(action.enum).toContain("CREATE_WEEKLY_SCHEDULE");
+    expect(action.enum).toContain("UPDATE_WEEKLY_SCHEDULE");
+    expect(action.enum).toContain("CREATE_WEEKLY_ROUTINE");
+    expect(action.enum).toContain("UPDATE_WEEKLY_ROUTINE");
+    expect(action.enum).toContain("GET_HABIT_PROGRESS");
+    expect(action.enum).toContain("CREATE_HABIT");
+    expect(action.enum).toContain("UPDATE_HABIT");
+    expect(action.enum).toContain("COMPLETE_HABIT");
     expect(drafts.maxItems).toBe(8);
   });
 });

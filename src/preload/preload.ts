@@ -93,6 +93,21 @@ import type {
   UpdateVoicePreferencesInput,
   VoicePreferencesData
 } from "../shared/settings-contracts";
+import type {
+  CompleteHabitInput,
+  CreateHabitInput,
+  HabitCompletionRecord,
+  HabitDailyProgressData,
+  HabitDailyProgressInput,
+  HabitListData,
+  HabitListInput,
+  HabitMutationData,
+  HabitOperationResult,
+  HabitRecord,
+  HabitWeeklyProgressData,
+  HabitWeeklyProgressInput,
+  UpdateHabitInput
+} from "../shared/habit-contracts";
 
 const aresApi = {
   system: {
@@ -232,6 +247,14 @@ const aresApi = {
           PlannerOperationResult<WeekScheduleData>
         >
     }
+  },
+  habits: {
+    create: (input: CreateHabitInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.create, input) as Promise<HabitOperationResult<HabitMutationData<HabitRecord>>>,
+    list: (input: HabitListInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.list, input) as Promise<HabitOperationResult<HabitListData<HabitRecord>>>,
+    update: (input: UpdateHabitInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.update, input) as Promise<HabitOperationResult<HabitMutationData<HabitRecord>>>,
+    complete: (input: CompleteHabitInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.complete, input) as Promise<HabitOperationResult<HabitMutationData<HabitCompletionRecord>>>,
+    getDailyProgress: (input: HabitDailyProgressInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.getDailyProgress, input) as Promise<HabitOperationResult<HabitDailyProgressData>>,
+    getWeeklyProgress: (input: HabitWeeklyProgressInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.getWeeklyProgress, input) as Promise<HabitOperationResult<HabitWeeklyProgressData>>
   },
   actions: {
     propose: (submission: ActionSubmission) =>

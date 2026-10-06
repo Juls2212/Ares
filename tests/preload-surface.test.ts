@@ -91,6 +91,14 @@ describe("preload surface", () => {
     expect(IPC_CHANNELS.settings).toEqual({
       voice: { get: "settings:voice:get", update: "settings:voice:update" }
     });
+    expect(IPC_CHANNELS.habits).toEqual({
+      create: "habits:create",
+      list: "habits:list",
+      update: "habits:update",
+      complete: "habits:complete",
+      getDailyProgress: "habits:get-daily-progress",
+      getWeeklyProgress: "habits:get-weekly-progress"
+    });
   });
 
   it("exposes only the approved dashboard summary method", () => {
@@ -124,6 +132,16 @@ describe("preload surface", () => {
     expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.update, input");
     expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.delete, input");
     expect(preloadSource).not.toContain("database:");
+  });
+
+  it("exposes only explicit habit operations without raw IPC or database capability", () => {
+    expect(preloadSource).toContain("habits: {");
+    for (const operation of ["create", "list", "update", "complete", "getDailyProgress", "getWeeklyProgress"]) {
+      expect(preloadSource).toContain(`IPC_CHANNELS.habits.${operation}, input`);
+    }
+    expect(preloadSource).not.toContain("IPC_CHANNELS.habits.invoke");
+    expect(preloadSource).not.toContain("habits: {\n    database:");
+    expect(rendererGlobalSource).not.toContain("ipcRenderer");
   });
 
   it("exposes exactly the approved action methods", () => {

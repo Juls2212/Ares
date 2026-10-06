@@ -2,6 +2,7 @@ import type { ActionSubmission } from "./action-contracts";
 import type { OperationResult } from "./contracts";
 import type { SafeFileReference } from "./file-contracts";
 import type { SpokenResponse } from "./speech-contracts";
+import type { HabitIcon } from "./habit-contracts";
 
 export type AssistantInterpretInput = { instruction: string };
 /** Renderer-facing input. Main maps this to the interpreter-only instruction contract. */
@@ -65,6 +66,9 @@ export type AssistantInterpretationReference = {
   knownApplicationAliases?: string[];
   /** Bounded Main-derived labels only; identifiers and routine records are excluded. */
   knownWeeklyScheduleTitles?: string[];
+  /** Bounded active labels and fixed icon keys only; no habit records or histories. */
+  knownHabitTitles?: string[];
+  allowedHabitIcons?: HabitIcon[];
   knownApplications?: TrustedApplicationReference[];
   knownFileReferences?: SafeFileReference[];
   currentContext?: AssistantCurrentContext;

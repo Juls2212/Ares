@@ -237,6 +237,29 @@ describe("assistant interpretation composition", () => {
     expect(JSON.stringify(providerReference)).not.toContain("#123456");
   });
 
+  it("supplies only bounded active habit titles and fixed icon keys to interpretation", async () => {
+    const privateHabit = {
+      id: "550e8400-e29b-41d4-a716-446655440088", title: "  Leer  ", description: "private description", categoryId: "550e8400-e29b-41d4-a716-446655440089",
+      icon: "BOOK" as const, frequency: "DAILY" as const, targetCount: 1, active: true,
+      createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z"
+    };
+    const interpret = vi.fn(async (_input, providerReference) => {
+      expect(providerReference).toMatchObject({ knownHabitTitles: ["Leer"], allowedHabitIcons: expect.arrayContaining(["BOOK", "DUMBBELL"]) });
+      return readyResult;
+    });
+    const service = createAssistantInterpretationService({
+      getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
+      getApplicationService: () => applicationServiceFor(),
+      getHabitService: () => ({ list: vi.fn(async () => ({ ok: true as const, data: { items: [privateHabit], total: 1 } })) } as never)
+    });
+
+    await expect(service.interpret({ text: "Muéstrame el progreso de Leer" })).resolves.toEqual(readyResult);
+    const serialized = JSON.stringify(interpret.mock.calls[0]?.[1]);
+    expect(serialized).not.toContain(privateHabit.id);
+    expect(serialized).not.toContain("private description");
+    expect(serialized).not.toContain(privateHabit.categoryId);
+  });
+
   it("continues a conversational interpretation when weekly-title lookup fails", async () => {
     const interpret = vi.fn(async () => ({
       ok: true as const,

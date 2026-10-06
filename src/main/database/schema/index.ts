@@ -5,6 +5,8 @@ export * from "./categories";
 export * from "./enums";
 export * from "./event-notification-deliveries";
 export * from "./events";
+export * from "./habit-completions";
+export * from "./habits";
 export * from "./relations";
 export * from "./reminders";
 export * from "./settings";

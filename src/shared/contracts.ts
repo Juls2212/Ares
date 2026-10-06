@@ -44,6 +44,7 @@ export type AresApi = {
   system: SystemApi;
   dashboard: DashboardApi;
   planner: PlannerApi;
+  habits: import("./habit-contracts").HabitsApi;
   actions: ActionApi;
   applications: ApplicationsApi;
   assistant: AssistantApi;
@@ -100,6 +101,14 @@ export const IPC_CHANNELS = {
       getToday: "planner:schedule:get-today",
       getWeek: "planner:schedule:get-week"
     }
+  },
+  habits: {
+    create: "habits:create",
+    list: "habits:list",
+    update: "habits:update",
+    complete: "habits:complete",
+    getDailyProgress: "habits:get-daily-progress",
+    getWeeklyProgress: "habits:get-weekly-progress"
   },
   actions: {
     propose: "actions:propose",

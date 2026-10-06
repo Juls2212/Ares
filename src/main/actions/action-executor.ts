@@ -3,6 +3,7 @@ import type {
   ActionPolicy,
   ExecutableActionProposal,
   FileActionProposal,
+  HabitActionProposal,
   OpenApplicationActionProposal,
   OpenWebPageActionProposal,
   WeatherActionProposal
@@ -15,6 +16,7 @@ import {
 import { createPlannerActionExecutor, type PlannerActionExecutor } from "./planner-action-executor";
 import { createFileActionExecutor, type FileActionExecutor } from "./file-action-executor";
 import { createWeatherActionExecutor, type WeatherActionExecutor } from "./weather-action-executor";
+import { createHabitActionExecutor, type HabitActionExecutor } from "./habit-action-executor";
 
 export type ActionExecutor = {
   execute: (proposal: ExecutableActionProposal, policy: ActionPolicy) => Promise<ActionOutcome>;
@@ -28,6 +30,7 @@ type ActionExecutorDependencies = {
   applicationExecutor?: ApplicationActionExecutor;
   fileExecutor?: FileActionExecutor;
   weatherExecutor?: WeatherActionExecutor;
+  habitExecutor?: HabitActionExecutor;
 };
 
 const isFileAction = (proposal: ExecutableActionProposal): proposal is FileActionProposal =>
@@ -43,6 +46,9 @@ const isApplicationAction = (
 const isWeatherAction = (proposal: ExecutableActionProposal): proposal is WeatherActionProposal =>
   proposal.action === "GET_WEATHER";
 
+const isHabitAction = (proposal: ExecutableActionProposal): proposal is HabitActionProposal =>
+  ["GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"].includes(proposal.action);
+
 export const createActionExecutor = (
   overrides: Partial<ActionExecutorDependencies> = {}
 ): ActionExecutor => {
@@ -50,6 +56,7 @@ export const createActionExecutor = (
   const applicationExecutor = overrides.applicationExecutor ?? createApplicationActionExecutor();
   const fileExecutor = overrides.fileExecutor ?? createFileActionExecutor();
   const weatherExecutor = overrides.weatherExecutor ?? createWeatherActionExecutor();
+  const habitExecutor = overrides.habitExecutor ?? createHabitActionExecutor();
 
   return {
     prepareOrganization: fileExecutor.prepareOrganization,
@@ -58,6 +65,8 @@ export const createActionExecutor = (
         ? applicationExecutor.execute(proposal, policy)
         : isWeatherAction(proposal)
           ? weatherExecutor.execute(proposal, policy)
+        : isHabitAction(proposal)
+          ? habitExecutor.execute(proposal, policy)
         : isFileAction(proposal)
           ? fileExecutor.execute(proposal, policy)
           : plannerExecutor.execute(proposal, policy)

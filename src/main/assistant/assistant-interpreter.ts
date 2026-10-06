@@ -32,8 +32,13 @@ import {
   validateUpdateEventInput,
   validateUpdateTaskInput,
   validateDeleteEventInput,
-  validateEventListInput
+  validateEventListInput,
+  validateCreateWeeklyRoutineInput,
+  validateCreateWeeklyScheduleInput,
+  validateUpdateWeeklyRoutineInput,
+  validateUpdateWeeklyScheduleInput
 } from "../planner/planner-validation";
+import { WEEKDAYS } from "../../shared/planner-contracts";
 import {
   ASSISTANT_PROVIDER_TIMEOUT_MS,
   createOpenAiStructuredProvider,
@@ -49,6 +54,9 @@ import type { ResolvedAssistantContext } from "./assistant-context-service";
 import { normalizeEventTitle, type ResolveEventDeletion } from "./assistant-event-reference";
 import { getAssistantProviderFailureCategory } from "./provider-failure-category";
 import type { WeeklyScheduleReferenceResolution } from "../actions/weekly-schedule-analysis";
+import type { WeeklyScheduleMutationReferences } from "../actions/weekly-schedule-mutation-references";
+import type { HabitMutationReferences } from "../actions/habit-mutation-references";
+import { validateCreateHabitInput, validateUpdateHabitInput } from "../habits/habit-validation";
 
 const MAX_INSTRUCTION_LENGTH = 2_000;
 const MAX_DRAFTS = 8;
@@ -66,6 +74,8 @@ export type AssistantInterpreterDependencies = {
   logError?: (message: string) => void;
   resolveEventDeletion?: ResolveEventDeletion;
   resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>;
+  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences;
+  resolveHabitMutationReferences?: HabitMutationReferences;
 };
 
 export type TrustedAssistantReference = {
@@ -163,6 +173,82 @@ const normalizeScheduleTitle = (value: string): string =>
     .replace(/\s+/g, " ")
     .toLocaleLowerCase("es-CO");
 
+const INTERNAL_REFERENCE_ID = "00000000-0000-4000-8000-000000000001";
+const isMentioned = (instruction: string, value: string): boolean =>
+  normalizeScheduleTitle(instruction).includes(normalizeScheduleTitle(value));
+
+const explicitlyRequestsRemoval = (instruction: string): boolean =>
+  /\b(?:quita|quitar|elimina|eliminar|borra|borrar|sin)\b/iu.test(instruction);
+
+const isLocalTime = (value: unknown): value is string =>
+  typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+
+/** Accepts only an explicitly supplied local clock value and returns strict HH:mm. */
+const normalizeWeeklyLocalTime = (value: unknown): string | undefined => {
+  if (isLocalTime(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const match = value.trim().match(/^([0-9]|1\d|2[0-3])(?::([0-5]\d))?$/u);
+  if (!match) return undefined;
+  return `${match[1].padStart(2, "0")}:${match[2] ?? "00"}`;
+};
+
+const isWeekday = (value: unknown): value is (typeof WEEKDAYS)[number] =>
+  typeof value === "string" && WEEKDAYS.includes(value as (typeof WEEKDAYS)[number]);
+
+const spanishWeekdayValues: Record<string, (typeof WEEKDAYS)[number]> = {
+  lunes: "MONDAY",
+  martes: "TUESDAY",
+  miercoles: "WEDNESDAY",
+  jueves: "THURSDAY",
+  viernes: "FRIDAY",
+  sabado: "SATURDAY",
+  domingo: "SUNDAY"
+};
+
+const normalizeWeekday = (value: unknown): (typeof WEEKDAYS)[number] | undefined => {
+  if (isWeekday(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("es-CO");
+  return spanishWeekdayValues[normalized];
+};
+
+const getExplicitWeekdays = (instruction: string): Array<(typeof WEEKDAYS)[number]> => {
+  const normalizedInstruction = instruction
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es-CO");
+  return WEEKDAYS.filter((weekday) => {
+    const spanishName = Object.entries(spanishWeekdayValues).find(([, value]) => value === weekday)?.[0];
+    return spanishName !== undefined && new RegExp(`\\b${spanishName}\\b`, "u").test(normalizedInstruction);
+  });
+};
+
+const getProviderWeekdays = (input: UnknownRecord): Array<(typeof WEEKDAYS)[number]> | undefined => {
+  const value = input.weekdays ?? input.weekday;
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length === 0 || values.length > WEEKDAYS.length) return undefined;
+  const weekdays = values.map(normalizeWeekday);
+  if (weekdays.some((weekday) => weekday === undefined)) return undefined;
+  const resolved = weekdays as Array<(typeof WEEKDAYS)[number]>;
+  return new Set(resolved).size === resolved.length ? resolved : undefined;
+};
+
+const weeklyReferenceClarification = (
+  state: "MISSING" | "AMBIGUOUS" | "UNAVAILABLE",
+  kind: "schedule" | "routine" | "category"
+): DraftClarification => {
+  const messages = {
+    schedule: state === "MISSING" ? "No encontré ese horario. Indica el nombre exacto de uno existente." : state === "AMBIGUOUS" ? "Encontré varios horarios con ese nombre. Indica uno más específico." : "No se pudieron consultar los horarios. Inténtalo de nuevo.",
+    routine: state === "MISSING" ? "No encontré ese bloque semanal." : state === "AMBIGUOUS" ? "Encontré varios bloques que coinciden. Indica el día u horario exacto." : "No se pudieron consultar los bloques semanales. Inténtalo de nuevo.",
+    category: state === "MISSING" ? "No encontré esa categoría." : state === "AMBIGUOUS" ? "Encontré varias categorías con ese nombre. Indica una más específica." : "No se pudieron consultar las categorías. Inténtalo de nuevo."
+  } as const;
+  return draftClarification(messages[kind]);
+};
+
 const createReference = (
   dependencies: AssistantInterpreterDependencies,
   overrides?: Partial<AssistantInterpretationReference>
@@ -216,7 +302,7 @@ const hasUnsafeFileDraftText = (input: UnknownRecord): boolean =>
   [input.query, input.name, input.newName].some((value) => isUnsafeAssistantDraftText(value));
 
 type DraftClarification = { kind: "CLARIFICATION"; question: string };
-type DraftValidationResult = ActionSubmission | DraftClarification | null;
+type DraftValidationResult = ActionSubmission | ActionSubmission[] | DraftClarification | null;
 type ContextTokenResolution = { input: unknown; usedToken: boolean } | DraftClarification | null;
 
 const draftClarification = (question: string): DraftClarification => ({ kind: "CLARIFICATION", question });
@@ -294,6 +380,8 @@ const validateDraft = async (
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
   resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>,
+  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences,
+  resolveHabitMutationReferences?: HabitMutationReferences,
   instruction = ""
 ): Promise<DraftValidationResult> => {
   if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input"]) || typeof candidate.action !== "string") {
@@ -400,8 +488,18 @@ const validateDraft = async (
     case "ANALYZE_WEEKLY_SCHEDULE": {
       if (!isRecord(input) || typeof input.analysis !== "string" || !["AVAILABILITY", "BUSIEST_DAY", "OVERLAPS"].includes(input.analysis)) return null;
       const referenceInput = { ...input }; delete referenceInput.analysis;
-      const detail = await validateDraft({ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: referenceInput }, reference, temporalResolver, currentContext, resolveEventDeletion, resolveWeeklyScheduleTitle, instruction);
-      if (!detail || isDraftClarification(detail) || detail.action !== "GET_WEEKLY_SCHEDULE_DETAILS") return detail;
+      const detail = await validateDraft(
+        { action: "GET_WEEKLY_SCHEDULE_DETAILS", input: referenceInput },
+        reference,
+        temporalResolver,
+        currentContext,
+        resolveEventDeletion,
+        resolveWeeklyScheduleTitle,
+        resolveWeeklyScheduleMutationReferences,
+        resolveHabitMutationReferences,
+        instruction
+      );
+      if (!detail || Array.isArray(detail) || isDraftClarification(detail) || detail.action !== "GET_WEEKLY_SCHEDULE_DETAILS") return detail;
       return { action, input: { ...detail.input, analysis: input.analysis as "AVAILABILITY" | "BUSIEST_DAY" | "OVERLAPS" } };
     }
     case "GET_TODAY_AVAILABILITY": {
@@ -411,6 +509,154 @@ const validateDraft = async (
       if (typeof input.afterTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.afterTime)) return null;
       if (requestedTime !== input.afterTime) return draftClarification("Indica una hora válida para consultar la disponibilidad de hoy.");
       return { action, input: { afterTime: input.afterTime } };
+    }
+    case "GET_HABIT_PROGRESS": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["scope", "habitTitle"]) || (input.scope !== "TODAY" && input.scope !== "WEEK")) {
+        return draftClarification("Indica si quieres consultar el progreso de hoy o de esta semana.");
+      }
+      if (input.habitTitle === undefined) return { action, input: { scope: input.scope } };
+      if (!isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences || !isMentioned(instruction, input.habitTitle)) {
+        return draftClarification("Indica el nombre exacto del hábito que quieres consultar.");
+      }
+      const habit = await resolveHabitMutationReferences.resolveHabit(input.habitTitle);
+      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
+      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
+      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos. Inténtalo de nuevo.");
+      return { action, input: { scope: input.scope, habitTitle: habit.habit.title } };
+    }
+    case "CREATE_HABIT": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["title", "description", "frequency", "targetCount", "categoryName", "icon"]) || !resolveHabitMutationReferences) {
+        return draftClarification("Indica el título y la frecuencia del hábito que quieres crear.");
+      }
+      const { categoryName, ...habitInput } = input;
+      const validated = validateCreateHabitInput(habitInput);
+      if (!validated.ok || !isMentioned(instruction, validated.data.title) || (validated.data.description && !isMentioned(instruction, validated.data.description))) {
+        return draftClarification("Indica un título, una frecuencia y una meta válidos para el hábito.");
+      }
+      if (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName))) {
+        return draftClarification("Indica una categoría válida para el hábito.");
+      }
+      if (categoryName !== undefined) {
+        const category = await resolveHabitMutationReferences.resolveCategory(categoryName);
+        if (category.state === "MISSING") return draftClarification("No encontré esa categoría.");
+        if (category.state === "AMBIGUOUS") return draftClarification("Encontré varias categorías con ese nombre. Indica una más específica.");
+        if (category.state !== "RESOLVED") return draftClarification("No se pudieron consultar las categorías.");
+      }
+      return { action, input: { ...validated.data, ...(typeof categoryName === "string" ? { categoryName } : {}) } };
+    }
+    case "UPDATE_HABIT": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["habitTitle", "title", "description", "frequency", "targetCount", "categoryName", "icon"]) || !isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences) {
+        return draftClarification("Indica qué hábito quieres actualizar y los cambios que deseas aplicar.");
+      }
+      const { habitTitle, categoryName, ...changes } = input;
+      const validated = validateUpdateHabitInput({ habitId: INTERNAL_REFERENCE_ID, ...changes });
+      if (!validated.ok || !isMentioned(instruction, habitTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.description === "string" && !isMentioned(instruction, validated.data.description))) {
+        return draftClarification("Indica el hábito y los cambios válidos que quieres aplicar.");
+      }
+      const habit = await resolveHabitMutationReferences.resolveHabit(habitTitle);
+      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
+      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
+      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos.");
+      if (categoryName !== undefined && categoryName !== null) {
+        if (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)) return draftClarification("Indica una categoría válida para el hábito.");
+        const category = await resolveHabitMutationReferences.resolveCategory(categoryName);
+        if (category.state !== "RESOLVED") return draftClarification(category.state === "AMBIGUOUS" ? "Encontré varias categorías con ese nombre. Indica una más específica." : "No encontré esa categoría.");
+      }
+      const { habitId: _habitId, ...validatedChanges } = validated.data;
+      return { action, input: { habitTitle: habit.habit.title, ...validatedChanges, ...(categoryName !== undefined ? { categoryName } : {}) } };
+    }
+    case "COMPLETE_HABIT": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["habitTitle"]) || !isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences || !isMentioned(instruction, input.habitTitle)) {
+        return draftClarification("Indica el nombre exacto del hábito que quieres completar.");
+      }
+      const habit = await resolveHabitMutationReferences.resolveHabit(input.habitTitle);
+      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
+      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
+      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos.");
+      return { action, input: { habitTitle: habit.habit.title } };
+    }
+    case "CREATE_WEEKLY_SCHEDULE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["title", "description", "color"])) return null;
+      const validated = validateCreateWeeklyScheduleInput(input);
+      if (!validated.ok || !isMentioned(instruction, validated.data.title) || (validated.data.description && !isMentioned(instruction, validated.data.description)) || (validated.data.color && !instruction.includes(validated.data.color))) {
+        return draftClarification("Indica el nombre del horario y solo los cambios que quieres aplicar.");
+      }
+      if (!resolveWeeklyScheduleMutationReferences) return draftClarification("No se pudieron consultar los horarios. Inténtalo de nuevo.");
+      const existing = await resolveWeeklyScheduleMutationReferences.resolveSchedule(validated.data.title);
+      if (existing.state === "RESOLVED") return draftClarification("Ya existe un horario con ese nombre. Indica otro nombre.");
+      if (existing.state === "UNAVAILABLE") return weeklyReferenceClarification(existing.state, "schedule");
+      return { action, input: validated.data };
+    }
+    case "UPDATE_WEEKLY_SCHEDULE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "title", "description", "color"]) || !isSafeText(input.scheduleTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica qué horario quieres actualizar.");
+      const { scheduleTitle, ...changes } = input;
+      const validated = validateUpdateWeeklyScheduleInput({ weeklyScheduleId: INTERNAL_REFERENCE_ID, ...changes });
+      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.description === "string" && !isMentioned(instruction, validated.data.description)) || (typeof validated.data.color === "string" && !instruction.includes(validated.data.color)) || ((validated.data.description === null || validated.data.color === null) && !explicitlyRequestsRemoval(instruction))) return draftClarification("Indica el horario y los cambios que quieres aplicar.");
+      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
+      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
+      const { weeklyScheduleId: _weeklyScheduleId, ...validatedChanges } = validated.data;
+      return { action, input: { scheduleTitle: schedule.schedule.title, ...validatedChanges } };
+    }
+    case "CREATE_WEEKLY_ROUTINE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "title", "weekday", "weekdays", "startTime", "endTime", "location", "categoryName"]) || !isSafeText(input.scheduleTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica el horario, bloque, día y horas que quieres agregar.");
+      const providerWeekdays = getProviderWeekdays(input);
+      const explicitWeekdays = getExplicitWeekdays(instruction);
+      if (!providerWeekdays || explicitWeekdays.length === 0 || providerWeekdays.some((weekday) => !explicitWeekdays.includes(weekday))) return draftClarification("Indica uno o más días válidos para el bloque semanal.");
+      const { scheduleTitle, categoryName, weekday: _weekday, weekdays: _weekdays, ...routine } = input;
+      const startTime = normalizeWeeklyLocalTime(routine.startTime);
+      const endTime = normalizeWeeklyLocalTime(routine.endTime);
+      if (!startTime || !endTime) return draftClarification("Indica las horas de inicio y final del bloque semanal.");
+      const validated = validateCreateWeeklyRoutineInput({ ...routine, weekday: explicitWeekdays[0], startTime, endTime, weeklyScheduleId: INTERNAL_REFERENCE_ID });
+      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || !isMentioned(instruction, validated.data.title) || (validated.data.location && !isMentioned(instruction, validated.data.location)) || (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)))) return draftClarification("Indica el horario, bloque, día y horas válidos que quieres agregar.");
+      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
+      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
+      if (categoryName !== undefined) {
+        const category = await resolveWeeklyScheduleMutationReferences.resolveCategory(categoryName);
+        if (category.state !== "RESOLVED") return weeklyReferenceClarification(category.state, "category");
+      }
+      return explicitWeekdays.map((weekday) => ({
+        action,
+        input: {
+          scheduleTitle: schedule.schedule.title,
+          title: validated.data.title,
+          weekday,
+          startTime: validated.data.startTime,
+          endTime: validated.data.endTime,
+          ...(validated.data.location === undefined ? {} : { location: validated.data.location }),
+          ...(typeof categoryName === "string" ? { categoryName } : {})
+        }
+      }));
+    }
+    case "UPDATE_WEEKLY_ROUTINE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "routineTitle", "targetWeekday", "targetStartTime", "targetEndTime", "title", "weekday", "startTime", "endTime", "location", "categoryName"]) || !isSafeText(input.scheduleTitle, 240) || !isSafeText(input.routineTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica el bloque semanal que quieres actualizar.");
+      const { scheduleTitle, routineTitle, targetWeekday, targetStartTime, targetEndTime, categoryName, ...changes } = input;
+      const validated = validateUpdateWeeklyRoutineInput({ routineId: INTERNAL_REFERENCE_ID, weeklyScheduleId: INTERNAL_REFERENCE_ID, ...changes });
+      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || !isMentioned(instruction, routineTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.location === "string" && !isMentioned(instruction, validated.data.location)) || (validated.data.location === null && !explicitlyRequestsRemoval(instruction)) || (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)))) return draftClarification("Indica el bloque y los cambios válidos que quieres aplicar.");
+      const trustedTargetWeekday = isWeekday(targetWeekday) ? targetWeekday : undefined;
+      const trustedTargetStartTime = isLocalTime(targetStartTime) ? targetStartTime : undefined;
+      const trustedTargetEndTime = isLocalTime(targetEndTime) ? targetEndTime : undefined;
+      if ((targetWeekday !== undefined && trustedTargetWeekday === undefined) || (targetStartTime !== undefined && trustedTargetStartTime === undefined) || (targetEndTime !== undefined && trustedTargetEndTime === undefined)) return draftClarification("Indica una referencia de día y hora válida para el bloque.");
+      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
+      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
+      const routine = await resolveWeeklyScheduleMutationReferences.resolveRoutine({ scheduleTitle: schedule.schedule.title, routineTitle, ...(trustedTargetWeekday === undefined ? {} : { weekday: trustedTargetWeekday }), ...(trustedTargetStartTime === undefined ? {} : { startTime: trustedTargetStartTime }), ...(trustedTargetEndTime === undefined ? {} : { endTime: trustedTargetEndTime }) });
+      if (routine.state !== "RESOLVED") return weeklyReferenceClarification(routine.state, "routine");
+      if (categoryName !== undefined) {
+        const category = await resolveWeeklyScheduleMutationReferences.resolveCategory(categoryName);
+        if (category.state !== "RESOLVED") return weeklyReferenceClarification(category.state, "category");
+      }
+      const { routineId: _routineId, weeklyScheduleId: _weeklyScheduleId, ...validatedChanges } = validated.data;
+      return {
+        action,
+        input: {
+          scheduleTitle: schedule.schedule.title,
+          routineTitle: routine.routine.title,
+          ...(trustedTargetWeekday === undefined ? {} : { targetWeekday: trustedTargetWeekday }),
+          ...(trustedTargetStartTime === undefined ? {} : { targetStartTime: trustedTargetStartTime }),
+          ...(trustedTargetEndTime === undefined ? {} : { targetEndTime: trustedTargetEndTime }),
+          ...validatedChanges,
+          ...(typeof categoryName === "string" ? { categoryName } : {})
+        }
+      };
     }
     case "OPEN_APPLICATION": {
       const alias = isRecord(input) ? input.alias : undefined;
@@ -518,6 +764,51 @@ const parseDraftInput = (value: unknown): unknown => {
   }
 };
 
+const parseCandidateInput = (candidate: UnknownRecord): unknown => {
+  if (candidate.action === "CREATE_WEEKLY_ROUTINE") {
+    if (candidate.input !== null || !isRecord(candidate.weeklyRoutine)) return undefined;
+    const { location, categoryName, ...weeklyRoutine } = candidate.weeklyRoutine;
+    return {
+      ...weeklyRoutine,
+      ...(location == null ? {} : { location }),
+      ...(categoryName == null ? {} : { categoryName })
+    };
+  }
+
+  if (["GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"].includes(candidate.action as string)) {
+    if (candidate.input !== null || !isRecord(candidate.habitAction)) return undefined;
+    const { habitTitle, title, description, frequency, targetCount, categoryName, icon, scope } = candidate.habitAction;
+    if (candidate.action === "GET_HABIT_PROGRESS") {
+      return { ...(scope === null ? {} : { scope }), ...(habitTitle === null ? {} : { habitTitle }) };
+    }
+    if (candidate.action === "CREATE_HABIT") {
+      return {
+        ...(title === null ? {} : { title }),
+        ...(description === null ? {} : { description }),
+        ...(frequency === null ? {} : { frequency }),
+        ...(targetCount === null ? {} : { targetCount }),
+        ...(categoryName === null ? {} : { categoryName }),
+        ...(icon === null ? {} : { icon })
+      };
+    }
+    if (candidate.action === "UPDATE_HABIT") {
+      return {
+        ...(habitTitle === null ? {} : { habitTitle }),
+        ...(title === null ? {} : { title }),
+        ...(description === null ? {} : { description }),
+        ...(frequency === null ? {} : { frequency }),
+        ...(targetCount === null ? {} : { targetCount }),
+        ...(categoryName === null ? {} : { categoryName }),
+        ...(icon === null ? {} : { icon })
+      };
+    }
+    return { ...(habitTitle === null ? {} : { habitTitle }) };
+  }
+
+  if ((candidate.weeklyRoutine !== undefined && candidate.weeklyRoutine !== null) || (candidate.habitAction !== undefined && candidate.habitAction !== null)) return undefined;
+  return parseDraftInput(candidate.input);
+};
+
 const parseProviderOutput = async (
   raw: unknown,
   reference: AssistantInterpretationReference,
@@ -525,6 +816,8 @@ const parseProviderOutput = async (
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
   resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>,
+  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences,
+  resolveHabitMutationReferences?: HabitMutationReferences,
   instruction = "",
   resolveTrustedReference?: TrustedAssistantReferenceResolver
 ): Promise<AssistantOperationResult<AssistantInterpretation>> => {
@@ -596,19 +889,28 @@ const parseProviderOutput = async (
   }
   const drafts: ActionSubmission[] = [];
   for (const [index, candidate] of parsed.drafts.entries()) {
-    if (!isRecord(candidate)) return rejection(ASSISTANT_ERROR_CODES.malformed);
+    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "weeklyRoutine", "habitAction"])) {
+      return rejection(ASSISTANT_ERROR_CODES.malformed);
+    }
     const draft = await validateDraft(
-      { ...candidate, input: parseDraftInput(candidate.input) },
+      { action: candidate.action, input: parseCandidateInput(candidate) },
       trustedReference,
       temporalResolver,
       trustedContext,
       resolveEventDeletion,
       resolveWeeklyScheduleTitle,
+      resolveWeeklyScheduleMutationReferences,
+      resolveHabitMutationReferences,
       instruction
     );
     if (isDraftClarification(draft)) return clarification(`El borrador ${index + 1}: ${draft.question}`);
     if (!draft) return rejection(ASSISTANT_ERROR_CODES.rejected);
-    drafts.push(draft);
+    for (const expandedDraft of Array.isArray(draft) ? draft : [draft]) {
+      if (!drafts.some((existing) => existing.action === expandedDraft.action && JSON.stringify(existing.input) === JSON.stringify(expandedDraft.input))) {
+        drafts.push(expandedDraft);
+      }
+    }
+    if (drafts.length > MAX_DRAFTS) return rejection(ASSISTANT_ERROR_CODES.malformed);
   }
   return success({ state: "READY", summary: drafts.some((draft) => draft.action === "DELETE_EVENT")
     ? "Preparé la eliminación del evento. Revisa la propuesta: requiere confirmación explícita y no se puede deshacer."
@@ -714,6 +1016,8 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           currentContext,
           dependencies.resolveEventDeletion,
           dependencies.resolveWeeklyScheduleTitle,
+          dependencies.resolveWeeklyScheduleMutationReferences,
+          dependencies.resolveHabitMutationReferences,
           normalizedInput.instruction,
           resolveTrustedReference
         );

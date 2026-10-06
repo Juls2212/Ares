@@ -86,6 +86,86 @@ const createOrchestrator = (
 };
 
 describe("action orchestrator", () => {
+  it("holds every habit mutation until confirmation and does not dispatch a replay", async () => {
+    const { orchestrator, executor } = createOrchestrator();
+    const proposal = await orchestrator.propose({
+      action: "COMPLETE_HABIT",
+      input: { habitTitle: "Leer" }
+    });
+    expect(proposal).toMatchObject({ ok: true, data: { action: "COMPLETE_HABIT", lifecycleState: "AWAITING_CONFIRMATION", riskLevel: 2 } });
+    expect(executor.execute).not.toHaveBeenCalled();
+    if (!proposal.ok || !("confirmationId" in proposal.data)) throw new Error("Expected confirmation.");
+    await expect(orchestrator.cancel(proposal.data.confirmationId)).resolves.toMatchObject({ ok: true, data: { status: "CANCELLED" } });
+    await expect(orchestrator.confirm(proposal.data.confirmationId)).resolves.toMatchObject({ ok: false });
+    expect(executor.execute).not.toHaveBeenCalled();
+  });
+
+  it("executes direct habit progress without a confirmation", async () => {
+    const { orchestrator, executor } = createOrchestrator();
+    await expect(orchestrator.propose({ action: "GET_HABIT_PROGRESS", input: { scope: "TODAY" } })).resolves.toMatchObject({
+      ok: true, data: { action: "GET_HABIT_PROGRESS", status: "SUCCEEDED", riskLevel: 1 }
+    });
+    expect(executor.execute).toHaveBeenCalledOnce();
+  });
+
+  it("holds every weekly schedule mutation until one standard confirmation and rejects replay", async () => {
+    const { orchestrator, executor } = createOrchestrator();
+    const requested = await orchestrator.propose({
+      action: "CREATE_WEEKLY_ROUTINE",
+      input: {
+        scheduleTitle: "Universidad",
+        title: "Cálculo",
+        weekday: "MONDAY",
+        startTime: "08:00",
+        endTime: "10:00"
+      }
+    });
+
+    expect(requested).toMatchObject({
+      ok: true,
+      data: { action: "CREATE_WEEKLY_ROUTINE", lifecycleState: "AWAITING_CONFIRMATION", riskLevel: 2 }
+    });
+    expect(executor.execute).not.toHaveBeenCalled();
+    if (!requested.ok || !("confirmationId" in requested.data)) throw new Error("Expected confirmation.");
+
+    await expect(orchestrator.confirm(requested.data.confirmationId)).resolves.toMatchObject({
+      ok: true,
+      data: { action: "CREATE_WEEKLY_ROUTINE", status: "SUCCEEDED" }
+    });
+    expect(executor.execute).toHaveBeenCalledOnce();
+    await expect(orchestrator.confirm(requested.data.confirmationId)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "ACTION_CONFIRMATION_UNAVAILABLE" }
+    });
+    expect(executor.execute).toHaveBeenCalledOnce();
+  });
+
+  it("does not dispatch cancelled, mismatched, or expired weekly schedule confirmations", async () => {
+    const input = { action: "CREATE_WEEKLY_SCHEDULE" as const, input: { title: "Universidad" } };
+    const { orchestrator, executor } = createOrchestrator();
+    const requested = await orchestrator.propose(input);
+    if (!requested.ok || !("confirmationId" in requested.data)) throw new Error("Expected confirmation.");
+    await expect(orchestrator.cancel(requested.data.confirmationId)).resolves.toMatchObject({ ok: true, data: { status: "CANCELLED" } });
+    await expect(orchestrator.confirm(requested.data.confirmationId)).resolves.toMatchObject({ ok: false });
+    await expect(orchestrator.confirm(identifiers[3])).resolves.toMatchObject({ ok: false });
+    expect(executor.execute).not.toHaveBeenCalled();
+
+    let now = new Date("2026-09-17T10:00:00.000Z");
+    const expiringExecutor = createExecutor();
+    const expiring = createActionOrchestrator({
+      executor: expiringExecutor,
+      historyService: createHistoryService(),
+      generateIdentifier: vi.fn().mockReturnValue(identifiers[0]),
+      now: () => now,
+      logError: vi.fn()
+    });
+    const expiringProposal = await expiring.propose(input);
+    if (!expiringProposal.ok || !("confirmationId" in expiringProposal.data)) throw new Error("Expected confirmation.");
+    now = new Date("2026-09-17T10:05:00.000Z");
+    await expect(expiring.confirm(expiringProposal.data.confirmationId)).resolves.toMatchObject({ ok: false });
+    expect(expiringExecutor.execute).not.toHaveBeenCalled();
+  });
+
   it("binds reinforced event deletion to the exact event and consumes confirmation once", async () => {
     const { orchestrator, executor, historyService } = createOrchestrator();
     const eventId = "550e8400-e29b-41d4-a716-446655440000";

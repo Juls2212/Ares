@@ -23,6 +23,43 @@ type InterpretationResultProperties = {
 type DialogKey = Pick<KeyboardEvent<HTMLDivElement>, "key" | "shiftKey" | "preventDefault">;
 type Focusable = { focus: () => void } | null;
 
+const weeklyDayLabels: Record<"MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY" | "SUNDAY", string> = {
+  MONDAY: "lunes",
+  TUESDAY: "martes",
+  WEDNESDAY: "miércoles",
+  THURSDAY: "jueves",
+  FRIDAY: "viernes",
+  SATURDAY: "sábado",
+  SUNDAY: "domingo"
+};
+
+/** Produces a review-only summary from already validated typed action input. */
+export const describeActionReview = (draft: ActionSubmission): string | undefined => {
+  switch (draft.action) {
+    case "CREATE_WEEKLY_SCHEDULE":
+      return `Se creará el horario «${draft.input.title}».`;
+    case "UPDATE_WEEKLY_SCHEDULE":
+      return `Se actualizará el horario «${draft.input.scheduleTitle}».`;
+    case "CREATE_WEEKLY_ROUTINE":
+      return `Se agregará «${draft.input.title}» el ${weeklyDayLabels[draft.input.weekday]} de ${draft.input.startTime} a ${draft.input.endTime} en «${draft.input.scheduleTitle}».`;
+    case "UPDATE_WEEKLY_ROUTINE": {
+      const day = draft.input.targetWeekday ? ` el ${weeklyDayLabels[draft.input.targetWeekday]}` : "";
+      const time = draft.input.targetStartTime || draft.input.targetEndTime
+        ? ` (${draft.input.targetStartTime ?? "…"} a ${draft.input.targetEndTime ?? "…"})`
+        : "";
+      return `Se actualizará «${draft.input.routineTitle}»${day}${time} en «${draft.input.scheduleTitle}».`;
+    }
+    case "CREATE_HABIT":
+      return `Se creará el hábito «${draft.input.title}» (${draft.input.frequency === "DAILY" ? "diario" : "semanal"}).`;
+    case "UPDATE_HABIT":
+      return `Se actualizará el hábito «${draft.input.habitTitle}».`;
+    case "COMPLETE_HABIT":
+      return `Se marcará «${draft.input.habitTitle}» como completado hoy.`;
+    default:
+      return undefined;
+  }
+};
+
 export const hasAssistantReview = (
   interpretation: AssistantInterpretation | undefined,
   draftStates: Record<number, DraftActionState>
@@ -132,8 +169,10 @@ export const InterpretationResult = ({
       {interpretation.drafts.map((draft, index) => {
         const state = draftStates[index];
         if (state?.resolved && !state.confirmation) return null;
+        const reviewDetail = describeActionReview(draft);
         return <article className="assistant-review-action" key={`${draft.action}-${index}`}>
           <p>{actionLabels[draft.action]}</p>
+          {reviewDetail && <p className="assistant-review-action__summary">{reviewDetail}</p>}
           {state?.confirmation && <>
             <p className="assistant-review-action__summary">{state.confirmation.confirmation.summary}</p>
             <p className="assistant-review-action__scope">{state.confirmation.confirmation.scopeSummary}</p>

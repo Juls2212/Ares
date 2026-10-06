@@ -9,6 +9,7 @@ import {
   AresUpcomingEventsPanel
 } from "../features/assistant/ares-information-panels";
 import { loadAresToday, type AresTodayState } from "../features/assistant/ares-today-summary";
+import { loadAresHabitSummary, type AresHabitSummaryState } from "../features/assistant/ares-habit-summary";
 import { hasAssistantReview, InterpretationResult, type DraftActionState } from "../features/assistant/interpretation-result";
 import { createResponseCoreReveal } from "../features/assistant/response-core-reveal";
 import type { PlaybackEvent } from "../features/voice/response-playback";
@@ -55,6 +56,7 @@ export const AresView = ({
   onResolveConfirmation
 }: AresViewProperties) => {
   const [today, setToday] = useState<AresTodayState>({ kind: "LOADING" });
+  const [habits, setHabits] = useState<AresHabitSummaryState>({ kind: "LOADING" });
   const [coreResponseText, setCoreResponseText] = useState("");
   const [coreVisualState, setCoreVisualState] = useState<CoreVisualState>("IDLE");
   const responseReveal = useRef<ReturnType<typeof createResponseCoreReveal> | null>(null);
@@ -95,6 +97,14 @@ export const AresView = ({
     let isCurrent = true;
     void loadAresToday(window.ares?.planner).then((result) => {
       if (isCurrent) setToday(result);
+    });
+    return () => { isCurrent = false; };
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+    void loadAresHabitSummary(window.ares?.habits).then((result) => {
+      if (isCurrent) setHabits(result);
     });
     return () => { isCurrent = false; };
   }, []);
@@ -151,7 +161,7 @@ export const AresView = ({
   };
 
   return <section aria-label="Espacio de comandos Ares" className="command-layout">
-  <AresTodaySummaryPanel today={today} />
+  <AresTodaySummaryPanel habits={habits} today={today} />
 
   <section className="command-core">
     <div className="command-heading">

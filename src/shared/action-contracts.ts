@@ -4,6 +4,8 @@ import type {
   CreateEventInput,
   CreateReminderInput,
   CreateTaskInput,
+  CreateWeeklyRoutineInput,
+  CreateWeeklyScheduleInput,
   GetTodayScheduleInput,
   GetWeekScheduleInput,
   DeleteEventInput,
@@ -15,6 +17,8 @@ import type {
   TodayScheduleData,
   UpdateEventInput,
   UpdateTaskInput,
+  UpdateWeeklyRoutineInput,
+  UpdateWeeklyScheduleInput,
   WeekScheduleData,
   EventRecord
 } from "./planner-contracts";
@@ -30,6 +34,10 @@ import type {
   RenameFolderInput,
   SafeFileMutationRecord
 } from "./file-contracts";
+import type {
+  CreateHabitInput,
+  UpdateHabitInput
+} from "./habit-contracts";
 
 export const ACTION_NAMES = [
   "OPEN_APPLICATION",
@@ -51,8 +59,16 @@ export const ACTION_NAMES = [
   "GET_WEEKLY_SCHEDULE_DETAILS",
   "ANALYZE_WEEKLY_SCHEDULE",
   "GET_TODAY_AVAILABILITY",
+  "CREATE_WEEKLY_SCHEDULE",
+  "UPDATE_WEEKLY_SCHEDULE",
+  "CREATE_WEEKLY_ROUTINE",
+  "UPDATE_WEEKLY_ROUTINE",
   "GET_CURRENT_DATE_TIME",
   "GET_WEATHER",
+  "GET_HABIT_PROGRESS",
+  "CREATE_HABIT",
+  "UPDATE_HABIT",
+  "COMPLETE_HABIT",
   "DELETE_EVENT",
   "DELETE_TASK"
 ] as const;
@@ -108,6 +124,15 @@ export type CurrentDateTimeData = Record<string, never>;
 /** The initial weather action is fixed to the Main-owned Pasto configuration. */
 export type GetWeatherInput = Record<string, never>;
 
+/** Human-readable habit references are resolved by Main immediately before use. */
+export type GetHabitProgressInput = { scope: "TODAY" | "WEEK"; habitTitle?: string };
+export type CreateHabitActionInput = Omit<CreateHabitInput, "categoryId"> & { categoryName?: string };
+export type UpdateHabitActionInput = Omit<UpdateHabitInput, "habitId" | "categoryId"> & {
+  habitTitle: string;
+  categoryName?: string | null;
+};
+export type CompleteHabitActionInput = { habitTitle: string };
+
 export type WeeklyScheduleReferenceInput =
   | { scheduleTitle: string }
   | { allSchedules: true };
@@ -118,6 +143,24 @@ export type WeeklyScheduleAnalysisKind = (typeof WEEKLY_SCHEDULE_ANALYSIS_KINDS)
 export type GetWeeklyScheduleDetailsInput = WeeklyScheduleReferenceInput;
 export type AnalyzeWeeklyScheduleInput = WeeklyScheduleReferenceInput & { analysis: WeeklyScheduleAnalysisKind };
 export type GetTodayAvailabilityInput = { afterTime?: string };
+
+/** Human-readable references remain in drafts; Main resolves identifiers only at dispatch. */
+export type CreateWeeklyScheduleActionInput = CreateWeeklyScheduleInput;
+export type UpdateWeeklyScheduleActionInput = Omit<UpdateWeeklyScheduleInput, "weeklyScheduleId"> & {
+  scheduleTitle: string;
+};
+export type CreateWeeklyRoutineActionInput = Omit<CreateWeeklyRoutineInput, "weeklyScheduleId" | "categoryId"> & {
+  scheduleTitle: string;
+  categoryName?: string;
+};
+export type UpdateWeeklyRoutineActionInput = Omit<UpdateWeeklyRoutineInput, "routineId" | "weeklyScheduleId" | "categoryId"> & {
+  scheduleTitle: string;
+  routineTitle: string;
+  targetWeekday?: import("./planner-contracts").Weekday;
+  targetStartTime?: string;
+  targetEndTime?: string;
+  categoryName?: string;
+};
 
 type ActionProposalBase = {
   actionId: string;
@@ -136,9 +179,19 @@ export type PlannerActionProposal =
   | (ActionProposalBase & { action: "GET_WEEKLY_SCHEDULE_DETAILS"; input: GetWeeklyScheduleDetailsInput })
   | (ActionProposalBase & { action: "ANALYZE_WEEKLY_SCHEDULE"; input: AnalyzeWeeklyScheduleInput })
   | (ActionProposalBase & { action: "GET_TODAY_AVAILABILITY"; input: GetTodayAvailabilityInput })
+  | (ActionProposalBase & { action: "CREATE_WEEKLY_SCHEDULE"; input: CreateWeeklyScheduleActionInput })
+  | (ActionProposalBase & { action: "UPDATE_WEEKLY_SCHEDULE"; input: UpdateWeeklyScheduleActionInput })
+  | (ActionProposalBase & { action: "CREATE_WEEKLY_ROUTINE"; input: CreateWeeklyRoutineActionInput })
+  | (ActionProposalBase & { action: "UPDATE_WEEKLY_ROUTINE"; input: UpdateWeeklyRoutineActionInput })
   | (ActionProposalBase & { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput })
   | (ActionProposalBase & { action: "DELETE_EVENT"; input: DeleteEventInput })
   | (ActionProposalBase & { action: "DELETE_TASK"; input: DeleteTaskInput });
+
+export type HabitActionProposal =
+  | (ActionProposalBase & { action: "GET_HABIT_PROGRESS"; input: GetHabitProgressInput })
+  | (ActionProposalBase & { action: "CREATE_HABIT"; input: CreateHabitActionInput })
+  | (ActionProposalBase & { action: "UPDATE_HABIT"; input: UpdateHabitActionInput })
+  | (ActionProposalBase & { action: "COMPLETE_HABIT"; input: CompleteHabitActionInput });
 
 export type OpenApplicationInput = {
   alias: string;
@@ -185,6 +238,7 @@ export type FileActionProposal =
 
 export type ExecutableActionProposal =
   | PlannerActionProposal
+  | HabitActionProposal
   | WeatherActionProposal
   | OpenApplicationActionProposal
   | OpenWebPageActionProposal
@@ -211,9 +265,19 @@ export type PlannerActionSubmission =
   | { action: "GET_WEEKLY_SCHEDULE_DETAILS"; input: GetWeeklyScheduleDetailsInput }
   | { action: "ANALYZE_WEEKLY_SCHEDULE"; input: AnalyzeWeeklyScheduleInput }
   | { action: "GET_TODAY_AVAILABILITY"; input: GetTodayAvailabilityInput }
+  | { action: "CREATE_WEEKLY_SCHEDULE"; input: CreateWeeklyScheduleActionInput }
+  | { action: "UPDATE_WEEKLY_SCHEDULE"; input: UpdateWeeklyScheduleActionInput }
+  | { action: "CREATE_WEEKLY_ROUTINE"; input: CreateWeeklyRoutineActionInput }
+  | { action: "UPDATE_WEEKLY_ROUTINE"; input: UpdateWeeklyRoutineActionInput }
   | { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput }
   | { action: "DELETE_EVENT"; input: DeleteEventInput }
   | { action: "DELETE_TASK"; input: DeleteTaskInput };
+
+export type HabitActionSubmission =
+  | { action: "GET_HABIT_PROGRESS"; input: GetHabitProgressInput }
+  | { action: "CREATE_HABIT"; input: CreateHabitActionInput }
+  | { action: "UPDATE_HABIT"; input: UpdateHabitActionInput }
+  | { action: "COMPLETE_HABIT"; input: CompleteHabitActionInput };
 
 export type WeatherActionSubmission = {
   action: "GET_WEATHER";
@@ -245,6 +309,7 @@ export type DeferredActionSubmission = {
 /** External submissions never include the Main-generated action identifier. */
 export type ActionSubmission =
   | PlannerActionSubmission
+  | HabitActionSubmission
   | WeatherActionSubmission
   | OpenApplicationActionSubmission
   | OpenWebPageActionSubmission

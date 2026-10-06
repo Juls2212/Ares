@@ -4,6 +4,7 @@ import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
 import { registerAssistantIpcHandlers } from "./ipc/register-assistant-ipc";
 import { registerApplicationIpcHandlers } from "./ipc/register-application-ipc";
 import { registerDashboardIpcHandlers } from "./ipc/register-dashboard-ipc";
+import { registerHabitIpcHandlers } from "./ipc/register-habit-ipc";
 import { registerPlannerIpcHandlers } from "./ipc/register-planner-ipc";
 import { registerSettingsIpcHandlers } from "./ipc/register-settings-ipc";
 import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
@@ -122,6 +123,7 @@ app.whenReady().then(async () => {
   configureSessionSecurity();
   registerSystemIpcHandlers();
   registerPlannerIpcHandlers();
+  registerHabitIpcHandlers();
   registerActionIpcHandlers();
   registerAssistantIpcHandlers();
   registerVoiceIpcHandlers();

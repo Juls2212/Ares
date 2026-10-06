@@ -18,6 +18,9 @@ const createPlannerService = (): PlannerService =>
     createWeeklyRoutine: vi.fn(async () => success),
     updateWeeklyRoutine: vi.fn(async () => success),
     deleteWeeklyRoutine: vi.fn(async () => ({ ok: true, data: { deleted: true } })),
+    createWeeklySchedule: vi.fn(async () => success),
+    updateWeeklySchedule: vi.fn(async () => success),
+    listCategories: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
     listWeeklySchedules: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
     listWeeklyRoutines: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
     getTodaySchedule: vi.fn(async () => ({ ok: true, data: { localDate: "2026-09-17", tasks: [], events: [], reminders: [] } })),
@@ -180,6 +183,54 @@ describe("planner action executor", () => {
     expect(vi.mocked(plannerService.createWeeklyRoutine)).not.toHaveBeenCalled();
     expect(vi.mocked(plannerService.updateWeeklyRoutine)).not.toHaveBeenCalled();
     expect(vi.mocked(plannerService.deleteWeeklyRoutine)).not.toHaveBeenCalled();
+  });
+
+  it("resolves weekly mutation references in Main and only returns grounded successful summaries", async () => {
+    const plannerService = createPlannerService();
+    const schedule = { id: "550e8400-e29b-41d4-a716-446655440000", title: "Universidad", description: null, color: null, createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z" };
+    vi.mocked(plannerService.listWeeklySchedules).mockResolvedValue({ ok: true, data: { items: [schedule], total: 1 } } as never);
+    vi.mocked(plannerService.createWeeklyRoutine).mockResolvedValue({
+      ok: true,
+      data: { record: { id: "private-routine-id", weeklyScheduleId: schedule.id, title: "Cálculo", weekday: "MONDAY", startTime: "08:00", endTime: "10:00", categoryId: null, location: null } }
+    } as never);
+    const executor = createPlannerActionExecutor({ plannerService, logError: vi.fn() });
+
+    const created = await executor.execute(
+      { actionId: "11111111-1111-4111-8111-111111111111", action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Cálculo", weekday: "MONDAY", startTime: "08:00", endTime: "10:00" } },
+      getActionPolicy("CREATE_WEEKLY_ROUTINE")
+    );
+    expect(created).toMatchObject({ status: "SUCCEEDED", userSummary: "Listo, agregué «Cálculo» el lunes de 08:00 a 10:00 en «Universidad»." });
+    expect(JSON.stringify(created)).not.toContain("private-routine-id");
+    expect(plannerService.createWeeklyRoutine).toHaveBeenCalledWith(expect.objectContaining({ weeklyScheduleId: schedule.id, title: "Cálculo" }));
+
+    vi.mocked(plannerService.listWeeklySchedules).mockResolvedValueOnce({ ok: true, data: { items: [], total: 0 } } as never);
+    const missing = await executor.execute(
+      { actionId: "22222222-2222-4222-8222-222222222222", action: "UPDATE_WEEKLY_SCHEDULE", input: { scheduleTitle: "Trabajo", title: "Trabajo nuevo" } },
+      getActionPolicy("UPDATE_WEEKLY_SCHEDULE")
+    );
+    expect(missing).toMatchObject({ status: "VALIDATION_FAILED", userSummary: "No encontré ese horario semanal." });
+    expect(plannerService.updateWeeklySchedule).not.toHaveBeenCalled();
+
+    const otherSchedule = { ...schedule, id: "550e8400-e29b-41d4-a716-446655440002", title: "Trabajo" };
+    vi.mocked(plannerService.listWeeklySchedules).mockResolvedValueOnce({ ok: true, data: { items: [schedule, otherSchedule], total: 2 } } as never);
+    vi.mocked(plannerService.listWeeklySchedules).mockResolvedValueOnce({ ok: true, data: { items: [schedule, otherSchedule], total: 2 } } as never);
+    const duplicate = await executor.execute(
+      { actionId: "22222222-2222-4222-8222-222222222222", action: "UPDATE_WEEKLY_SCHEDULE", input: { scheduleTitle: "Universidad", title: "Trabajo" } },
+      getActionPolicy("UPDATE_WEEKLY_SCHEDULE")
+    );
+    expect(duplicate).toMatchObject({ status: "VALIDATION_FAILED", userSummary: "Ya existe un horario con ese nombre. Indica otro nombre." });
+    expect(plannerService.updateWeeklySchedule).not.toHaveBeenCalled();
+
+    vi.mocked(plannerService.createWeeklyRoutine).mockResolvedValueOnce({
+      ok: false,
+      error: { code: "PLANNER_NOT_FOUND", userMessage: "No se pudo actualizar el bloque semanal." }
+    } as never);
+    const failed = await executor.execute(
+      { actionId: "33333333-3333-4333-8333-333333333333", action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Cálculo", weekday: "MONDAY", startTime: "08:00", endTime: "10:00" } },
+      getActionPolicy("CREATE_WEEKLY_ROUTINE")
+    );
+    expect(failed).toMatchObject({ status: "VALIDATION_FAILED", userSummary: "No se pudo actualizar el bloque semanal." });
+    expect(failed.userSummary).not.toContain("Listo");
   });
 
   it("distinguishes task-only and event-only schedules from the actual returned records", async () => {
