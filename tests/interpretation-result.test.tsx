@@ -39,7 +39,7 @@ describe("assistant action review dialog", () => {
     expect(describeActionReview({ action: "COMPLETE_HABIT", input: { habitTitle: "Leer" } })).toBe("Se marcará «Leer» como completado hoy.");
   });
 
-  it("shows validated weekly schedule and routine details before a confirmation is proposed", () => {
+  it("describes validated weekly schedule and routine details without opening a review before Main issues confirmation", () => {
     const routine = {
       action: "CREATE_WEEKLY_ROUTINE" as const,
       input: { scheduleTitle: "Universidad", title: "Cálculo", weekday: "MONDAY" as const, startTime: "08:00", endTime: "10:00" }
@@ -49,14 +49,12 @@ describe("assistant action review dialog", () => {
     const markup = renderToStaticMarkup(createElement(InterpretationResult, {
       interpretation: { state: "READY", summary: "Preparé los borradores solicitados.", drafts: [routine], clarifications: [] },
       draftStates: {},
-      onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     }));
-    expect(markup).toContain("Se agregará «Cálculo» el lunes de 08:00 a 10:00 en «Universidad».");
-    expect(markup).toContain("Proponer acción");
+    expect(markup).toBe("");
   });
 
-  it("renders every expanded weekly block independently for review", () => {
+  it("does not open a review for unconfirmed expanded weekly blocks", () => {
     const shared = { scheduleTitle: "Universidad", title: "Gimnasio", startTime: "06:00", endTime: "07:00" };
     const markup = renderToStaticMarkup(createElement(InterpretationResult, {
       interpretation: {
@@ -69,11 +67,9 @@ describe("assistant action review dialog", () => {
         clarifications: []
       },
       draftStates: {},
-      onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     }));
-    expect(markup).toContain("el martes de 06:00 a 07:00 en «Universidad»");
-    expect(markup).toContain("el jueves de 06:00 a 07:00 en «Universidad»");
+    expect(markup).toBe("");
   });
 
   it("keeps final conversational text out of the former result container", () => {
@@ -85,35 +81,77 @@ describe("assistant action review dialog", () => {
         clarifications: []
       },
       draftStates: {},
-      onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     }));
 
     expect(markup).toBe("");
   });
 
-  it("renders pending action review and reinforced confirmation in an accessible dialog", () => {
-    const onPropose = vi.fn();
+  it("renders only a Main-issued confirmation in an accessible dialog", () => {
     const onResolveConfirmation = vi.fn();
-    const reviewMarkup = renderToStaticMarkup(createElement(InterpretationResult, {
-      interpretation: readyInterpretation(),
-      draftStates: {},
-      onPropose,
-      onResolveConfirmation
-    }));
+    const matchedConfirmation: AwaitingActionConfirmation = { ...confirmation, action: "CREATE_TASK" };
     const confirmationMarkup = renderToStaticMarkup(createElement(InterpretationResult, {
       interpretation: readyInterpretation(),
-      draftStates: { 0: { busy: false, resolved: true, confirmation } },
-      onPropose,
+      draftStates: { 0: { busy: false, resolved: true, confirmation: matchedConfirmation } },
       onResolveConfirmation
     }));
 
-    expect(reviewMarkup).toContain('role="dialog"');
-    expect(reviewMarkup).toContain("Proponer acción");
-    expect(reviewMarkup).toContain("Cancelar");
-    expect(reviewMarkup).not.toContain("Preparé los borradores solicitados.");
     expect(confirmationMarkup).toContain("Confirmar");
     expect(confirmationMarkup).toContain("Se eliminará permanentemente un evento.");
+  });
+
+  it("renders a catalog registration review only after Main issues its standard confirmation", () => {
+    const interpretation: AssistantInterpretation = {
+      state: "READY",
+      summary: "Preparé los borradores solicitados.",
+      drafts: [{ action: "REGISTER_CATALOG_APPLICATION", input: { catalogKey: "SPOTIFY" } }],
+      clarifications: []
+    };
+    const registrationConfirmation: AwaitingActionConfirmation = {
+      lifecycleState: "AWAITING_CONFIRMATION",
+      actionId: "action-spotify",
+      action: "REGISTER_CATALOG_APPLICATION",
+      riskLevel: 2,
+      confirmationId: "confirmation-spotify",
+      confirmation: {
+        required: true,
+        summary: "Se registrará Spotify como “spotify”.",
+        affectedItemCount: 1,
+        scopeSummary: "Registro de aplicación aprobada"
+      }
+    };
+    const markup = renderToStaticMarkup(createElement(InterpretationResult, {
+      interpretation,
+      draftStates: { 0: { busy: false, resolved: true, confirmation: registrationConfirmation } },
+      onResolveConfirmation: vi.fn()
+    }));
+
+    expect(markup).toContain("Se registrará Spotify como “spotify”.");
+    expect(markup).toContain("Confirmar");
+    expect(markup).toContain("Cancelar");
+  });
+
+  it("does not render a review dialog for a controlled clarification or an unconfirmed draft", () => {
+    const clarification: AssistantInterpretation = {
+      state: "NEEDS_CLARIFICATION",
+      summary: "Primero debes registrar esa aplicación para poder abrirla.",
+      drafts: [],
+      clarifications: [{ question: "Primero debes registrar esa aplicación para poder abrirla." }]
+    };
+    const malformed: AssistantInterpretation = {
+      state: "READY",
+      summary: "Preparé los borradores solicitados.",
+      drafts: [{ action: "OPEN_APPLICATION", input: { alias: "spotify" } }],
+      clarifications: []
+    };
+
+    expect(hasAssistantReview(clarification, {})).toBe(false);
+    expect(hasAssistantReview(malformed, {})).toBe(false);
+    expect(renderToStaticMarkup(createElement(InterpretationResult, {
+      interpretation: clarification,
+      draftStates: {},
+      onResolveConfirmation: vi.fn()
+    }))).toBe("");
   });
 
   it("does not open a dialog for an already resolved direct action", () => {
@@ -122,7 +160,6 @@ describe("assistant action review dialog", () => {
     const markup = renderToStaticMarkup(createElement(InterpretationResult, {
       interpretation,
       draftStates: states,
-      onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     }));
 

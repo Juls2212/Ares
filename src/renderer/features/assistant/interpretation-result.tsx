@@ -15,8 +15,7 @@ export type DraftActionState = {
 type InterpretationResultProperties = {
   interpretation?: AssistantInterpretation;
   draftStates: Record<number, DraftActionState>;
-  returnFocusRef?: RefObject<HTMLTextAreaElement | null>;
-  onPropose: (index: number, draft: ActionSubmission) => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onResolveConfirmation: (index: number, confirmation: AwaitingActionConfirmation, decision: "CONFIRM" | "CANCEL") => void;
 };
 
@@ -63,15 +62,13 @@ export const describeActionReview = (draft: ActionSubmission): string | undefine
 export const hasAssistantReview = (
   interpretation: AssistantInterpretation | undefined,
   draftStates: Record<number, DraftActionState>
-): boolean => Boolean(
-  interpretation && (
-    interpretation.clarifications.length > 0 ||
-    interpretation.drafts.some((_draft, index) => {
-      const state = draftStates[index];
-      return Boolean(state?.confirmation) || !state?.resolved;
-    })
-  )
-);
+): boolean => Boolean(interpretation?.drafts.some((draft, index) => {
+  const confirmation = draftStates[index]?.confirmation;
+  return confirmation?.lifecycleState === "AWAITING_CONFIRMATION"
+    && confirmation.action === draft.action
+    && confirmation.confirmation.required
+    && confirmation.confirmationId.trim().length > 0;
+}));
 
 export const handleAssistantReviewDialogKey = (
   keyboardEvent: DialogKey,
@@ -100,7 +97,6 @@ export const InterpretationResult = ({
   interpretation,
   draftStates,
   returnFocusRef,
-  onPropose,
   onResolveConfirmation
 }: InterpretationResultProperties) => {
   const [dismissed, setDismissed] = useState(false);
@@ -165,10 +161,9 @@ export const InterpretationResult = ({
       <p className="eyebrow">Revisión necesaria</p>
       <h2 id="assistant-review-title">Revisa la acción</h2>
       <p id="assistant-review-description">Confirma solo los pasos que quieres que Ares realice.</p>
-      {interpretation.clarifications.map((item, index) => <p className="assistant-review-dialog__clarification" key={`${item.question}-${index}`}>{item.question}</p>)}
       {interpretation.drafts.map((draft, index) => {
         const state = draftStates[index];
-        if (state?.resolved && !state.confirmation) return null;
+        if (!state?.confirmation) return null;
         const reviewDetail = describeActionReview(draft);
         return <article className="assistant-review-action" key={`${draft.action}-${index}`}>
           <p>{actionLabels[draft.action]}</p>
@@ -181,14 +176,8 @@ export const InterpretationResult = ({
               <button className="quiet-button" onClick={cancelConfirmation} type="button">Cancelar</button>
             </div>}
           </>}
-          {!state?.confirmation && !state?.resolved && <div className="assistant-review-action__controls">
-            <button disabled={state?.busy} onClick={() => onPropose(index, draft)} ref={firstAction} type="button">{state?.busy ? "Procesando…" : "Proponer acción"}</button>
-            {!state?.busy && <button className="quiet-button" onClick={dismiss} type="button">Cancelar</button>}
-          </div>}
         </article>;
       })}
-      {interpretation.drafts.length === 0 && <button onClick={dismiss} ref={firstAction} type="button">Cerrar</button>}
-      {isBusy && !confirmationEntry && <p role="status">Procesando…</p>}
     </div>
   </div>;
 };
