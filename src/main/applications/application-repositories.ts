@@ -1,7 +1,9 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type {
   ApplicationAliasRecord,
+  ApplicationCatalogKey,
   ApplicationListInput,
+  ApplicationLaunchMode,
   ApplicationPlatform,
   ApplicationRecord,
   RegisterApplicationInput,
@@ -17,7 +19,9 @@ export type ResolvedApplicationTarget = {
   id: string;
   name: string;
   platform: ApplicationPlatform;
-  executablePath: string;
+  launchMode: ApplicationLaunchMode;
+  catalogKey: ApplicationCatalogKey | null;
+  executablePath: string | null;
   isEnabled: boolean;
 };
 
@@ -32,6 +36,7 @@ export type ApplicationRepositories = {
   listApplications: (input: ApplicationListInput) => Promise<ApplicationRecord[]>;
   updateApplication: (input: UpdateApplicationInput) => Promise<ApplicationRecord | undefined>;
   findApplicationIdByNormalizedName: (name: string) => Promise<string | undefined>;
+  findApplicationLaunchModeById: (applicationId: string) => Promise<ApplicationLaunchMode | undefined>;
   resolveApplicationByAlias: (alias: string) => Promise<ResolvedApplicationTarget | undefined>;
 };
 
@@ -51,6 +56,8 @@ export const toApplicationRecord = (
   id: record.id,
   name: record.name,
   platform: record.platform,
+  launchMode: record.launchMode,
+  catalogKey: record.catalogKey,
   isFavorite: record.isFavorite,
   isEnabled: record.isEnabled,
   lastLaunchedAt: toIsoDateTime(record.lastLaunchedAt),
@@ -114,13 +121,27 @@ export const createApplicationRepositories = (
         const record = await database.transaction(async (transaction) => {
           const [createdApplication] = await transaction
             .insert(applications)
-            .values({
-              name: input.name,
-              executablePath: input.executablePath,
-              platform: input.platform ?? "WINDOWS",
-              isFavorite: input.isFavorite ?? false,
-              isEnabled: input.isEnabled ?? true
-            })
+            .values(
+              input.launchMode === "CATALOG_APPLICATION"
+                ? {
+                    name: input.name,
+                    executablePath: null,
+                    platform: input.platform,
+                    launchMode: input.launchMode,
+                    catalogKey: input.catalogKey,
+                    isFavorite: input.isFavorite ?? false,
+                    isEnabled: input.isEnabled ?? true
+                  }
+                : {
+                    name: input.name,
+                    executablePath: input.executablePath,
+                    platform: input.platform ?? "WINDOWS",
+                    launchMode: "WINDOWS_EXECUTABLE",
+                    catalogKey: null,
+                    isFavorite: input.isFavorite ?? false,
+                    isEnabled: input.isEnabled ?? true
+                  }
+            )
             .returning();
 
           await transaction.insert(applicationAliases).values(
@@ -187,6 +208,14 @@ export const createApplicationRepositories = (
           .where(sql`lower(btrim(${applications.name})) = ${name.toLocaleLowerCase("en-US")}`);
         return record?.id;
       }),
+    findApplicationLaunchModeById: (applicationId) =>
+      executePersistence(async () => {
+        const [record] = await database
+          .select({ launchMode: applications.launchMode })
+          .from(applications)
+          .where(eq(applications.id, applicationId));
+        return record?.launchMode;
+      }),
     resolveApplicationByAlias: (alias) =>
       executePersistence(async () => {
         const [record] = await database
@@ -194,6 +223,8 @@ export const createApplicationRepositories = (
             id: applications.id,
             name: applications.name,
             platform: applications.platform,
+            launchMode: applications.launchMode,
+            catalogKey: applications.catalogKey,
             executablePath: applications.executablePath,
             isEnabled: applications.isEnabled
           })
