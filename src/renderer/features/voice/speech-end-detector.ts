@@ -39,8 +39,16 @@ const measureLevel = (values: Uint8Array): number => {
 /** Renderer-only end-of-speech monitor. It never records, stores, or uploads audio. */
 export const createSpeechEndDetector = (dependencies: SpeechEndDetectorDependencies): SpeechEndDetector => {
   const now = dependencies.now ?? (() => performance.now());
-  const requestFrame = dependencies.requestFrame ?? ((callback) => requestAnimationFrame(callback));
-  const cancelFrame = dependencies.cancelFrame ?? ((handle) => cancelAnimationFrame(handle));
+  // Animation frames pause in a hidden window, which would stall silence detection during background
+  // operation; a hidden document falls back to a short timer. Timer handles are encoded as negatives.
+  const requestFrame = dependencies.requestFrame ?? ((callback) =>
+    typeof document !== "undefined" && document.hidden
+      ? -window.setTimeout(() => callback(performance.now()), 100)
+      : requestAnimationFrame(callback));
+  const cancelFrame = dependencies.cancelFrame ?? ((handle) => {
+    if (handle < 0) window.clearTimeout(-handle);
+    else cancelAnimationFrame(handle);
+  });
   let animationFrame: number | undefined;
   let context: AudioContextLike | undefined;
   let source: { connect: (target: AnalyserLike) => void; disconnect?: () => void } | undefined;
