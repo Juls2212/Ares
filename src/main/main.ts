@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, session } from "electron";
+import { app, BrowserWindow, globalShortcut, Menu, nativeImage, session, Tray } from "electron";
 import path from "node:path";
 import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
 import { registerAssistantIpcHandlers } from "./ipc/register-assistant-ipc";
@@ -17,6 +17,12 @@ import {
 } from "./voice/microphone-permission";
 import { createGlobalVoiceShortcutLifecycle } from "./voice/global-voice-shortcut";
 import { configureVoicePreferencesService } from "./settings/voice-preferences-composition";
+import { formatShortcutForDisplay } from "../shared/settings-contracts";
+import {
+  createBackgroundLifecycle,
+  createTrayIconBitmap,
+  type ManagedWindow
+} from "./background/background-lifecycle";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -27,8 +33,59 @@ let mainWindow: BrowserWindow | undefined;
 const globalVoiceShortcutLifecycle = createGlobalVoiceShortcutLifecycle({
   globalShortcut,
   getMainWindow: () => mainWindow,
+  logError: (message) => console.error(message),
+  onChange: () => backgroundLifecycle.refreshTray()
+});
+
+const toManagedWindow = (window: BrowserWindow): ManagedWindow => ({
+  isDestroyed: () => window.isDestroyed(),
+  isMinimized: () => window.isMinimized(),
+  isVisible: () => window.isVisible(),
+  restore: () => window.restore(),
+  show: () => window.show(),
+  focus: () => window.focus(),
+  hide: () => window.hide(),
+  on: (event, listener) => {
+    if (event === "close") window.on("close", (closeEvent) => listener(closeEvent));
+    else window.on("session-end", (sessionEvent) => listener(sessionEvent));
+  }
+});
+
+/** Tray, close-to-tray and the single-instance lock. It never starts audio capture. */
+const backgroundLifecycle = createBackgroundLifecycle({
+  app: {
+    requestSingleInstanceLock: () => app.requestSingleInstanceLock(),
+    quit: () => app.quit(),
+    on: (event, listener) => {
+      if (event === "second-instance") app.on("second-instance", () => listener());
+      else app.on("before-quit", () => listener());
+    }
+  },
+  getMainWindow: () => (mainWindow ? toManagedWindow(mainWindow) : undefined),
+  createMainWindow: () => createMainWindow(),
+  createTray: () => {
+    const tray = new Tray(nativeImage.createFromBitmap(createTrayIconBitmap(32), { width: 32, height: 32 }));
+    return {
+      setToolTip: (tooltip) => tray.setToolTip(tooltip),
+      setContextMenu: (menu) => tray.setContextMenu(menu as Electron.Menu),
+      on: (event, listener) => tray.on(event, listener),
+      destroy: () => tray.destroy(),
+      displayBalloon: (options) => tray.displayBalloon(options)
+    };
+  },
+  getShortcutLabel: () => {
+    const active = globalVoiceShortcutLifecycle.getActiveShortcut();
+    return active ? formatShortcutForDisplay(active) : undefined;
+  },
+  buildMenu: (items) =>
+    Menu.buildFromTemplate(
+      items.map((item) => ("type" in item ? { type: "separator" as const } : { label: item.label, click: item.click }))
+    ),
   logError: (message) => console.error(message)
 });
+
+const isPrimaryInstance = backgroundLifecycle.start();
+if (!isPrimaryInstance) app.quit();
 
 const configureSessionSecurity = (): void => {
   const isTrustedRendererRequest = (
@@ -82,10 +139,13 @@ const createMainWindow = async (): Promise<void> => {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      // Recording timers, silence detection and TTS playback must keep running while minimized or hidden.
+      backgroundThrottling: false,
       preload: path.join(__dirname, "preload.js")
     }
   });
   mainWindow = createdWindow;
+  backgroundLifecycle.attachWindow(toManagedWindow(createdWindow));
   const createdWebContents = createdWindow.webContents;
   const createdWebContentsId = createdWebContents.id;
   trustedRendererWebContents.add(createdWebContentsId);
@@ -120,6 +180,7 @@ const createMainWindow = async (): Promise<void> => {
 };
 
 app.whenReady().then(async () => {
+  if (!isPrimaryInstance) return;
   configureSessionSecurity();
   registerSystemIpcHandlers();
   registerPlannerIpcHandlers();
@@ -138,12 +199,11 @@ app.whenReady().then(async () => {
   if (!voicePreferences.ok) {
     console.error("Voice preferences startup initialization failed.");
   }
+  backgroundLifecycle.createTray();
   await createMainWindow();
 
-  app.on("activate", async () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      await createMainWindow();
-    }
+  app.on("activate", () => {
+    backgroundLifecycle.showMainWindow();
   });
 });
 
@@ -151,8 +211,9 @@ app.once("before-quit", () => {
   globalVoiceShortcutLifecycle.stop();
 });
 
+// The tray keeps Ares running after the window is hidden; without a tray the last close still quits.
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (backgroundLifecycle.isQuitting() || (!backgroundLifecycle.isTrayAvailable() && process.platform !== "darwin")) {
     app.quit();
   }
 });
