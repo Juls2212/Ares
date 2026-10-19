@@ -28,7 +28,9 @@ describe("renderer viewport layout cleanup", () => {
     const css = styles();
 
     expect(css).toContain("min-height: clamp(72px, calc((100dvh - 220px) / 6), 108px);");
-    expect(css).toContain("max-height: calc(100dvh - 170px);");
+    // The calendar is no longer mounted; its rail keeps viewport-bounded scrolling at the retuned height.
+    expect(css).toContain(".calendar-focus-rail { max-height: calc(100dvh - 160px); overflow-y: auto; }");
+    expect(css).toContain("max-height: calc(100dvh - 146px);");
     expect(css).toContain("overflow-y: auto;");
   });
 
