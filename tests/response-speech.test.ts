@@ -177,7 +177,10 @@ describe("trusted response speech", () => {
     for (const label of ["Escuchar respuesta", "Detener voz"]) expect(controls).toContain(label);
     for (const removedLabel of ["La voz de Ares es generada por IA.", "Leer respuestas automáticamente"]) expect(controls).not.toContain(removedLabel);
     for (const label of ["Generando voz…", "Reproduciendo voz…", "Voz finalizada", "No se pudo iniciar o continuar la voz."]) expect(controls).toContain(label);
-    for (const lifecycle of ["Escape", "visibilitychange", "pagehide", "controller.stop()", "blocked"]) expect(controls).toContain(lifecycle);
+    for (const lifecycle of ["Escape", "pagehide", "controller.stop()", "blocked"]) expect(controls).toContain(lifecycle);
+    // Minimizing or hiding the window must not stop or suppress spoken responses.
+    expect(controls).not.toContain("visibilitychange");
+    expect(controls).not.toContain("document.hidden");
     expect(source("src/preload/preload.ts")).toContain("IPC_CHANNELS.speech.speak, input");
     const provider = source("src/main/voice/openai-speech-provider.ts");
     expect(provider).toContain('OPENAI_SPEECH_MODEL = "gpt-4o-mini-tts"');
