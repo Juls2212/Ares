@@ -1189,6 +1189,214 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: .42rem .68rem .62rem .9rem;
 }
 
+/* Compact voice-first Ares shell: the orb remains the only primary surface. */
+.ares-shell:has(.command-layout) {
+  min-height: 100dvh;
+  padding: 0 clamp(.9rem, 4vw, 1.4rem);
+}
+
+.ares-shell:has(.command-layout) .ares-header {
+  min-height: 46px;
+  grid-template-columns: 1fr auto;
+  border-bottom-color: rgb(var(--accent-rgb) / 22%);
+  box-shadow: none;
+}
+
+.ares-shell:has(.command-layout) .wordmark {
+  font-size: .68rem;
+  letter-spacing: .22em;
+}
+
+.ares-shell:has(.command-layout) .header-utilities { grid-column: 2; }
+
+.ares-shell:has(.command-layout) .utility-toggle {
+  width: 30px;
+  height: 30px;
+}
+
+.ares-shell:has(.command-layout) .command-layout {
+  display: flex;
+  min-height: 0;
+  width: min(100%, 460px);
+  margin: 0 auto;
+  padding: clamp(.35rem, 1.4vh, .7rem) 0 clamp(.75rem, 2vh, 1.1rem);
+}
+
+.ares-shell:has(.command-layout) .command-layout::before { display: none; }
+
+.ares-shell:has(.command-layout) .command-core {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+}
+
+.ares-shell:has(.command-layout) .command-heading {
+  order: 0;
+  padding: 0 0 .25rem;
+}
+
+.ares-shell:has(.command-layout) .command-heading::before,
+.ares-shell:has(.command-layout) .command-heading::after { display: none; }
+
+.ares-shell:has(.command-layout) .command-heading h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.ares-shell:has(.command-layout) .command-instrument {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+}
+
+.ares-shell:has(.command-layout) .command-instrument::before,
+.ares-shell:has(.command-layout) .command-instrument::after,
+.ares-shell:has(.command-layout) .command-instrument__axis,
+.ares-shell:has(.command-layout) .command-instrument__anchor { display: none; }
+
+.ares-shell:has(.command-layout) .command-core__visual {
+  position: relative;
+  inset: auto;
+  display: grid;
+  min-height: clamp(318px, calc(100dvh - 176px), 475px);
+  place-items: center;
+}
+
+.ares-shell:has(.command-layout) .command-core__visual::before,
+.ares-shell:has(.command-layout) .command-core__visual::after { display: none; }
+
+.ares-shell:has(.command-layout) .particle-orb {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: min(92vw, 78dvh, 445px);
+  min-width: 0;
+  max-width: 100%;
+  transform: none;
+}
+
+.ares-shell:has(.command-layout) .particle-orb::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 5%;
+  border: 1px solid rgb(var(--accent-rgb) / 20%);
+  border-radius: 50%;
+  box-shadow: 0 0 28px rgb(var(--accent-rgb) / 9%);
+  pointer-events: none;
+}
+
+.ares-shell:has(.command-layout) .particle-orb--recording::after {
+  inset: 2%;
+  border-color: rgb(var(--accent-rgb) / 56%);
+  animation: compact-orb-listening 1.45s ease-out infinite;
+}
+
+.ares-shell:has(.command-layout) .particle-orb--transcribing::before,
+.ares-shell:has(.command-layout) .particle-orb--acting::before,
+.ares-shell:has(.command-layout) .particle-orb--speaking::before {
+  border-color: rgb(var(--accent-rgb) / 52%);
+}
+
+.ares-shell:has(.command-layout) .particle-orb--acting { filter: saturate(1.1); }
+
+.ares-shell:has(.command-layout) .particle-orb--error::before {
+  border-color: rgb(169 72 62 / 68%);
+  box-shadow: 0 0 20px rgb(169 72 62 / 14%);
+}
+
+.ares-shell:has(.command-layout) .particle-orb__label {
+  bottom: 13%;
+  max-width: 66%;
+  color: var(--ink);
+  font-size: .72rem;
+  letter-spacing: .09em;
+  text-shadow: 0 1px 10px var(--surface);
+}
+
+.ares-shell:has(.command-layout) .particle-orb__response {
+  width: 68%;
+  max-height: 48%;
+  color: var(--ink);
+  font-size: clamp(.86rem, 3.2vw, 1.04rem);
+  line-height: 1.45;
+}
+
+.ares-shell:has(.command-layout) .command-instrument__speech {
+  right: .1rem;
+  bottom: .1rem;
+}
+
+.ares-shell:has(.command-layout) .command-instrument__speech .response-speech-controls {
+  max-width: 210px;
+  padding: .28rem .38rem;
+  border-color: rgb(var(--accent-rgb) / 18%);
+  background: rgb(var(--surface-raised) / 72%);
+}
+
+.ares-shell:has(.command-layout) .voice-controls {
+  display: grid;
+  justify-items: center;
+  min-height: 84px;
+  margin: .1rem 0 0;
+  gap: .36rem;
+  text-align: center;
+}
+
+.ares-shell:has(.command-layout) .voice-state {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: .8rem;
+}
+
+.ares-shell:has(.command-layout) .voice-state--message { color: var(--ink); }
+
+.ares-shell:has(.command-layout) .voice-button--microphone {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: rgb(var(--accent-rgb) / 11%);
+  box-shadow: 0 0 0 5px rgb(var(--accent-rgb) / 5%), 0 8px 18px rgb(var(--shadow-rgb) / 11%);
+  color: var(--ink);
+  font-size: 1.3rem;
+}
+
+.ares-shell:has(.command-layout) .voice-button--microphone:hover:not(:disabled) {
+  background: rgb(var(--accent-rgb) / 19%);
+}
+
+.ares-shell:has(.command-layout) .voice-controls .quiet-button {
+  min-height: 34px;
+  padding: .32rem .7rem;
+  border: 1px solid var(--frame);
+  color: var(--ink);
+}
+
+@keyframes compact-orb-listening {
+  0% { opacity: .8; transform: scale(.88); }
+  75%, 100% { opacity: 0; transform: scale(1.15); }
+}
+
+@media (max-height: 575px) {
+  .ares-shell:has(.command-layout) .command-core__visual { min-height: 285px; }
+  .ares-shell:has(.command-layout) .particle-orb { width: min(78vw, 59dvh, 360px); }
+  .ares-shell:has(.command-layout) .voice-controls { min-height: 72px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ares-shell:has(.command-layout) .particle-orb--recording::after { animation: none; }
+}
+
 .calendar-console {
   margin-top: .62rem;
   min-width: 0;
@@ -1449,4 +1657,526 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .command-instrument__speech .response-speech-controls > p { text-align: center; }
   .assistant-review-backdrop { padding: .8rem; }
   .assistant-review-dialog { padding: 1rem; }
+}
+
+/* Compact Ares core: one quiet, responsive visual focus for the voice surface. */
+.ares-shell:has(.command-layout) {
+  --accent: #164274;
+  --accent-rgb: 22 66 116;
+  --focus: #306fb9;
+  --neural-primary-rgb: 22 66 116;
+  --neural-focal-rgb: 48 112 190;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background-color: #E0E0E0;
+  background-image: radial-gradient(circle at 50% 42%, rgb(255 255 255 / 44%), transparent 54%), linear-gradient(180deg, #e7e7e7, #E0E0E0 72%);
+}
+
+:root[data-theme="dark"] .ares-shell:has(.command-layout) {
+  --accent: #86b8ee;
+  --accent-rgb: 134 184 238;
+  --focus: #a6cdf6;
+  --neural-primary-rgb: 134 184 238;
+  --neural-focal-rgb: 183 216 250;
+  background-image: radial-gradient(ellipse at 50% 34%, rgb(111 151 196 / 15%), transparent 58%), linear-gradient(180deg, #172330, #111a24 72%);
+}
+
+.ares-shell:has(.command-layout) .command-layout {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 390px);
+  height: calc(100dvh - 46px);
+  min-height: 0;
+  margin: 0 auto;
+  padding: .18rem .7rem .42rem;
+  overflow: hidden;
+}
+
+.ares-shell:has(.command-layout) .command-core {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+  gap: .18rem;
+}
+
+.ares-shell:has(.command-layout) .command-instrument {
+  display: grid;
+  flex: 1 1 auto;
+  height: clamp(238px, calc(100dvh - 174px), 318px);
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ares-shell:has(.command-layout) .command-core__visual {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.ares-shell:has(.command-layout) .command-instrument__axis,
+.ares-shell:has(.command-layout) .command-instrument__anchor {
+  display: none;
+}
+
+.ares-shell:has(.command-layout) .particle-orb {
+  width: clamp(180px, 54vw, 220px);
+  aspect-ratio: 1;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.ares-shell:has(.command-layout) .particle-orb::before {
+  display: none;
+}
+
+.ares-shell:has(.command-layout) .particle-orb--recording::after {
+  display: none;
+}
+
+.ares-shell:has(.command-layout) .particle-orb__halo,
+.ares-shell:has(.command-layout) .particle-orb__nucleus,
+.ares-shell:has(.command-layout) .particle-orb__ripple {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.ares-shell:has(.command-layout) .particle-orb__halo {
+  z-index: 0;
+  inset: 8%;
+  background: radial-gradient(circle, rgb(var(--neural-focal-rgb) / 28%) 0%, rgb(var(--neural-primary-rgb) / 16%) 36%, rgb(var(--neural-primary-rgb) / 4%) 58%, rgb(var(--neural-primary-rgb) / 0%) 74%);
+  filter: blur(5px);
+  transform: scale(var(--voice-halo-scale, 1.08));
+  transition: transform 90ms linear, opacity 110ms linear, filter 110ms linear;
+}
+
+.ares-shell:has(.command-layout) .particle-orb__nucleus {
+  z-index: 1;
+  inset: 27%;
+  background: radial-gradient(circle at 37% 30%, rgb(var(--neural-focal-rgb) / 88%) 0%, rgb(var(--neural-primary-rgb) / 76%) 28%, rgb(14 47 83 / 90%) 62%, rgb(14 47 83 / 0%) 76%);
+  box-shadow: inset -10px -12px 20px rgb(8 31 58 / 32%), inset 7px 6px 14px rgb(255 255 255 / 20%), 0 0 26px rgb(var(--neural-primary-rgb) / 29%);
+  animation: ares-core-breathe 4.8s ease-in-out infinite;
+  scale: var(--voice-nucleus-scale, 1);
+  transition: scale 90ms linear, filter 110ms linear;
+}
+
+.ares-shell:has(.command-layout) .particle-orb__ripple {
+  z-index: 3;
+  inset: 25%;
+  border: 1px solid transparent;
+  opacity: 0;
+  scale: var(--voice-ripple-scale, 1);
+}
+
+.ares-shell:has(.command-layout) .particle-orb__fallback i {
+  position: absolute;
+  z-index: 2;
+  background: rgb(var(--neural-primary-rgb) / var(--dot-opacity));
+  box-shadow: 0 0 5px rgb(var(--neural-focal-rgb) / 40%);
+  scale: var(--voice-nucleus-scale, 1);
+  transition: scale 90ms linear;
+}
+
+.ares-shell:has(.command-layout) .particle-orb canvas {
+  z-index: 2;
+  inset: 0;
+}
+
+.ares-shell:has(.command-layout) .particle-orb__response {
+  z-index: 4;
+  width: min(76%, 205px);
+  color: var(--ink);
+  font-size: clamp(.8rem, 2.8vw, .94rem);
+  font-weight: 650;
+  line-height: 1.38;
+  text-align: center;
+  text-shadow: 0 1px 9px rgb(224 224 224 / 96%), 0 0 12px rgb(224 224 224 / 86%);
+}
+
+.ares-shell:has(.command-layout) .particle-orb__label {
+  z-index: 5;
+  bottom: 7%;
+  color: var(--accent);
+  font-size: .74rem;
+  font-weight: 750;
+  letter-spacing: .035em;
+}
+
+.ares-shell:has(.command-layout) .particle-orb--recording .particle-orb__nucleus {
+  animation-duration: 1.55s;
+  box-shadow: 0 0 30px rgb(var(--neural-focal-rgb) / 42%);
+  filter: brightness(calc(1 + var(--voice-level, 0) * .28));
+}
+
+.ares-shell:has(.command-layout) .particle-orb--recording .particle-orb__halo {
+  transform: scale(var(--voice-halo-scale, 1.08));
+  opacity: var(--voice-link-opacity, .72);
+  filter: blur(5px) brightness(calc(1 + var(--voice-level, 0) * .35));
+}
+
+.ares-shell:has(.command-layout) .particle-orb--recording .particle-orb__ripple,
+.ares-shell:has(.command-layout) .particle-orb--speaking .particle-orb__ripple {
+  border-color: rgb(var(--neural-primary-rgb) / 47%);
+  animation: ares-core-ripple 1.65s ease-out infinite;
+}
+
+.ares-shell:has(.command-layout) .particle-orb--speaking .particle-orb__ripple {
+  inset: 28%;
+  border-width: 2px;
+  animation-duration: 1.1s;
+}
+
+.ares-shell:has(.command-layout) .particle-orb--transcribing .particle-orb__nucleus,
+.ares-shell:has(.command-layout) .particle-orb--interpreting .particle-orb__nucleus {
+  animation: ares-core-converge 1.5s ease-in-out infinite;
+}
+
+.ares-shell:has(.command-layout) .particle-orb--transcribing .particle-orb__halo,
+.ares-shell:has(.command-layout) .particle-orb--interpreting .particle-orb__halo {
+  transform: scale(.88);
+}
+
+.ares-shell:has(.command-layout) .particle-orb--acting .particle-orb__nucleus {
+  animation: ares-core-act 1s cubic-bezier(.2, .72, .2, 1) infinite;
+}
+
+.ares-shell:has(.command-layout) .particle-orb--error .particle-orb__halo {
+  background: radial-gradient(circle, rgb(164 70 52 / 19%), rgb(164 70 52 / 0%) 70%);
+}
+
+.ares-shell:has(.command-layout) .particle-orb--error .particle-orb__nucleus {
+  background: radial-gradient(circle, rgb(192 89 67 / 52%), rgb(139 57 46 / 16%) 57%, rgb(139 57 46 / 0%) 74%);
+  box-shadow: 0 0 20px rgb(154 63 47 / 23%);
+  animation: none;
+}
+
+.ares-shell:has(.command-layout) .voice-command-controls {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding-top: .1rem;
+}
+
+.ares-shell:has(.command-layout) .voice-command-controls__trigger {
+  min-width: 60px;
+  min-height: 60px;
+}
+
+@keyframes ares-core-breathe {
+  0%, 100% { transform: scale(.94); opacity: .8; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes ares-core-ripple {
+  0% { opacity: .72; transform: scale(.72); }
+  100% { opacity: 0; transform: scale(1.7); }
+}
+
+@keyframes ares-core-converge {
+  0%, 100% { transform: scale(1.04); opacity: .77; }
+  50% { transform: scale(.78); opacity: 1; }
+}
+
+@keyframes ares-core-act {
+  0%, 100% { transform: scale(.92); opacity: .82; }
+  50% { transform: scale(1.18); opacity: 1; }
+}
+
+@media (max-height: 600px) {
+  .ares-shell:has(.command-layout) .particle-orb {
+    width: clamp(176px, 43dvh, 204px);
+  }
+
+  .ares-shell:has(.command-layout) .command-layout {
+    padding-bottom: .22rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ares-shell:has(.command-layout) .particle-orb__nucleus,
+  .ares-shell:has(.command-layout) .particle-orb__ripple {
+    animation: none;
+    transition: none;
+  }
+
+  .ares-shell:has(.command-layout) .particle-orb__halo,
+  .ares-shell:has(.command-layout) .particle-orb__fallback i { transition: none; }
+
+  .ares-shell:has(.command-layout) .particle-orb--recording .particle-orb__ripple,
+  .ares-shell:has(.command-layout) .particle-orb--speaking .particle-orb__ripple {
+    opacity: .5;
+    transform: scale(1.05);
+  }
+}
+
+/* The active voice shell has one glass surface and one native orb control. */
+:root .ares-shell.ares-glass-shell:has(.command-layout) {
+  --surface: #101c2c;
+  --surface-raised: #17283c;
+  --input-surface: #132338;
+  --ink: #ecf5ff;
+  --ink-muted: #b1c4d9;
+  --line: #35495f;
+  --frame: #3a516c;
+  --accent: #8ddaff;
+  --accent-rgb: 141 218 255;
+  --focus: #b5e8ff;
+  --neural-primary-rgb: 63 141 213;
+  --neural-focal-rgb: 143 220 255;
+  --shadow-rgb: 0 0 0;
+  --glass-background: #101c2c;
+  --glass-atmosphere: radial-gradient(ellipse at 50% 46%, rgb(39 77 116 / 38%), transparent 65%), linear-gradient(155deg, #172638, #0c1421);
+  --glass-depth: inset 0 1px 0 rgb(219 238 255 / 12%), inset 0 0 0 1px rgb(179 211 240 / 7%), inset 0 -22px 45px rgb(0 0 0 / 15%);
+  --glass-frost: rgb(210 229 250 / 3%);
+  --glass-wordmark: #b8cde1;
+  --glass-halo: radial-gradient(circle, rgb(96 179 235 / 20%), rgb(55 110 162 / 13%) 44%, transparent 72%);
+  --glass-nucleus: radial-gradient(ellipse at 36% 27%, rgb(122 202 246 / 66%), rgb(39 101 166 / 88%) 30%, rgb(16 47 86 / 96%) 62%, rgb(12 31 59 / 12%) 76%, transparent 85%);
+  --glass-nucleus-depth: inset -15px -19px 27px rgb(5 16 34 / 45%), inset 9px 7px 19px rgb(198 232 255 / 13%), 0 0 28px rgb(56 129 197 / 18%);
+  --glass-response: #f0f7ff;
+  --glass-text-shadow: 0 1px 4px #071426, 0 0 12px #071426;
+  --glass-response-contrast: brightness(.6);
+  --glass-state-text: #dceeff;
+  --glass-state-hint: #c1def5;
+  height: 100dvh;
+  min-height: 0;
+  padding: 0 18px;
+  isolation: isolate;
+  background-color: var(--glass-background);
+  background-image: var(--glass-atmosphere);
+  background-size: auto;
+  box-shadow: var(--glass-depth);
+}
+
+:root:not([data-theme="dark"]) .ares-shell.ares-glass-shell:has(.command-layout) {
+  --surface: #e7edf3;
+  --surface-raised: #f1f5f9;
+  --input-surface: #f8fbfe;
+  --ink: #142c46;
+  --ink-muted: #405a74;
+  --line: #b6c8d8;
+  --frame: #9ab1c7;
+  --accent: #1c6093;
+  --accent-rgb: 28 96 147;
+  --focus: #175e96;
+  --neural-primary-rgb: 28 83 135;
+  --neural-focal-rgb: 34 130 184;
+  --glass-background: #e7edf3;
+  --glass-atmosphere: radial-gradient(ellipse at 50% 46%, rgb(215 234 250 / 58%), transparent 65%), linear-gradient(155deg, #f2f6fa, #dce5ee);
+  --glass-depth: inset 0 1px 0 rgb(255 255 255 / 76%), inset 0 0 0 1px rgb(64 107 148 / 9%), inset 0 -22px 45px rgb(34 66 98 / 5%);
+  --glass-frost: rgb(255 255 255 / 12%);
+  --glass-wordmark: #405a74;
+  --glass-halo: radial-gradient(circle, rgb(53 133 192 / 19%), rgb(61 113 164 / 10%) 44%, transparent 72%);
+  --glass-nucleus: radial-gradient(ellipse at 40% 35%, rgb(193 228 248 / 95%), rgb(131 191 222 / 87%) 30%, rgb(30 78 123 / 74%) 62%, rgb(26 61 104 / 9%) 76%, transparent 85%);
+  --glass-nucleus-depth: inset -15px -19px 27px rgb(20 58 93 / 24%), inset 9px 7px 19px rgb(245 251 255 / 36%), 0 0 28px rgb(42 109 165 / 14%);
+  --glass-response: #142c46;
+  --glass-text-shadow: 0 1px 4px #e7edf3, 0 0 12px #e7edf3;
+  --glass-response-contrast: opacity(.35);
+  --glass-state-text: #142c46;
+  --glass-state-hint: #234b70;
+}
+
+:root .ares-shell.ares-glass-shell::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background: var(--glass-frost);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .ares-header {
+  position: relative;
+  flex: 0 0 42px;
+  min-height: 42px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .wordmark {
+  color: var(--glass-wordmark);
+  font-size: .63rem;
+  letter-spacing: .24em;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .utility-toggle {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  color: var(--glass-wordmark);
+  box-shadow: none;
+  background: transparent;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .command-layout {
+  flex: 1 1 0;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0 0 26px;
+  gap: 0;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .command-core,
+:root .ares-shell.ares-glass-shell:has(.command-layout) .command-instrument {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .command-core__visual,
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb {
+  pointer-events: auto;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb > * {
+  pointer-events: none;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .command-instrument::before,
+:root .ares-shell.ares-glass-shell:has(.command-layout) .command-instrument::after,
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb::before,
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb::after {
+  display: none;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb {
+  width: clamp(230px, min(66vw, 72dvh), 290px);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 6px;
+  box-shadow: 0 0 25px rgb(114 191 237 / 12%);
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__halo {
+  inset: 3%;
+  background: var(--glass-halo);
+  filter: blur(7px);
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__nucleus {
+  inset: 17%;
+  background: var(--glass-nucleus);
+  box-shadow: var(--glass-nucleus-depth);
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__ripple {
+  inset: 20%;
+  border: 0;
+  background: radial-gradient(circle, transparent 44%, rgb(var(--neural-focal-rgb) / 14%) 58%, transparent 73%);
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__response {
+  width: 76%;
+  max-height: 64%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  color: var(--glass-response);
+  font-size: clamp(.78rem, 2.9vw, .9rem);
+  font-weight: 550;
+  line-height: 1.4;
+  text-shadow: var(--glass-text-shadow);
+  background: transparent;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb:has(.particle-orb__response) .particle-orb__nucleus {
+  filter: var(--glass-response-contrast);
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__label {
+  top: 50%;
+  bottom: auto;
+  max-width: 72%;
+  transform: translateY(-50%);
+  font-size: .82rem;
+  font-weight: 550;
+  letter-spacing: .01em;
+  text-transform: none;
+  color: var(--glass-state-text);
+  text-shadow: var(--glass-text-shadow);
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb:has(.particle-orb__response) .particle-orb__label {
+  top: auto;
+  bottom: 9%;
+  transform: none;
+  font-size: .64rem;
+  color: var(--glass-state-hint);
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb--recording .particle-orb__nucleus {
+  filter: brightness(calc(1 + var(--voice-level, 0) * .22));
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb--acting .particle-orb__nucleus {
+  animation-iteration-count: 1;
+}
+
+:root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb--error .particle-orb__nucleus {
+  background: radial-gradient(ellipse at 36% 27%, rgb(207 166 120 / 58%), rgb(62 91 127 / 88%) 38%, rgb(20 43 74 / 92%) 66%, transparent 85%);
+  box-shadow: inset -12px -15px 24px rgb(9 22 40 / 40%), 0 0 22px rgb(183 142 102 / 12%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__nucleus,
+  :root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__halo,
+  :root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__ripple,
+  :root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__fallback i {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* One-time shortcut hint: static text at the lower edge, clear of the orb label and response text. */
+.shortcut-hint {
+  position: absolute;
+  bottom: .55rem;
+  left: 50%;
+  z-index: 3;
+  margin: 0;
+  max-width: calc(100% - 2rem);
+  padding: .15rem .55rem;
+  border: 1px solid var(--core-soft-line);
+  background: rgb(var(--accent-rgb) / 8%);
+  color: var(--ink);
+  font-size: .7rem;
+  line-height: 1.3;
+  opacity: .78;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
