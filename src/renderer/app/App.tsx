@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AssistantInterpretation, AssistantOperationResult } from "../../shared/assistant-contracts";
 import type {
@@ -13,6 +13,7 @@ import {
 } from "../../shared/application-contracts";
 import type { SystemCapabilities, SystemStatusData } from "../../shared/contracts";
 import {
+  formatShortcutForDisplay,
   VOICE_SHORTCUTS,
   type VoiceShortcut,
   type VoiceShortcutEffectiveStatus
@@ -20,7 +21,6 @@ import {
 import {
   catalogApplicationLabels,
   orbStateFor,
-  type Destination,
   type VoiceState,
   voiceLabelFor
 } from "./app-state";
@@ -34,7 +34,6 @@ import { type DraftActionState } from "../features/assistant/interpretation-resu
 import { UtilityPanel } from "../features/settings/utility-panel";
 import { useThemePreference } from "../features/settings/use-theme-preference";
 import { AresView } from "../views/ares-view";
-import { CalendarView } from "../views/calendar-view";
 
 type ViewState =
   | { kind: "LOADING" }
@@ -45,19 +44,28 @@ const isAwaitingConfirmation = (result: ActionLifecycleResult): result is Awaiti
   "lifecycleState" in result;
 
 const getInterpretationMessage = (result: AssistantOperationResult<AssistantInterpretation>): AssistantInterpretation =>
-  result.ok ? result.data : { state: "UNAVAILABLE", summary: result.error.userMessage, drafts: [], clarifications: [] };
+  result.ok
+    ? result.data
+    : {
+        state: "UNAVAILABLE",
+        summary: result.error.userMessage,
+        drafts: [],
+        clarifications: [],
+        spokenResponse: result.error.spokenResponse
+      };
+
+/** The shortcut hint is shown once per session, however many times the view mounts. */
+let shortcutHintShown = false;
+const SHORTCUT_HINT_DURATION_MS = 8_000;
 
 export const App = () => {
   const { theme, toggleTheme } = useThemePreference();
   const [viewState, setViewState] = useState<ViewState>({ kind: "LOADING" });
-  const [destination, setDestination] = useState<Destination>("ARES");
   const [utilityOpen, setUtilityOpen] = useState(false);
-  const [instruction, setInstruction] = useState("");
   const [interpretation, setInterpretation] = useState<AssistantInterpretation>();
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
   const [spokenResponse, setSpokenResponse] = useState<import("../../shared/speech-contracts").SpokenResponse>();
-  useEffect(() => { setSpokenResponse(undefined); }, [destination]);
   const [selectedCatalogApplication, setSelectedCatalogApplication] = useState<RegisterableCatalogApplication>("GOOGLE_CHROME");
   const [isRegisteringCatalogApplication, setIsRegisteringCatalogApplication] = useState(false);
   const [catalogRegistrationMessage, setCatalogRegistrationMessage] = useState<string>();
@@ -65,7 +73,9 @@ export const App = () => {
   const [isRegisteringCustomApplication, setIsRegisteringCustomApplication] = useState(false);
   const [customRegistrationMessage, setCustomRegistrationMessage] = useState<string>();
   const [voiceMessage, setVoiceMessage] = useState<string>();
+  const [shortcutHint, setShortcutHint] = useState<string>();
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
+  const [voiceLevel, setVoiceLevel] = useState(0);
   const voiceRecorder = useRef<ManualVoiceRecorder | undefined>(undefined);
   const speechEndDetector = useRef<SpeechEndDetector | undefined>(undefined);
   const voiceStateReference = useRef(voiceState);
@@ -99,6 +109,11 @@ export const App = () => {
         setSelectedVoiceShortcut(result.data.preferences.shortcut);
         setVoiceShortcutStatus(result.data.effectiveStatus);
         if (result.data.effectiveStatus === "UNAVAILABLE") setVoiceMessage("El atajo global no está disponible. Puedes usar el orbe.");
+        if (result.data.effectiveStatus === "ACTIVE" && !shortcutHintShown) {
+          shortcutHintShown = true;
+          setShortcutHint(`Atajo: ${formatShortcutForDisplay(result.data.preferences.shortcut)}`);
+          window.setTimeout(() => setShortcutHint(undefined), SHORTCUT_HINT_DURATION_MS);
+        }
       } catch {
         setVoicePreferencesMessage("La configuración de voz no está disponible.");
       }
@@ -107,6 +122,7 @@ export const App = () => {
   }, []);
 
   const cancelRecording = (): void => {
+    setVoiceLevel(0);
     if (voiceStateReference.current === "IDLE" && !voiceStartInFlight.current) return;
     voiceGeneration.current++;
     speechEndDetector.current?.dispose();
@@ -122,8 +138,10 @@ export const App = () => {
     const cleanup = bindRecordingCancellation(document, window, cancelRecording);
     return () => { voiceGeneration.current++; speechEndDetector.current?.dispose(); voiceRecorder.current?.dispose(); cleanup(); };
   }, []);
-  useEffect(() => { if (destination !== "ARES") cancelRecording(); }, [destination]);
   useEffect(() => { voiceStateReference.current = voiceState; }, [voiceState]);
+  useEffect(() => {
+    if (voiceState !== "RECORDING") setVoiceLevel(0);
+  }, [voiceState]);
 
   const transcribeAudio = async (audio: Blob, mimeType: VoiceMimeType, durationMs: number, generation: number): Promise<void> => {
     if (generation !== voiceGeneration.current || generation <= voiceUploadGeneration.current) return;
@@ -137,7 +155,7 @@ export const App = () => {
       setVoiceMessage("Procesando instrucción…");
       await voiceSubmission.current.submit({
         generation, text: result.data.text, isCurrent: () => generation === voiceGeneration.current,
-        showTranscript: setInstruction,
+        showTranscript: () => undefined,
         interpret: (text) => submitInstruction(text, true, () => generation === voiceGeneration.current),
         propose: (index, draft) => requestProposal(index, draft, () => generation === voiceGeneration.current)
       });
@@ -145,16 +163,16 @@ export const App = () => {
     } catch {
       if (generation === voiceGeneration.current) setVoiceMessage("La transcripción no está disponible en este momento.");
     } finally {
-      if (generation === voiceGeneration.current) { voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); }
+      if (generation === voiceGeneration.current) { voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceLevel(0); }
     }
   };
 
   const startRecording = async (fromGlobalShortcut = false): Promise<void> => {
     setSpokenResponse(undefined);
+    setVoiceLevel(0);
     if (voiceStateReference.current !== "IDLE" || voiceStartInFlight.current || interpretationInFlight.current) return;
     voiceStartInFlight.current = true;
     const generation = ++voiceGeneration.current;
-    setDestination("ARES");
     setVoiceMessage(fromGlobalShortcut ? "Ares está grabando." : undefined);
     const browserMedia = navigator.mediaDevices;
     if (!browserMedia || typeof MediaRecorder === "undefined") {
@@ -164,7 +182,11 @@ export const App = () => {
     }
     let levelAnalysisAvailable = true;
     let maximumWithoutSpeech = false;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const detector = createSpeechEndDetector({
+      onLevel: reduceMotion ? undefined : (level) => {
+        if (generation === voiceGeneration.current) setVoiceLevel(level);
+      },
       onSpeechEnded: () => {
         if (generation === voiceGeneration.current) voiceRecorder.current?.stop();
       }
@@ -192,15 +214,16 @@ export const App = () => {
         }
       },
       onRecording: () => { voiceStateReference.current = "RECORDING"; setVoiceState("RECORDING"); },
-      onProcessing: () => { detector.dispose(); voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); setVoiceMessage("Procesando…"); },
+      onProcessing: () => { detector.dispose(); setVoiceLevel(0); voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); setVoiceMessage("Procesando…"); },
       onUnavailable: (message, reason) => {
+        setVoiceLevel(0);
         voiceStartInFlight.current = false;
         setVoiceState("IDLE");
         setVoiceMessage(fromGlobalShortcut && reason === "USER_GESTURE_REQUIRED" ? "Para iniciar la grabación, usa el botón visible." : message);
       },
       isUserActivationActive: () => navigator.userActivation?.isActive ?? false,
-      onCancelled: () => { detector.dispose(); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); },
-      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
+      onCancelled: () => { detector.dispose(); setVoiceLevel(0); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); },
+      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); setVoiceLevel(0); void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
     });
     await voiceRecorder.current.start();
     voiceStartInFlight.current = false;
@@ -247,17 +270,11 @@ export const App = () => {
       setSpokenResponse(result.spokenResponse);
       return result;
     } catch {
-      if (isCurrent()) setInterpretation({ state: "UNAVAILABLE", summary: "La interpretación no está disponible en este momento.", drafts: [], clarifications: [] });
+      if (isCurrent()) setVoiceMessage("La interpretación no está disponible en este momento.");
     } finally {
       interpretationInFlight.current = false;
       setIsInterpreting(false);
     }
-  };
-
-  const interpret = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (voiceStateReference.current !== "IDLE") return;
-    await submitInstruction(instruction);
   };
 
   const updateDraftState = (index: number, state: DraftActionState): void => setDraftStates((current) => ({ ...current, [index]: state }));
@@ -313,7 +330,7 @@ export const App = () => {
       updateDraftState(index, { busy: false, resolved: true, userMessage: result.data.userSummary, spokenResponse: result.data.spokenResponse });
       setSpokenResponse(result.data.spokenResponse);
     } catch {
-      if (isCurrent()) updateDraftState(index, { busy: false, resolved: true, userMessage: "No se pudo proponer la acción." });
+      if (isCurrent()) setVoiceMessage("No se pudo proponer la acción.");
     }
   };
 
@@ -333,20 +350,16 @@ export const App = () => {
       updateDraftState(index, { busy: false, resolved: true, userMessage: result.ok ? result.data.userSummary : result.error.userMessage, spokenResponse: result.ok ? result.data.spokenResponse : result.error.spokenResponse });
       setSpokenResponse(result.ok ? result.data.spokenResponse : result.error.spokenResponse);
     } catch {
-      updateDraftState(index, { busy: false, resolved: true, userMessage: decision === "CONFIRM" ? "No se pudo confirmar la acción." : "No se pudo cancelar la acción." });
+      setVoiceMessage(decision === "CONFIRM" ? "No se pudo confirmar la acción." : "No se pudo cancelar la acción.");
     }
   };
 
   const orbState = orbStateFor(voiceState, isInterpreting);
   const voiceLabel = voiceLabelFor(voiceState, isInterpreting);
 
-  return <main className="ares-shell">
+  return <main className="ares-shell ares-glass-shell">
     <header className="ares-header">
-      <button aria-label="Ares" className="wordmark" onClick={() => setDestination("ARES")} type="button">ARES</button>
-      <nav aria-label="Navegación principal" className="primary-navigation">
-        <button aria-current={destination === "ARES" ? "page" : undefined} className={destination === "ARES" ? "is-active" : undefined} onClick={() => setDestination("ARES")} type="button">Ares</button>
-        <button aria-current={destination === "CALENDAR" ? "page" : undefined} className={destination === "CALENDAR" ? "is-active" : undefined} onClick={() => setDestination("CALENDAR")} type="button">Calendario</button>
-      </nav>
+      <span aria-label="Ares" className="wordmark">ARES</span>
       <div className="header-utilities">
         <button aria-controls="utility-panel" aria-expanded={utilityOpen} aria-label="Controles técnicos" className="utility-toggle" onClick={() => setUtilityOpen((open) => !open)} type="button">⚙</button>
       </div>
@@ -375,15 +388,12 @@ export const App = () => {
       voiceShortcutStatus={voiceShortcutStatus}
     />}
 
-    {destination === "ARES" ? <AresView
+    <AresView
       spokenResponse={spokenResponse}
       draftStates={draftStates}
-      instruction={instruction}
       interpretation={interpretation}
       isInterpreting={isInterpreting}
       onCancelRecording={cancelRecording}
-      onInstructionChange={setInstruction}
-      onInterpret={(event) => void interpret(event)}
       onPropose={(index, draft) => void propose(index, draft)}
       onResolveConfirmation={(index, confirmation, decision) => void resolveConfirmation(index, confirmation, decision)}
       onStartRecording={() => void startRecording()}
@@ -391,9 +401,11 @@ export const App = () => {
       technicalMessage={viewState.kind === "ERROR" ? viewState.userMessage : undefined}
       technicalState={viewState.kind}
       voiceLabel={voiceLabel}
+      voiceLevel={voiceLevel}
       voiceMessage={voiceMessage}
+      shortcutHint={shortcutHint}
       voiceShortcutStatus={voiceShortcutStatus}
       voiceState={voiceState}
-    /> : <CalendarView />}
+    />
   </main>;
 };
