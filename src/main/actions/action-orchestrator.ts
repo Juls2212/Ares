@@ -7,19 +7,29 @@ import {
   type ActionOutcome,
   type ActionPolicy,
   type ActionSubmission,
+  type ApprovedWebActionProposal,
   type AwaitingActionConfirmation,
   type ExecutableActionProposal,
   type FileActionProposal,
   type FileActionData,
   type HabitActionProposal,
+  type LegacyFileActionProposal,
   type OpenWebPageActionProposal,
   type PlannerActionProposal,
+  type RegisterCatalogApplicationActionProposal,
+  type RequestCustomApplicationRegistrationActionProposal,
   type SafeHistoryMetadata,
+  type SupervisedFilesActionProposal,
+  type SupervisedFilesActionSubmission,
   type WeatherActionProposal
 } from "../../shared/action-contracts";
 import { createActionHistoryService, type ActionHistoryService } from "./action-history-service";
 import { evaluateActionProposal, getActionPolicy } from "./action-policy";
 import { createActionExecutor, type ActionExecutor } from "./action-executor";
+import { isFoundOrdinal, isFileSearchKind, isSupervisedFileRoot, parseSelection } from "../files/supervised-file-validation";
+import type { SupervisedFileMutationData, SupervisedFileSearchData } from "../../shared/supervised-file-contracts";
+import { isKnownApplicationCatalogKey } from "../applications/known-application-catalog";
+import { catalogRegistrationFailure } from "../applications/catalog-registration-failures";
 
 const PENDING_PROPOSAL_LIFETIME_MS = 5 * 60 * 1000;
 
@@ -108,6 +118,23 @@ const isOpenApplicationSubmission = (
   Object.keys(submission.input).length === 1 &&
     typeof (submission.input as { alias?: unknown }).alias === "string";
 
+const isRegisterCatalogApplicationSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: "REGISTER_CATALOG_APPLICATION"; input: { catalogKey: string; alias?: string } } =>
+  submission.action === "REGISTER_CATALOG_APPLICATION" &&
+  isRecord(submission.input) &&
+  Object.keys(submission.input).every((key) => key === "catalogKey" || key === "alias") &&
+  isKnownApplicationCatalogKey(submission.input.catalogKey) &&
+  (submission.input.alias === undefined || typeof submission.input.alias === "string");
+
+const isRequestCustomApplicationRegistrationSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: "REQUEST_CUSTOM_APPLICATION_REGISTRATION"; input: { displayName?: string } } =>
+  submission.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION" &&
+  isRecord(submission.input) &&
+  Object.keys(submission.input).every((key) => key === "displayName") &&
+  (submission.input.displayName === undefined || typeof submission.input.displayName === "string");
+
 const isOpenWebPageSubmission = (
   submission: Record<string, unknown>
 ): submission is { action: "OPEN_WEB_PAGE"; input: { destination: "YOUTUBE"; browser: "CHROME" } } =>
@@ -117,8 +144,28 @@ const isOpenWebPageSubmission = (
   submission.input.destination === "YOUTUBE" &&
   submission.input.browser === "CHROME";
 
+const isApprovedWebActionSubmission = (
+  submission: Record<string, unknown>
+): submission is
+  | { action: "OPEN_APPROVED_PAGE"; input: { site: "GOOGLE" | "YOUTUBE" | "SPOTIFY" } }
+  | { action: "SEARCH_APPROVED_SITE"; input: { site: "GOOGLE" | "YOUTUBE" | "SPOTIFY"; query: string } } => {
+  if (!isRecord(submission.input)) return false;
+  if (submission.action === "OPEN_APPROVED_PAGE") {
+    return Object.keys(submission.input).length === 1 && ["GOOGLE", "YOUTUBE", "SPOTIFY"].includes(submission.input.site as string);
+  }
+  if (submission.action === "SEARCH_APPROVED_SITE") {
+    return Object.keys(submission.input).length === 2 &&
+      ["GOOGLE", "YOUTUBE", "SPOTIFY"].includes(submission.input.site as string) &&
+      typeof submission.input.query === "string";
+  }
+  return false;
+};
+
 const isApplicationAction = (action: ActionSubmission["action"]): boolean =>
-  action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE";
+  action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE" || action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
+
+const isApprovedWebAction = (action: ActionSubmission["action"]): boolean =>
+  action === "OPEN_APPROVED_PAGE" || action === "SEARCH_APPROVED_SITE";
 
 const isWeatherAction = (action: ActionSubmission["action"]): action is WeatherActionProposal["action"] =>
   action === "GET_WEATHER";
@@ -235,7 +282,71 @@ const isFileActionSubmission = (
   submission: Record<string, unknown>
 ): submission is { action: FileActionProposal["action"]; input: Record<string, unknown> } =>
   isFileAction(submission.action as ActionSubmission["action"]) &&
+  !isSupervisedFilesAction(submission.action as ActionSubmission["action"]) &&
   isRecord(submission.input);
+
+const SUPERVISED_FILES_ACTIONS = [
+  "SEARCH_FILES",
+  "REVEAL_FOUND_FILE",
+  "OPEN_FOUND_FILE",
+  "CREATE_FOLDER",
+  "RENAME_FOUND_ITEM",
+  "MOVE_FOUND_ITEMS",
+  "ORGANIZE_FOUND_ITEMS",
+  "DELETE_FOUND_ITEM"
+] as const;
+
+const isSupervisedFilesAction = (action: ActionSubmission["action"]): action is SupervisedFilesActionProposal["action"] =>
+  (SUPERVISED_FILES_ACTIONS as readonly string[]).includes(action);
+
+/** Strict, closed shapes: ordinals and enum values only, and never a Main-issued preparation reference. */
+const isSupervisedFilesSubmission = (
+  submission: Record<string, unknown>
+): submission is SupervisedFilesActionSubmission => {
+  if (!isRecord(submission.input)) return false;
+  const input = submission.input;
+  const keysAre = (allowed: readonly string[]): boolean => Object.keys(input).every((key) => allowed.includes(key));
+  if (submission.action === "SEARCH_FILES") {
+    return keysAre(["query", "root", "kind"]) && typeof input.query === "string" &&
+      (input.root === undefined || isSupervisedFileRoot(input.root)) &&
+      (input.kind === undefined || isFileSearchKind(input.kind));
+  }
+  if (submission.action === "REVEAL_FOUND_FILE" || submission.action === "OPEN_FOUND_FILE") {
+    return keysAre(["ordinal"]) && isFoundOrdinal(input.ordinal);
+  }
+  if (submission.action === "CREATE_FOLDER") {
+    return keysAre(["folderName", "root", "parentOrdinal"]) && typeof input.folderName === "string" &&
+      (input.root === undefined || isSupervisedFileRoot(input.root)) &&
+      (input.parentOrdinal === undefined || isFoundOrdinal(input.parentOrdinal));
+  }
+  if (submission.action === "RENAME_FOUND_ITEM") {
+    return keysAre(["ordinal", "newName"]) && isFoundOrdinal(input.ordinal) && typeof input.newName === "string";
+  }
+  if (submission.action === "DELETE_FOUND_ITEM") {
+    return keysAre(["ordinal"]) && isFoundOrdinal(input.ordinal);
+  }
+  if (submission.action === "MOVE_FOUND_ITEMS") {
+    return keysAre(["ordinals", "all", "destinationRoot", "destinationOrdinal"]) &&
+      parseSelection(input) !== undefined &&
+      (input.destinationRoot === undefined || isSupervisedFileRoot(input.destinationRoot)) &&
+      (input.destinationOrdinal === undefined || isFoundOrdinal(input.destinationOrdinal)) &&
+      (input.destinationRoot !== undefined || input.destinationOrdinal !== undefined);
+  }
+  if (submission.action === "ORGANIZE_FOUND_ITEMS") {
+    return keysAre(["ordinals", "all", "folderName", "root"]) &&
+      parseSelection(input) !== undefined &&
+      typeof input.folderName === "string" && isSupervisedFileRoot(input.root);
+  }
+  return false;
+};
+
+/** History keeps only the outcome category for FILES actions; names, queries and results never reach it. */
+const safeFilesHistorySummary = (outcome: ActionOutcome): string =>
+  outcome.status === "SUCCEEDED"
+    ? "La acción de archivos se completó."
+    : outcome.status === "CANCELLED"
+      ? "La acción de archivos fue cancelada."
+      : "La acción de archivos no se completó.";
 
 const isOpaqueIdentifier = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
@@ -272,11 +383,13 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
     scopeKind:
       isApplicationAction(outcome.action)
         ? "APPLICATION"
+        : isApprovedWebAction(outcome.action)
+          ? "WEB"
         : isWeatherAction(outcome.action)
           ? "WEATHER"
           : isHabitAction(outcome.action)
             ? "HABIT"
-          : isFileAction(outcome.action)
+          : isFileAction(outcome.action) || isSupervisedFilesAction(outcome.action)
           ? "FILES"
           : "PLANNER",
     resultKind: outcome.status
@@ -290,11 +403,24 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
   ) {
     metadata.applicationDisplayName = outcome.data.applicationName;
   }
-  if (isFileAction(outcome.action) && outcome.status === "SUCCEEDED" && outcome.data !== undefined) {
+  if (isSupervisedFilesAction(outcome.action)) {
+    // Counts only: item names, queries and paths never reach history.
+    if (outcome.status === "SUCCEEDED" && outcome.data !== undefined && "resultCount" in outcome.data && typeof outcome.data.resultCount === "number") {
+      const search = outcome.data as SupervisedFileSearchData;
+      metadata.itemCount = search.resultCount;
+      metadata.partial = search.partial;
+    }
+    if (outcome.data !== undefined && "movedCount" in outcome.data && typeof outcome.data.movedCount === "number") {
+      const mutation = outcome.data as SupervisedFileMutationData;
+      metadata.movedCount = mutation.movedCount;
+      metadata.failedCount = mutation.failedCount;
+    }
+  } else if (isFileAction(outcome.action) && outcome.status === "SUCCEEDED" && outcome.data !== undefined) {
     if ("items" in outcome.data && Array.isArray(outcome.data.items)) {
       metadata.itemCount = outcome.data.items.length;
-      metadata.skippedCount = outcome.data.skippedEntryCount;
-      metadata.partial = outcome.data.truncated;
+      const legacySearch = outcome.data as { skippedEntryCount: number; truncated: boolean };
+      metadata.skippedCount = legacySearch.skippedEntryCount;
+      metadata.partial = legacySearch.truncated;
     } else if ("operation" in outcome.data) {
       metadata.itemCount = 1;
     } else if ("plannedCount" in outcome.data) {
@@ -338,7 +464,7 @@ export const createActionOrchestrator = (
         action: outcome.action,
         riskLevel: outcome.riskLevel,
         status: outcome.status,
-        userSummary: outcome.userSummary,
+        userSummary: isSupervisedFilesAction(outcome.action) ? safeFilesHistorySummary(outcome) : outcome.userSummary,
         ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
         metadata: getHistoryMetadata(outcome),
         startedAt: startedAt.toISOString(),
@@ -409,7 +535,7 @@ export const createActionOrchestrator = (
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
       }
 
-      const policy = getActionPolicy(submission.action);
+      let policy = getActionPolicy(submission.action);
       if ((submission.action === "DELETE_EVENT" || submission.action === "DELETE_TASK") && policy.approval !== "REINFORCED_CONFIRMATION_REQUIRED") {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
       }
@@ -417,6 +543,10 @@ export const createActionOrchestrator = (
         !isPlannerAction(submission.action) &&
         !isHabitActionSubmission(submission) &&
         !isOpenApplicationSubmission(submission) &&
+        !isRegisterCatalogApplicationSubmission(submission) &&
+        !isRequestCustomApplicationRegistrationSubmission(submission) &&
+        !isSupervisedFilesSubmission(submission) &&
+        !isApprovedWebActionSubmission(submission) &&
         !isOpenWebPageSubmission(submission) &&
         !isWeatherActionSubmission(submission) &&
         !isWeeklyScheduleSubmission(submission) &&
@@ -434,6 +564,27 @@ export const createActionOrchestrator = (
 
       let proposal: ExecutableActionProposal = isOpenApplicationSubmission(submission)
         ? { actionId, action: "OPEN_APPLICATION", input: { alias: submission.input.alias } }
+        : isRegisterCatalogApplicationSubmission(submission)
+          ? {
+              actionId,
+              action: "REGISTER_CATALOG_APPLICATION",
+              input: {
+                catalogKey: submission.input.catalogKey,
+                ...(submission.input.alias === undefined ? {} : { alias: submission.input.alias })
+              }
+            } as RegisterCatalogApplicationActionProposal
+        : isRequestCustomApplicationRegistrationSubmission(submission)
+          ? {
+              actionId,
+              action: "REQUEST_CUSTOM_APPLICATION_REGISTRATION",
+              input: submission.input.displayName === undefined ? {} : { displayName: submission.input.displayName }
+            } as RequestCustomApplicationRegistrationActionProposal
+        : isSupervisedFilesSubmission(submission)
+          ? ({ actionId, action: submission.action, input: submission.input } as SupervisedFilesActionProposal)
+        : isApprovedWebActionSubmission(submission)
+          ? submission.action === "OPEN_APPROVED_PAGE"
+            ? { actionId, action: "OPEN_APPROVED_PAGE", input: { site: submission.input.site } } as ApprovedWebActionProposal
+            : { actionId, action: "SEARCH_APPROVED_SITE", input: { site: submission.input.site, query: submission.input.query } } as ApprovedWebActionProposal
         : isOpenWebPageSubmission(submission)
           ? {
               actionId,
@@ -445,7 +596,7 @@ export const createActionOrchestrator = (
               actionId,
               action: submission.action,
               input: submission.input as FileActionProposal["input"]
-            } as FileActionProposal
+            } as LegacyFileActionProposal
           : isWeatherActionSubmission(submission)
             ? {
                 actionId,
@@ -464,6 +615,123 @@ export const createActionOrchestrator = (
               input: submission.input as never
             };
       const startedAt = dependencies.now();
+
+      if (proposal.action === "REGISTER_CATALOG_APPLICATION") {
+        let prepared;
+        try {
+          prepared = dependencies.executor.prepareCatalogRegistration
+            ? await dependencies.executor.prepareCatalogRegistration(proposal)
+            : catalogRegistrationFailure("PREPARATION_FAILED");
+        } catch {
+          dependencies.logError("Catalog application proposal preparation failed.");
+          prepared = catalogRegistrationFailure("PREPARATION_FAILED");
+        }
+        if (!prepared.ok) {
+          return {
+            ok: true,
+            data: await recordTerminalOutcome({
+              actionId: proposal.actionId,
+              action: proposal.action,
+              riskLevel: policy.riskLevel,
+              status: "VALIDATION_FAILED",
+              errorCode: prepared.error.code,
+              userSummary: prepared.error.userMessage
+            }, startedAt)
+          };
+        }
+        proposal = { ...proposal, input: { catalogKey: prepared.data.catalogKey, alias: prepared.data.alias } };
+        policy = {
+          ...policy,
+          confirmation: {
+            ...policy.confirmation,
+            summary: `Se registrará ${prepared.data.applicationName} como “${prepared.data.alias}”.`,
+            scopeSummary: "Aplicación aprobada"
+          }
+        };
+      }
+
+      if (proposal.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION") {
+        // The native picker runs in Main; the validated selection never leaves Main and no path is returned.
+        let prepared;
+        try {
+          prepared = dependencies.executor.prepareCustomRegistration
+            ? await dependencies.executor.prepareCustomRegistration(proposal)
+            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." } };
+        } catch {
+          dependencies.logError("Custom application selection preparation failed.");
+          prepared = {
+            ok: false as const,
+            error: { code: "APPLICATION_CUSTOM_PICKER_UNAVAILABLE", userMessage: "No se pudo abrir el selector de aplicaciones." }
+          };
+        }
+        if (!prepared.ok) {
+          return {
+            ok: true,
+            data: await recordTerminalOutcome({
+              actionId: proposal.actionId,
+              action: proposal.action,
+              riskLevel: policy.riskLevel,
+              status: prepared.error.code === "APPLICATION_CUSTOM_REGISTRATION_CANCELLED" ? "CANCELLED" : "VALIDATION_FAILED",
+              ...(prepared.error.code === "APPLICATION_CUSTOM_REGISTRATION_CANCELLED" ? {} : { errorCode: prepared.error.code }),
+              userSummary: prepared.error.userMessage
+            }, startedAt)
+          };
+        }
+        proposal = { ...proposal, input: { displayName: prepared.data.displayName, selectionId: prepared.data.selectionId } };
+        policy = {
+          ...policy,
+          confirmation: {
+            ...policy.confirmation,
+            summary: `Se registrará «${prepared.data.displayName}» como una aplicación elegida por ti.`,
+            scopeSummary: "Aplicación elegida"
+          }
+        };
+      }
+
+      if (
+        proposal.action === "OPEN_FOUND_FILE" ||
+        proposal.action === "CREATE_FOLDER" ||
+        proposal.action === "RENAME_FOUND_ITEM" ||
+        proposal.action === "MOVE_FOUND_ITEMS" ||
+        proposal.action === "ORGANIZE_FOUND_ITEMS" ||
+        proposal.action === "DELETE_FOUND_ITEM"
+      ) {
+        // Selection and containment are checked now and again at confirm; the held reference stays in Main.
+        let preparedFiles;
+        try {
+          preparedFiles = dependencies.executor.prepareFilesAction
+            ? await dependencies.executor.prepareFilesAction(proposal)
+            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." } };
+        } catch {
+          dependencies.logError("Supervised file proposal preparation failed.");
+          preparedFiles = {
+            ok: false as const,
+            error: { code: "FILES_OPERATION_FAILED", userMessage: "No se pudo completar la operación con archivos." }
+          };
+        }
+        if (!preparedFiles.ok) {
+          return {
+            ok: true,
+            data: await recordTerminalOutcome({
+              actionId: proposal.actionId,
+              action: proposal.action,
+              riskLevel: policy.riskLevel,
+              status: preparedFiles.error.code === "FILES_OPERATION_FAILED" ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
+              errorCode: preparedFiles.error.code,
+              userSummary: preparedFiles.error.userMessage
+            }, startedAt)
+          };
+        }
+        proposal = { ...proposal, input: preparedFiles.data.input } as SupervisedFilesActionProposal;
+        policy = {
+          ...policy,
+          confirmation: {
+            ...policy.confirmation,
+            summary: preparedFiles.data.confirmationSummary,
+            scopeSummary: preparedFiles.data.scopeSummary
+          }
+        };
+      }
 
       if (proposal.action === "ORGANIZE_FILES") {
         let planResult;
