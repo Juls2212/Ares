@@ -112,11 +112,12 @@ describe("optional supervised browser speech input", () => {
     const sources = ["browser-speech-adapter.ts", "browser-speech-controls.tsx"].map(file => readFileSync(`src/renderer/features/voice/${file}`, "utf8")).join("\n");
     for (const forbidden of ["window.ares", "ipcRenderer", "node:", "electron", "openai", "../main", "actions.propose", "actions.confirm", "fetch("]) expect(sources).not.toContain(forbidden);
     const view = readFileSync("src/renderer/views/ares-view.tsx", "utf8");
-    expect(view).not.toContain("BrowserSpeechControls"); expect(view).toContain("onSubmit={onInterpret}"); expect(view).toContain("onChange={(event) => onInstructionChange(event.target.value)}");
+    expect(view).not.toContain("BrowserSpeechControls"); expect(view).toContain("<VoiceCommandControls"); expect(view).not.toContain("assistant-instruction");
     const app = readFileSync("src/renderer/app/App.tsx", "utf8");
     expect(app).toContain("window.ares.assistant.interpret({ text: instruction })");
     expect(app).toContain("window.ares.actions.confirm(confirmation.confirmationId)");
-    expect(app).toContain('{destination === "ARES" ? <AresView');
+    expect(app).toContain("<AresView");
+    expect(app).not.toContain("CalendarView");
     expect(readFileSync("src/renderer/features/voice/browser-speech-controls.tsx", "utf8")).not.toContain("createBrowserSpeechAdapter");
   });
 });
