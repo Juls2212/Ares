@@ -4,28 +4,42 @@ import { describe, expect, it } from "vitest";
 const source = (file: string): string => readFileSync(file, "utf8");
 
 describe("Ares assistant output placement", () => {
-  it("keeps the command dock limited to voice and text input controls", () => {
+  it("keeps the compact shell voice-only without a command dock or typed entry", () => {
     const view = source("src/renderer/views/ares-view.tsx");
-    const dockStart = view.indexOf('className="command-input-area command-entry-zone command-dock"');
+    const controlsStart = view.indexOf("<ParticleOrb");
     const review = view.indexOf("<InterpretationResult");
-    const dock = view.slice(dockStart, review);
+    const controls = view.slice(controlsStart, review);
 
-    expect(dockStart).toBeGreaterThan(-1);
-    expect(review).toBeGreaterThan(dockStart);
-    expect(dock).toContain("VoiceCommandControls");
-    expect(dock).toContain("command-entry-form");
-    expect(dock).not.toContain("InterpretationResult");
-    expect(dock).not.toContain("ResponseSpeechControls");
-    expect(dock).not.toContain("Proponer acción");
+    expect(controlsStart).toBeGreaterThan(-1);
+    expect(review).toBeGreaterThan(controlsStart);
+    expect(controls).toContain("onActivate={orbInteraction.activate}");
+    expect(view).not.toContain("VoiceCommandControls");
+    expect(view).not.toContain("command-entry-form");
+    expect(view).not.toContain("assistant-instruction");
+    expect(view).not.toContain("Interpretar");
+    expect(controls).not.toContain("InterpretationResult");
   });
 
-  it("keeps final text in the neural core and playback controls beside that core", () => {
+  it("keeps one Ares identity in the shell header without a duplicate view heading", () => {
+    const view = source("src/renderer/views/ares-view.tsx");
+    const app = source("src/renderer/app/App.tsx");
+
+    expect(view).not.toContain("command-heading");
+    expect(view).not.toContain("<h1>Ares</h1>");
+    expect(app).toContain('className="wordmark">ARES</span>');
+  });
+
+  it("keeps final text and Stop interaction in the core with headless playback", () => {
     const view = source("src/renderer/views/ares-view.tsx");
     const controls = source("src/renderer/features/voice/response-speech-controls.tsx");
 
     expect(view).toContain("responseText={visibleCoreResponse}");
-    expect(view).toContain('className="command-instrument__speech"');
+    expect(view).toContain('const coreResponse = spokenResponse?.text ?? "";');
+    expect(view).not.toContain("resolvedActionMessage");
+    expect(view).not.toContain('className="command-instrument__speech"');
     expect(view).toContain("<ResponseSpeechControls");
+    expect(view).toContain("headless onPlaybackEvent");
+    expect(view).toContain("stop: () => stopSpeechReference.current?.()");
     expect(controls).toContain("Detener voz");
     expect(controls).not.toContain("speechSynthesis");
   });
@@ -34,11 +48,12 @@ describe("Ares assistant output placement", () => {
     const view = source("src/renderer/views/ares-view.tsx");
 
     expect(view).toContain('voiceState === "RECORDING"\n    ? "LISTENING"');
-    expect(view).toContain('voiceState === "PROCESSING" || isInterpreting\n      ? "PROCESSING"');
+    expect(view).toContain('voiceState === "PROCESSING" || isInterpreting || isGeneratingSpeech\n      ? "PROCESSING"');
+    expect(view).toContain('? "ACTING"');
+    expect(view).toContain('exclusiveCoreState === "FAILURE" ? "error"');
     expect(view).toContain('const visibleCoreResponse = responsePhase ? coreResponseText : "";');
     expect(view).toContain("responseText={visibleCoreResponse}");
     expect(view).toContain("const handleStartRecording");
-    expect(view).toContain("const handleInterpret");
     expect(view).toContain("clearCoreForNewInteraction();");
   });
 
