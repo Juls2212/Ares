@@ -12,7 +12,24 @@ import {
   type AssistantOperationResult
 } from "../../shared/assistant-contracts";
 import type { SafeFileReference } from "../../shared/file-contracts";
-import { validateApplicationAlias } from "../applications/application-validation";
+import { validateApplicationAlias, validateCustomApplicationDisplayName } from "../applications/application-validation";
+import { parseFoundFileCommand, type OrdinalReference } from "./found-file-references";
+import { parseFileMutationCommand, type FileMutationCommand, type OrdinalSelection } from "./found-file-mutations";
+import type { FoundFileNameResolution } from "../files/supervised-file-service";
+import {
+  isFileSearchKind,
+  isFoundOrdinal,
+  isSupervisedFileRoot,
+  parseSelection,
+  validateFolderName,
+  validateSearchQuery
+} from "../files/supervised-file-validation";
+import {
+  KNOWN_APPLICATION_CATALOG,
+  getKnownApplication,
+  isKnownApplicationCatalogKey,
+  normalizeApplicationAlias
+} from "../applications/known-application-catalog";
 import { getOpenAiConfiguration, type OpenAiConfiguration } from "../config/openai-environment";
 import {
   validateCreateFolderInput,
@@ -52,11 +69,16 @@ import {
 import { isUnsafeAssistantDraftText, isUnsafeAssistantInstruction } from "./assistant-safety";
 import type { ResolvedAssistantContext } from "./assistant-context-service";
 import { normalizeEventTitle, type ResolveEventDeletion } from "./assistant-event-reference";
-import { getAssistantProviderFailureCategory } from "./provider-failure-category";
+import {
+  getAssistantProviderFailureDiagnostic,
+  type AssistantProviderFailureDiagnostic
+} from "./provider-failure-category";
 import type { WeeklyScheduleReferenceResolution } from "../actions/weekly-schedule-analysis";
 import type { WeeklyScheduleMutationReferences } from "../actions/weekly-schedule-mutation-references";
 import type { HabitMutationReferences } from "../actions/habit-mutation-references";
 import { validateCreateHabitInput, validateUpdateHabitInput } from "../habits/habit-validation";
+import { isEnabledAssistantAction } from "../actions/capability-registry";
+import { validateApprovedWebActionInput } from "../actions/approved-web-action-executor";
 
 const MAX_INSTRUCTION_LENGTH = 2_000;
 const MAX_DRAFTS = 8;
@@ -76,6 +98,12 @@ export type AssistantInterpreterDependencies = {
   resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>;
   resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences;
   resolveHabitMutationReferences?: HabitMutationReferences;
+  /** Count-only view of the last file search, supplied by Main. */
+  getActiveFileSearch?: () => { resultCount: number } | undefined;
+  /** Main-side matching of a spoken name against the last search; names never reach the provider. */
+  resolveFoundFileName?: (name: string) => FoundFileNameResolution;
+  /** Main-side matching of a spoken folder name against FOLDER entries of the last search. */
+  resolveFoundFolderName?: (name: string) => FoundFileNameResolution;
 };
 
 export type TrustedAssistantReference = {
@@ -100,10 +128,18 @@ const unavailableMessage = (
       return "La interpretación requiere configurar OpenAI localmente.";
     case ASSISTANT_ERROR_CODES.authentication:
       return "Ares no pudo autenticarse con el servicio de interpretación.";
+    case ASSISTANT_ERROR_CODES.authorization:
+      return "La cuenta configurada no tiene acceso al servicio de interpretación.";
     case ASSISTANT_ERROR_CODES.modelAccess:
       return "El modelo configurado no está disponible para esta cuenta.";
+    case ASSISTANT_ERROR_CODES.timeout:
+      return "El servicio de interpretación tardó demasiado. Inténtalo de nuevo.";
+    case ASSISTANT_ERROR_CODES.quota:
+      return "La cuenta configurada no tiene cuota disponible para interpretar solicitudes.";
     case ASSISTANT_ERROR_CODES.rateLimited:
       return "El servicio de interpretación alcanzó su límite temporal. Inténtalo más tarde.";
+    case ASSISTANT_ERROR_CODES.network:
+      return "No se pudo conectar con el servicio de interpretación. Inténtalo de nuevo.";
     default:
       return "El servicio de interpretación no está disponible temporalmente. Inténtalo de nuevo más tarde.";
   }
@@ -121,10 +157,177 @@ const unavailable = (code: (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT
 const clarification = (question = "¿Puedes indicar los datos necesarios de forma más específica?"): AssistantOperationResult<AssistantInterpretation> =>
   success({
     state: "NEEDS_CLARIFICATION",
-    summary: "Necesito algunos datos adicionales para preparar la acción.",
+    summary: question,
     drafts: [],
     clarifications: [{ question }]
   });
+
+/**
+ * A bare application name or alias carries no verb, so it is neither small talk nor an action.
+ * This deterministic Main-side check runs before the provider and returns a fixed clarification.
+ */
+const getAliasOnlyClarification = (
+  instruction: string,
+  registeredAliases: readonly string[] | undefined
+): string | undefined => {
+  const normalized = normalizeApplicationAlias(instruction);
+  if (normalized.length === 0) return undefined;
+  const catalogEntry = KNOWN_APPLICATION_CATALOG.find((entry) =>
+    [entry.defaultAlias, entry.displayName, ...entry.recognitionAliases].some(
+      (alias) => normalizeApplicationAlias(alias) === normalized
+    )
+  );
+  if (catalogEntry) return `¿Quieres que abra o que registre ${catalogEntry.displayName}?`;
+  return registeredAliases?.some((alias) => normalizeApplicationAlias(alias) === normalized)
+    ? "¿Quieres que abra esa aplicación registrada?"
+    : undefined;
+};
+
+const FILE_NOUN = /\b(?:archivos?|carpetas?|ficheros?|documentos?|fotos?|imagenes|imagen|pdfs?)\b/u;
+const NON_FILE_NOUN = /\b(?:eventos?|tareas?|recordatorios?|habitos?|horarios?|rutinas?)\b/u;
+
+const DELETE_UNSUPPORTED_QUESTION =
+  "Solo puedo enviar un elemento a la Papelera por solicitud, indicando su número. No puedo borrar varios a la vez, de forma permanente ni por ruta.";
+const DELETE_NEEDS_ORDINAL = "Indica el número del resultado que quieres enviar a la Papelera, por ejemplo el tercero.";
+const SELECTION_QUESTION = "Indica qué resultados, por ejemplo «todo» o el primero y el segundo.";
+const DESTINATION_QUESTION = "Indica el destino: Escritorio, Documentos, Descargas, Imágenes, Música o Videos.";
+const FOLDER_AMBIGUOUS = "Hay varias carpetas con ese nombre. Indica cuál por su número.";
+const FOLDER_UNMATCHED = "No encontré esa carpeta entre los últimos resultados. Indica una ubicación como Documentos o busca primero la carpeta.";
+const INVALID_ITEM_NAME = "Indica un nombre válido para el elemento.";
+
+/**
+ * «renombra el primero a X», «mueve el segundo a Documentos», «organiza estos archivos en una carpeta
+ * llamada X en Documentos» and «elimina el tercero» are resolved in Main against the last search before
+ * any provider call. Requests that stay unavailable (several deletions, permanent deletion, typed paths)
+ * answer with a fixed clarification, so no action and no confirmation dialog can follow.
+ */
+const resolveFileMutationCommand = (
+  instruction: string,
+  activeFileSearch: { resultCount: number } | undefined,
+  resolveFoundFolderName: AssistantInterpreterDependencies["resolveFoundFolderName"]
+): AssistantOperationResult<AssistantInterpretation> | undefined => {
+  const command: FileMutationCommand | undefined = parseFileMutationCommand(instruction);
+  if (!command) return undefined;
+  const normalized = normalizeApplicationAlias(instruction);
+  if (NON_FILE_NOUN.test(normalized)) return undefined;
+  if (!activeFileSearch && !FILE_NOUN.test(normalized)) return undefined;
+  if (command.kind === "DELETE_UNSUPPORTED") return clarification(DELETE_UNSUPPORTED_QUESTION);
+  if (!activeFileSearch) return clarification(FOUND_FILE_NO_SEARCH);
+  const count = activeFileSearch.resultCount;
+  const ready = (action: string, input: unknown): AssistantOperationResult<AssistantInterpretation> =>
+    success({
+      state: "READY",
+      summary: READY_SUMMARY,
+      drafts: [{ action, input } as ActionSubmission],
+      clarifications: []
+    });
+  const toOrdinal = (reference: OrdinalReference): number | undefined => {
+    const ordinal = reference === "LAST" ? count : reference;
+    return ordinal >= 1 && ordinal <= count ? ordinal : undefined;
+  };
+  const selectionInput = (selection: OrdinalSelection): { all: true } | { ordinals: number[] } | undefined => {
+    if ("all" in selection) return { all: true };
+    const ordinals: number[] = [];
+    for (const reference of selection.ordinals) {
+      const ordinal = toOrdinal(reference);
+      if (ordinal === undefined) return undefined;
+      if (!ordinals.includes(ordinal)) ordinals.push(ordinal);
+    }
+    return { ordinals };
+  };
+
+  switch (command.kind) {
+    case "INCOMPLETE":
+      return clarification(
+        command.action === "DELETE" ? DELETE_NEEDS_ORDINAL
+          : command.missing === "DESTINATION" ? DESTINATION_QUESTION
+          : command.missing === "NAME" ? INVALID_ITEM_NAME
+          : command.action === "RENAME" ? "Indica el número del resultado que quieres renombrar, por ejemplo el primero."
+          : SELECTION_QUESTION
+      );
+    case "DELETE": {
+      const ordinal = toOrdinal(command.ordinal);
+      return ordinal === undefined ? clarification(outOfRangeQuestion(count)) : ready("DELETE_FOUND_ITEM", { ordinal });
+    }
+    case "RENAME": {
+      const ordinal = toOrdinal(command.ordinal);
+      if (ordinal === undefined) return clarification(outOfRangeQuestion(count));
+      const newName = validateFolderName(command.newName);
+      if (!newName || isUnsafeAssistantDraftText(newName)) return clarification(INVALID_ITEM_NAME);
+      return ready("RENAME_FOUND_ITEM", { ordinal, newName });
+    }
+    case "MOVE": {
+      const selection = selectionInput(command.selection);
+      if (!selection) return clarification(outOfRangeQuestion(count));
+      if ("root" in command.destination) {
+        return ready("MOVE_FOUND_ITEMS", { ...selection, destinationRoot: command.destination.root });
+      }
+      const folder = resolveFoundFolderName?.(command.destination.folderName) ?? { state: "NONE" as const };
+      if (folder.state === "AMBIGUOUS") return clarification(FOLDER_AMBIGUOUS);
+      if (folder.state !== "RESOLVED") return clarification(FOLDER_UNMATCHED);
+      return ready("MOVE_FOUND_ITEMS", { ...selection, destinationOrdinal: folder.ordinal });
+    }
+    case "ORGANIZE": {
+      const selection = selectionInput(command.selection);
+      if (!selection) return clarification(outOfRangeQuestion(count));
+      const folderName = validateFolderName(command.folderName);
+      if (!folderName || isUnsafeAssistantDraftText(folderName)) return clarification(INVALID_ITEM_NAME);
+      return ready("ORGANIZE_FOUND_ITEMS", { ...selection, folderName, root: command.root });
+    }
+  }
+};
+
+const FOUND_FILE_NO_SEARCH = "Primero haz una búsqueda de archivos para poder elegir un resultado.";
+const FOUND_FILE_AMBIGUOUS = "Hay varios resultados con ese nombre. Indica cuál por su número, por ejemplo el segundo.";
+const FOUND_FILE_UNMATCHED = "No encontré ese nombre entre los últimos resultados. Indica el número del resultado.";
+
+const outOfRangeQuestion = (resultCount: number): string =>
+  resultCount === 1
+    ? "Solo hay 1 resultado. Indica el número 1."
+    : `Solo hay ${resultCount} resultados. Indica un número entre 1 y ${resultCount}.`;
+
+/**
+ * «abre el segundo (archivo)», «muéstrame el primero» and «abre <nombre del resultado>» are resolved
+ * in Main against the last search before any provider call. A known application alias always wins,
+ * and an unmatched name falls through to the provider so applications keep working.
+ */
+const resolveFoundFileCommand = (
+  instruction: string,
+  activeFileSearch: { resultCount: number } | undefined,
+  knownAliases: readonly string[],
+  resolveFoundFileName: AssistantInterpreterDependencies["resolveFoundFileName"]
+): AssistantOperationResult<AssistantInterpretation> | undefined => {
+  const command = parseFoundFileCommand(instruction);
+  if (!command) return undefined;
+  const readyDraft = (ordinal: number): AssistantOperationResult<AssistantInterpretation> =>
+    success({
+      state: "READY",
+      summary: READY_SUMMARY,
+      drafts: [{ action: command.action, input: { ordinal } }],
+      clarifications: []
+    });
+
+  if (command.target.kind === "ORDINAL") {
+    if (!activeFileSearch) return clarification(FOUND_FILE_NO_SEARCH);
+    const ordinal = command.target.ordinal === "LAST" ? activeFileSearch.resultCount : command.target.ordinal;
+    return ordinal >= 1 && ordinal <= activeFileSearch.resultCount
+      ? readyDraft(ordinal)
+      : clarification(outOfRangeQuestion(activeFileSearch.resultCount));
+  }
+
+  if (!activeFileSearch || !resolveFoundFileName) return undefined;
+  const name = command.target.name;
+  const catalogAlias = KNOWN_APPLICATION_CATALOG.some((entry) =>
+    [entry.defaultAlias, entry.displayName, ...entry.recognitionAliases].some(
+      (alias) => normalizeApplicationAlias(alias) === name
+    )
+  );
+  const registeredAlias = knownAliases.some((alias) => normalizeApplicationAlias(alias) === name);
+  if (catalogAlias || registeredAlias) return undefined;
+  const resolution = resolveFoundFileName(name);
+  if (resolution.state === "RESOLVED") return readyDraft(resolution.ordinal);
+  return resolution.state === "AMBIGUOUS" ? clarification(FOUND_FILE_AMBIGUOUS) : undefined;
+};
 
 const rejection = (
   code: (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT_ERROR_CODES] =
@@ -132,7 +335,9 @@ const rejection = (
 ): AssistantOperationResult<AssistantInterpretation> =>
   success({
     state: "REJECTED",
-    summary: "No puedo preparar esa solicitud de forma segura.",
+    summary: code === ASSISTANT_ERROR_CODES.malformed
+      ? "La respuesta del servicio de interpretación no se pudo validar. Inténtalo de nuevo."
+      : "No puedo preparar esa solicitud de forma segura.",
     drafts: [],
     clarifications: [],
     errorCode: code
@@ -258,6 +463,8 @@ const createReference = (
   ...(overrides?.knownApplicationAliases
     ? { knownApplicationAliases: overrides.knownApplicationAliases }
     : {}),
+  ...(overrides?.knownCatalogApplications ? { knownCatalogApplications: overrides.knownCatalogApplications } : {}),
+  ...(overrides?.activeFileSearch ? { activeFileSearch: overrides.activeFileSearch } : {}),
   ...(overrides?.knownApplications ? { knownApplications: overrides.knownApplications } : {}),
   ...(overrides?.knownWeeklyScheduleTitles ? { knownWeeklyScheduleTitles: overrides.knownWeeklyScheduleTitles } : {}),
   ...(overrides?.knownFileReferences ? { knownFileReferences: overrides.knownFileReferences } : {}),
@@ -389,6 +596,7 @@ const validateDraft = async (
   }
 
   const { action } = candidate;
+  if (!isEnabledAssistantAction(action)) return null;
   const tokenResolution = resolveCurrentContextToken(action, candidate.input, currentContext);
   if (typeof tokenResolution === "object" && tokenResolution !== null && "kind" in tokenResolution) {
     return tokenResolution as DraftClarification;
@@ -667,7 +875,46 @@ const validateDraft = async (
       const known = reference.knownApplicationAliases?.some(
         (alias) => alias.trim().toLocaleLowerCase() === result.data.toLocaleLowerCase()
       );
-      return known ? { action, input: { alias: result.data } } : draftClarification("La aplicación necesita un alias registrado y confiable.");
+      return known
+        ? { action, input: { alias: result.data } }
+        : draftClarification("Primero debes registrar esa aplicación para poder abrirla.");
+    }
+    case "REGISTER_CATALOG_APPLICATION": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["catalogKey", "alias"]) || !isKnownApplicationCatalogKey(input.catalogKey)) {
+        return draftClarification("Indica una aplicación aprobada que quieras registrar.");
+      }
+      const catalogApplication = getKnownApplication(input.catalogKey);
+      const known = reference.knownCatalogApplications?.some((entry) => entry.key === input.catalogKey);
+      if (!catalogApplication || !known) return draftClarification("Indica una aplicación aprobada que quieras registrar.");
+      if (input.alias === undefined) return { action, input: { catalogKey: catalogApplication.key } };
+      const alias = validateApplicationAlias(input.alias);
+      if (!alias.ok || isUnsafeAssistantDraftText(input.alias)) {
+        return draftClarification("Indica un alias válido para la aplicación.");
+      }
+      return { action, input: { catalogKey: catalogApplication.key, alias: alias.data } };
+    }
+    case "REQUEST_CUSTOM_APPLICATION_REGISTRATION": {
+      // The model may only carry an optional friendly name; the executable is chosen in a native picker.
+      const requested = input === undefined ? {} : input;
+      if (!isRecord(requested) || !hasOnlyKeys(requested, ["displayName"])) return null;
+      if (requested.displayName === undefined) return { action, input: {} };
+      const displayName = validateCustomApplicationDisplayName(requested.displayName);
+      if (!displayName.ok || isUnsafeAssistantDraftText(requested.displayName)) {
+        return draftClarification("Indica un nombre válido para la aplicación.");
+      }
+      return { action, input: { displayName: displayName.data } };
+    }
+    case "OPEN_APPROVED_PAGE":
+    case "SEARCH_APPROVED_SITE": {
+      const validated = validateApprovedWebActionInput(action, input);
+      if (!validated) {
+        return draftClarification(
+          action === "OPEN_APPROVED_PAGE"
+            ? "Solo puedo abrir Google, YouTube o Spotify."
+            : "Indica una búsqueda válida para Google, YouTube o Spotify."
+        );
+      }
+      return validated;
     }
     case "OPEN_WEB_PAGE": {
       if (!isRecord(input) || !hasOnlyKeys(input, ["destination", "browser"])) return null;
@@ -688,17 +935,89 @@ const validateDraft = async (
       return { action, input: { destination: "YOUTUBE", browser: "CHROME" } };
     }
     case "SEARCH_FILES": {
-      const result = validateFileSearchInput(input);
-      if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      if (!fileReferencesAreKnown(action, input, reference.knownFileReferences)) return null;
-      return { action, input: result.data };
+      // Only a short name fragment plus closed enums; the model never supplies a path or root location.
+      if (!isRecord(input) || !hasOnlyKeys(input, ["query", "root", "kind"])) return null;
+      const query = validateSearchQuery(input.query);
+      if (!query || isUnsafeAssistantDraftText(query)) {
+        return draftClarification("Indica qué nombre de archivo o carpeta quieres buscar.");
+      }
+      if (input.root !== undefined && !isSupervisedFileRoot(input.root)) return null;
+      if (input.kind !== undefined && !isFileSearchKind(input.kind)) return null;
+      return {
+        action,
+        input: {
+          query,
+          ...(input.root === undefined ? {} : { root: input.root }),
+          ...(input.kind === undefined ? {} : { kind: input.kind })
+        }
+      };
+    }
+    case "REVEAL_FOUND_FILE":
+    case "OPEN_FOUND_FILE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinal"]) || !isFoundOrdinal(input.ordinal)) {
+        return draftClarification("Indica el número del resultado, por ejemplo el primero o el segundo.");
+      }
+      return { action, input: { ordinal: input.ordinal } };
+    }
+    case "RENAME_FOUND_ITEM": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinal", "newName"]) || !isFoundOrdinal(input.ordinal)) {
+        return draftClarification("Indica el número del resultado que quieres renombrar, por ejemplo el primero.");
+      }
+      const newName = validateFolderName(input.newName);
+      if (!newName || isUnsafeAssistantDraftText(newName)) return draftClarification(INVALID_ITEM_NAME);
+      return { action, input: { ordinal: input.ordinal, newName } };
+    }
+    case "DELETE_FOUND_ITEM": {
+      // Exactly one explicit ordinal: a name, a batch, or any extra field is never turned into a deletion.
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinal"]) || !isFoundOrdinal(input.ordinal)) {
+        return draftClarification(DELETE_NEEDS_ORDINAL);
+      }
+      return { action, input: { ordinal: input.ordinal } };
+    }
+    case "MOVE_FOUND_ITEMS": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinals", "all", "destinationRoot", "destinationOrdinal"])) return null;
+      const selection = parseSelection(input);
+      if (!selection) return draftClarification(SELECTION_QUESTION);
+      if (input.destinationRoot !== undefined && !isSupervisedFileRoot(input.destinationRoot)) return null;
+      if (input.destinationOrdinal !== undefined && !isFoundOrdinal(input.destinationOrdinal)) return null;
+      if (input.destinationRoot === undefined && input.destinationOrdinal === undefined) return draftClarification(DESTINATION_QUESTION);
+      return {
+        action,
+        input: {
+          ...selection,
+          ...(input.destinationRoot === undefined ? {} : { destinationRoot: input.destinationRoot }),
+          ...(input.destinationOrdinal === undefined ? {} : { destinationOrdinal: input.destinationOrdinal })
+        }
+      };
+    }
+    case "ORGANIZE_FOUND_ITEMS": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinals", "all", "folderName", "root"])) return null;
+      const selection = parseSelection(input);
+      if (!selection) return draftClarification(SELECTION_QUESTION);
+      const folderName = validateFolderName(input.folderName);
+      if (!folderName || isUnsafeAssistantDraftText(folderName)) return draftClarification(INVALID_ITEM_NAME);
+      if (!isSupervisedFileRoot(input.root)) return draftClarification(DESTINATION_QUESTION);
+      return { action, input: { ...selection, folderName, root: input.root } };
     }
     case "CREATE_FOLDER": {
-      const result = validateCreateFolderInput(input);
-      if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return tokenResolution.usedToken || fileReferencesAreKnown(action, input, reference.knownFileReferences)
-        ? { action, input: result.data }
-        : null;
+      if (!isRecord(input) || !hasOnlyKeys(input, ["folderName", "root", "parentOrdinal"])) return null;
+      const folderName = validateFolderName(input.folderName);
+      if (!folderName || isUnsafeAssistantDraftText(folderName)) {
+        return draftClarification("Indica un nombre válido para la carpeta.");
+      }
+      if (input.root !== undefined && !isSupervisedFileRoot(input.root)) return null;
+      if (input.parentOrdinal !== undefined && !isFoundOrdinal(input.parentOrdinal)) return null;
+      if (input.root === undefined && input.parentOrdinal === undefined) {
+        return draftClarification("¿En qué ubicación quieres crear la carpeta? Puedo usar Escritorio, Documentos, Descargas, Imágenes, Música o Videos.");
+      }
+      return {
+        action,
+        input: {
+          folderName,
+          ...(input.root === undefined ? {} : { root: input.root }),
+          ...(input.parentOrdinal === undefined ? {} : { parentOrdinal: input.parentOrdinal })
+        }
+      };
     }
     case "RENAME_FILE": {
       const result = validateRenameFileInput(input);
@@ -764,7 +1083,28 @@ const parseDraftInput = (value: unknown): unknown => {
   }
 };
 
+const SUPERVISED_FILE_DRAFT_ACTIONS = [
+  "SEARCH_FILES",
+  "REVEAL_FOUND_FILE",
+  "OPEN_FOUND_FILE",
+  "CREATE_FOLDER",
+  "RENAME_FOUND_ITEM",
+  "MOVE_FOUND_ITEMS",
+  "ORGANIZE_FOUND_ITEMS",
+  "DELETE_FOUND_ITEM"
+];
+
 const parseCandidateInput = (candidate: UnknownRecord): unknown => {
+  if (SUPERVISED_FILE_DRAFT_ACTIONS.includes(candidate.action as string)) {
+    if (candidate.input !== null || !isRecord(candidate.filesAction)) return undefined;
+    // A null or false optional is "not given"; the closed validators then see only what was really supplied.
+    return Object.fromEntries(Object.entries(candidate.filesAction).filter(([key, value]) => value !== null && !(key === "all" && value === false)));
+  }
+  if (candidate.action === "REGISTER_CATALOG_APPLICATION") {
+    if (candidate.input !== null || !isRecord(candidate.catalogApplication)) return undefined;
+    const { catalogKey, alias } = candidate.catalogApplication;
+    return { catalogKey, ...(alias === null ? {} : { alias }) };
+  }
   if (candidate.action === "CREATE_WEEKLY_ROUTINE") {
     if (candidate.input !== null || !isRecord(candidate.weeklyRoutine)) return undefined;
     const { location, categoryName, ...weeklyRoutine } = candidate.weeklyRoutine;
@@ -805,7 +1145,19 @@ const parseCandidateInput = (candidate: UnknownRecord): unknown => {
     return { ...(habitTitle === null ? {} : { habitTitle }) };
   }
 
-  if ((candidate.weeklyRoutine !== undefined && candidate.weeklyRoutine !== null) || (candidate.habitAction !== undefined && candidate.habitAction !== null)) return undefined;
+  if (["OPEN_APPROVED_PAGE", "SEARCH_APPROVED_SITE"].includes(candidate.action as string)) {
+    if (candidate.input !== null || !isRecord(candidate.approvedWeb)) return undefined;
+    const { site, query } = candidate.approvedWeb;
+    return candidate.action === "OPEN_APPROVED_PAGE" ? { site } : { site, query };
+  }
+
+  if (
+    (candidate.weeklyRoutine !== undefined && candidate.weeklyRoutine !== null) ||
+    (candidate.habitAction !== undefined && candidate.habitAction !== null) ||
+    (candidate.approvedWeb !== undefined && candidate.approvedWeb !== null)
+    || (candidate.catalogApplication !== undefined && candidate.catalogApplication !== null)
+    || (candidate.filesAction !== undefined && candidate.filesAction !== null)
+  ) return undefined;
   return parseDraftInput(candidate.input);
 };
 
@@ -819,7 +1171,9 @@ const parseProviderOutput = async (
   resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences,
   resolveHabitMutationReferences?: HabitMutationReferences,
   instruction = "",
-  resolveTrustedReference?: TrustedAssistantReferenceResolver
+  resolveTrustedReference?: TrustedAssistantReferenceResolver,
+  resolveFoundFileName?: AssistantInterpreterDependencies["resolveFoundFileName"],
+  resolveFoundFolderName?: AssistantInterpreterDependencies["resolveFoundFolderName"]
 ): Promise<AssistantOperationResult<AssistantInterpretation>> => {
   if (typeof raw !== "string") {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
@@ -889,11 +1243,38 @@ const parseProviderOutput = async (
   }
   const drafts: ActionSubmission[] = [];
   for (const [index, candidate] of parsed.drafts.entries()) {
-    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "weeklyRoutine", "habitAction"])) {
+    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "weeklyRoutine", "habitAction", "approvedWeb", "catalogApplication", "filesAction"])) {
       return rejection(ASSISTANT_ERROR_CODES.malformed);
     }
+    let effective: UnknownRecord = candidate;
+    if (
+      candidate.action === "MOVE_FOUND_ITEMS" &&
+      isRecord(candidate.filesAction) &&
+      typeof candidate.filesAction.destinationName === "string"
+    ) {
+      const folderName = candidate.filesAction.destinationName;
+      if (isUnsafeAssistantDraftText(folderName)) return rejection(ASSISTANT_ERROR_CODES.rejected);
+      const folder = resolveFoundFolderName?.(folderName) ?? { state: "NONE" as const };
+      if (folder.state === "AMBIGUOUS") return clarification(`El borrador ${index + 1}: ${FOLDER_AMBIGUOUS}`);
+      if (folder.state !== "RESOLVED") return clarification(`El borrador ${index + 1}: ${FOLDER_UNMATCHED}`);
+      const { destinationName: _resolved, ...rest } = candidate.filesAction;
+      effective = { ...candidate, filesAction: { ...rest, destinationOrdinal: folder.ordinal } };
+    }
+    if (
+      (candidate.action === "OPEN_FOUND_FILE" || candidate.action === "REVEAL_FOUND_FILE") &&
+      isRecord(candidate.filesAction) &&
+      hasOnlyKeys(candidate.filesAction, ["fileName"]) &&
+      typeof candidate.filesAction.fileName === "string"
+    ) {
+      const fileName = candidate.filesAction.fileName;
+      if (isUnsafeAssistantDraftText(fileName)) return rejection(ASSISTANT_ERROR_CODES.rejected);
+      const resolution = resolveFoundFileName?.(fileName) ?? { state: "NONE" as const };
+      if (resolution.state === "AMBIGUOUS") return clarification(`El borrador ${index + 1}: ${FOUND_FILE_AMBIGUOUS}`);
+      if (resolution.state !== "RESOLVED") return clarification(`El borrador ${index + 1}: ${FOUND_FILE_UNMATCHED}`);
+      effective = { ...candidate, filesAction: { ordinal: resolution.ordinal } };
+    }
     const draft = await validateDraft(
-      { action: candidate.action, input: parseCandidateInput(candidate) },
+      { action: effective.action, input: parseCandidateInput(effective) },
       trustedReference,
       temporalResolver,
       trustedContext,
@@ -917,21 +1298,26 @@ const parseProviderOutput = async (
     : READY_SUMMARY, drafts, clarifications: [] });
 };
 
-const isRateLimited = (error: unknown): boolean =>
-  isRecord(error) && error.status === 429;
-
 const getProviderFailureCode = (
-  error: unknown
+  diagnostic: AssistantProviderFailureDiagnostic
 ): (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT_ERROR_CODES] => {
-  const category = getAssistantProviderFailureCategory(error);
+  const { category } = diagnostic;
   if (category === "TIMEOUT") return ASSISTANT_ERROR_CODES.timeout;
-  if (category === "MODEL_ACCESS" || category === "MODEL_REQUEST_INCOMPATIBLE") return ASSISTANT_ERROR_CODES.modelAccess;
-  if (!isRecord(error)) return ASSISTANT_ERROR_CODES.provider;
-  if (error.status === 401) return ASSISTANT_ERROR_CODES.authentication;
-  if (error.status === 403 || error.status === 404) return ASSISTANT_ERROR_CODES.modelAccess;
-  if (isRateLimited(error)) return ASSISTANT_ERROR_CODES.rateLimited;
+  if (category === "NETWORK") return ASSISTANT_ERROR_CODES.network;
+  if (category === "AUTHENTICATION") return ASSISTANT_ERROR_CODES.authentication;
+  if (category === "AUTHORIZATION") return ASSISTANT_ERROR_CODES.authorization;
+  if (category === "MODEL_UNAVAILABLE" || category === "MODEL_REQUEST_INCOMPATIBLE") {
+    return ASSISTANT_ERROR_CODES.modelAccess;
+  }
+  if (category === "QUOTA") return ASSISTANT_ERROR_CODES.quota;
+  if (category === "RATE_LIMIT") return ASSISTANT_ERROR_CODES.rateLimited;
   return ASSISTANT_ERROR_CODES.provider;
 };
+
+const formatProviderFailureDiagnostic = (diagnostic: AssistantProviderFailureDiagnostic): string =>
+  `Assistant provider failure category [${diagnostic.category}] status [${diagnostic.status ?? "NONE"}] retryable [${diagnostic.retryable}].`;
+
+const isDevelopmentDiagnosticEnabled = (): boolean => process.env.NODE_ENV !== "production";
 
 /** Main-only interpreter. It validates drafts but never calls an action service or executor. */
 export const createAssistantInterpreter = (dependencies: AssistantInterpreterDependencies = {}) => {
@@ -966,6 +1352,24 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
       if (isUnsafeAssistantInstruction(normalizedInput.instruction)) {
         return rejection(ASSISTANT_ERROR_CODES.rejected);
       }
+      const aliasOnlyQuestion = getAliasOnlyClarification(
+        normalizedInput.instruction,
+        referenceOverrides?.knownApplicationAliases
+      );
+      if (aliasOnlyQuestion) return clarification(aliasOnlyQuestion);
+      const mutationResult = resolveFileMutationCommand(
+        normalizedInput.instruction,
+        referenceOverrides?.activeFileSearch ?? dependencies.getActiveFileSearch?.(),
+        dependencies.resolveFoundFolderName
+      );
+      if (mutationResult) return mutationResult;
+      const foundFileResult = resolveFoundFileCommand(
+        normalizedInput.instruction,
+        referenceOverrides?.activeFileSearch ?? dependencies.getActiveFileSearch?.(),
+        referenceOverrides?.knownApplicationAliases ?? [],
+        dependencies.resolveFoundFileName
+      );
+      if (foundFileResult) return foundFileResult;
       let provider: StructuredInterpretationProvider;
       try {
         provider = createProvider(getConfiguration());
@@ -998,8 +1402,9 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
         });
       } catch (error) {
         if (timedOut) return reportUnavailable(ASSISTANT_ERROR_CODES.timeout);
-        logError(`Assistant provider failure category [${getAssistantProviderFailureCategory(error)}].`);
-        return reportUnavailable(getProviderFailureCode(error));
+        const diagnostic = getAssistantProviderFailureDiagnostic(error);
+        if (isDevelopmentDiagnosticEnabled()) logError(formatProviderFailureDiagnostic(diagnostic));
+        return reportUnavailable(getProviderFailureCode(diagnostic));
       } finally {
         clearTimeout(timeout);
       }
@@ -1019,7 +1424,9 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           dependencies.resolveWeeklyScheduleMutationReferences,
           dependencies.resolveHabitMutationReferences,
           normalizedInput.instruction,
-          resolveTrustedReference
+          resolveTrustedReference,
+          dependencies.resolveFoundFileName,
+          dependencies.resolveFoundFolderName
         );
         if (result.ok && result.data.errorCode === ASSISTANT_ERROR_CODES.malformed) {
           logError(`Assistant interpretation failed [${ASSISTANT_ERROR_CODES.malformed}].`);

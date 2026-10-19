@@ -8,6 +8,7 @@ const reference = {
   now: "2026-09-20T15:00:00.000Z",
   timeZone: "America/Bogota",
   knownApplicationAliases: ["notepad", "chrome"],
+  knownCatalogApplications: [{ key: "SPOTIFY" as const, displayName: "Spotify", recognitionAliases: ["spotify"] }],
   knownWeeklyScheduleTitles: ["Universidad"],
   knownFileReferences: [
     { rootId: "DOCUMENTS" as const, relativePath: "inbox" },
@@ -34,13 +35,14 @@ const ready = (drafts: Array<{ action: string; input: unknown }>) => ({
   responseText: "",
   drafts: drafts.map((draft) => {
     if (draft.action !== "CREATE_WEEKLY_ROUTINE") {
-      return { action: draft.action, input: JSON.stringify(draft.input), weeklyRoutine: null, habitAction: null };
+      return { action: draft.action, input: JSON.stringify(draft.input), weeklyRoutine: null, habitAction: null, approvedWeb: null };
     }
     const weeklyRoutine = draft.input as Record<string, unknown>;
     return {
       action: draft.action,
       input: null,
       habitAction: null,
+      approvedWeb: null,
       weeklyRoutine: {
         ...weeklyRoutine,
         location: weeklyRoutine.location ?? null,
@@ -98,6 +100,36 @@ const habitMutationReferences = (state: "RESOLVED" | "MISSING" | "AMBIGUOUS" = "
 });
 
 describe("Main-only assistant interpreter", () => {
+  it("accepts the strict approved-site page and search candidates without accepting raw URLs", async () => {
+    const result = await interpreterFor({
+      state: "READY", summary: "Preparé las acciones.", responseText: "", clarifications: [],
+      drafts: [
+        { action: "OPEN_APPROVED_PAGE", input: null, weeklyRoutine: null, habitAction: null, approvedWeb: { site: "YOUTUBE", query: null } },
+        { action: "SEARCH_APPROVED_SITE", input: null, weeklyRoutine: null, habitAction: null, approvedWeb: { site: "SPOTIFY", query: "Natalia Lafourcade" } }
+      ]
+    }).interpret({ instruction: "Abre YouTube y busca Natalia Lafourcade en Spotify" }, reference);
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        state: "READY",
+        drafts: [
+          { action: "OPEN_APPROVED_PAGE", input: { site: "YOUTUBE" } },
+          { action: "SEARCH_APPROVED_SITE", input: { site: "SPOTIFY", query: "Natalia Lafourcade" } }
+        ]
+      }
+    });
+  });
+
+  it("returns a controlled clarification for raw URL web candidates", async () => {
+    const result = await interpreterFor({
+      state: "READY", summary: "Preparé la acción.", responseText: "", clarifications: [],
+      drafts: [{ action: "SEARCH_APPROVED_SITE", input: null, weeklyRoutine: null, habitAction: null, approvedWeb: { site: "GOOGLE", query: "https://example.com" } }]
+    }).interpret({ instruction: "Busca algo en Google" }, reference);
+
+    expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
+  });
+
   it("accepts explicit habit candidates and resolves only their human-readable title", async () => {
     const references = habitMutationReferences();
     const result = await createAssistantInterpreter({
@@ -192,7 +224,7 @@ describe("Main-only assistant interpreter", () => {
     expect(provider).toHaveBeenCalledOnce();
   });
 
-  it("routes a structured weather request to the fixed typed Pasto weather action", async () => {
+  it("rejects the unregistered weather action before it can become a draft", async () => {
     const provider = vi.fn(async () => JSON.stringify(ready([{ action: "GET_WEATHER", input: {} }])));
     const result = await createAssistantInterpreter({
       getConfiguration: () => ({ apiKey: "", model: "" }),
@@ -201,10 +233,7 @@ describe("Main-only assistant interpreter", () => {
       timeZone: () => reference.timeZone
     }).interpret({ instruction: "¿Cómo está el clima hoy?" }, reference);
 
-    expect(result).toMatchObject({
-      ok: true,
-      data: { state: "READY", drafts: [{ action: "GET_WEATHER", input: {} }] }
-    });
+    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
     expect(provider).toHaveBeenCalledOnce();
   });
 
@@ -487,7 +516,7 @@ describe("Main-only assistant interpreter", () => {
     await expect(invented.interpret({ instruction: "¿Qué espacios libres tengo hoy?" }, reference)).resolves.toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
   });
 
-  it("replaces the Main-only current-context token for a selected folder without execution", async () => {
+  it("rejects retired file context actions before resolving a selected folder", async () => {
     const context: ResolvedAssistantContext = {
       selection: { section: "FILES", kind: "FOLDER", reference: { rootId: "DOCUMENTS", relativePath: "inbox" } },
       providerContext: { token: "$CURRENT_CONTEXT", kind: "FOLDER", label: "inbox" }
@@ -500,13 +529,10 @@ describe("Main-only assistant interpreter", () => {
       { ...reference, currentContext: context.providerContext },
       context
     );
-    expect(result).toMatchObject({
-      ok: true,
-      data: { state: "READY", drafts: [{ action: "ORGANIZE_FILES", input: { folder: { rootId: "DOCUMENTS", relativePath: "inbox" } } }] }
-    });
+    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
   });
 
-  it("clarifies a context token with the wrong selection kind instead of accepting an identifier", async () => {
+  it("rejects retired file context actions even with an incompatible selection", async () => {
     const context: ResolvedAssistantContext = {
       selection: { section: "PLANNER", kind: "EVENT", id: "550e8400-e29b-41d4-a716-446655440000" },
       providerContext: { token: "$CURRENT_CONTEXT", kind: "EVENT", label: "Reunión" }
@@ -514,7 +540,7 @@ describe("Main-only assistant interpreter", () => {
     const result = await interpreterFor(ready([
       { action: "ORGANIZE_FILES", input: { folder: "$CURRENT_CONTEXT" } }
     ])).interpret({ instruction: "Organiza esto" }, { ...reference, currentContext: context.providerContext }, context);
-    expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
+    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
   });
 
   it("validates Spanish task, event, reminder, and schedule drafts without executing them", async () => {
@@ -539,7 +565,7 @@ describe("Main-only assistant interpreter", () => {
     if (result.ok) expect(result.data.drafts).toHaveLength(4);
   });
 
-  it("accepts a known application and every supported trusted file-action draft in order", async () => {
+  it("rejects a mixed proposal that includes retired file actions", async () => {
     const interpreter = interpreterFor(
       ready([
         { action: "OPEN_APPLICATION", input: { alias: "notepad" } },
@@ -574,18 +600,7 @@ describe("Main-only assistant interpreter", () => {
     );
 
     const result = await interpreter.interpret({ instruction: "Abre Notepad y busca el informe" }, reference);
-    expect(result).toMatchObject({ ok: true, data: { state: "READY" } });
-    if (result.ok) {
-      expect(result.data.drafts.map((draft) => draft.action)).toEqual([
-        "OPEN_APPLICATION",
-        "SEARCH_FILES",
-        "CREATE_FOLDER",
-        "RENAME_FILE",
-        "RENAME_FOLDER",
-        "MOVE_FILE",
-        "ORGANIZE_FILES"
-      ]);
-    }
+    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
   });
 
   it("returns clarification instead of guessing identifiers, aliases, or file references", async () => {
@@ -612,7 +627,40 @@ describe("Main-only assistant interpreter", () => {
     expect(invented).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
   });
 
-  it("prepares a trusted YouTube-in-Chrome draft from the exact structured-provider shape", async () => {
+  it("keeps explicit catalog registration distinct from opening an unregistered application", async () => {
+    const registration = await interpreterFor({
+      state: "READY",
+      summary: "Preparé la acción.",
+      responseText: "",
+      clarifications: [],
+      drafts: [{
+        action: "REGISTER_CATALOG_APPLICATION",
+        input: null,
+        weeklyRoutine: null,
+        habitAction: null,
+        approvedWeb: null,
+        catalogApplication: { catalogKey: "SPOTIFY", alias: null }
+      }]
+    }).interpret({ instruction: "Registra Spotify" }, reference);
+    const unregisteredOpening = await interpreterFor(ready([{ action: "OPEN_APPLICATION", input: { alias: "spotify" } }]))
+      .interpret({ instruction: "Abre Spotify" }, { ...reference, knownApplicationAliases: [] });
+
+    expect(registration).toMatchObject({
+      ok: true,
+      data: { state: "READY", drafts: [{ action: "REGISTER_CATALOG_APPLICATION", input: { catalogKey: "SPOTIFY" } }] }
+    });
+    expect(JSON.stringify(registration)).not.toContain("OPEN_APPLICATION");
+    expect(unregisteredOpening).toMatchObject({
+      ok: true,
+      data: {
+        state: "NEEDS_CLARIFICATION",
+        summary: "El borrador 1: Primero debes registrar esa aplicación para poder abrirla.",
+        drafts: []
+      }
+    });
+  });
+
+  it("rejects the retired browser-specific web draft", async () => {
     const result = await interpreterFor(
       {
         state: "READY",
@@ -628,41 +676,21 @@ describe("Main-only assistant interpreter", () => {
       }
     ).interpret({ instruction: "Abre YouTube en Chrome" }, reference);
 
-    expect(result).toEqual({
-      ok: true,
-      data: {
-        state: "READY",
-        summary: "Preparé los borradores solicitados.",
-        drafts: [{ action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } }],
-        clarifications: []
-      }
-    });
+    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
   });
 
-  it("prepares exactly the registered Chrome application and fixed YouTube drafts", async () => {
-    const result = await interpreterFor(
-      ready([
-        { action: "OPEN_APPLICATION", input: { alias: "chrome" } },
-        { action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } }
-      ])
-    ).interpret({ instruction: "Abre Google Chrome y YouTube en Chrome" }, reference);
+  it("preserves registered application drafts while rejecting retired browser-specific web drafts", async () => {
+    const application = await interpreterFor(ready([{ action: "OPEN_APPLICATION", input: { alias: "chrome" } }]))
+      .interpret({ instruction: "Abre Google Chrome" }, reference);
+    const legacyWeb = await interpreterFor(ready([{ action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } }]))
+      .interpret({ instruction: "Abre YouTube en Chrome" }, reference);
 
-    expect(result).toEqual({
-      ok: true,
-      data: {
-        state: "READY",
-        summary: "Preparé los borradores solicitados.",
-        drafts: [
-          { action: "OPEN_APPLICATION", input: { alias: "chrome" } },
-          { action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } }
-        ],
-        clarifications: []
-      }
-    });
-    expect(JSON.stringify(result)).not.toContain("executablePath");
+    expect(application).toMatchObject({ ok: true, data: { state: "READY", drafts: [{ action: "OPEN_APPLICATION", input: { alias: "chrome" } }] } });
+    expect(legacyWeb).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
+    expect(JSON.stringify(application)).not.toContain("executablePath");
   });
 
-  it("clarifies application and web drafts when Chrome is not an enabled trusted alias", async () => {
+  it("clarifies an unknown application alias and rejects the retired browser-specific web draft", async () => {
     const noChromeReference = { ...reference, knownApplicationAliases: [], knownApplications: [] };
     const applicationResult = await interpreterFor(
       ready([{ action: "OPEN_APPLICATION", input: { alias: "chrome" } }])
@@ -672,7 +700,7 @@ describe("Main-only assistant interpreter", () => {
     ).interpret({ instruction: "Abre YouTube en Chrome" }, noChromeReference);
 
     expect(applicationResult).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
-    expect(webResult).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
+    expect(webResult).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
   });
 
   it("rejects untrusted web-page drafts without interpreting a browser alias", async () => {
@@ -702,7 +730,12 @@ describe("Main-only assistant interpreter", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      data: { state: "REJECTED", errorCode: "ASSISTANT_MALFORMED_OUTPUT", drafts: [] }
+      data: {
+        state: "REJECTED",
+        errorCode: "ASSISTANT_MALFORMED_OUTPUT",
+        summary: "La respuesta del servicio de interpretación no se pudo validar. Inténtalo de nuevo.",
+        drafts: []
+      }
     });
     expect(JSON.stringify(result)).not.toContain("provider");
     expect(logError).toHaveBeenCalledWith(
@@ -893,14 +926,14 @@ describe("Main-only assistant interpreter", () => {
       ok: true,
       data: {
         state: "NEEDS_CLARIFICATION",
-        summary: "Necesito algunos datos adicionales para preparar la acción.",
+        summary: "El borrador 2: La hora final del evento debe ser posterior a la hora de inicio.",
         drafts: [],
         clarifications: [{ question: "El borrador 2: La hora final del evento debe ser posterior a la hora de inicio." }]
       }
     });
   });
 
-  it("maps configuration, authentication, model access, quota, timeout, and provider failures without leakage", async () => {
+  it("maps configuration and provider failure categories without leakage", async () => {
     const logError = vi.fn();
     const missingConfiguration = createAssistantInterpreter({
       getConfiguration: () => {
@@ -910,7 +943,11 @@ describe("Main-only assistant interpreter", () => {
     });
     const providerFailure = createAssistantInterpreter({
       getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => ({ interpret: async () => { throw new Error("sensitive-provider-detail"); } }),
+      createProvider: () => ({
+        interpret: async () => {
+          throw new Error("sensitive-provider-detail api-key-should-not-leak transcript-should-not-leak provider-body-should-not-leak");
+        }
+      }),
       logError
     });
     const authenticationFailure = createAssistantInterpreter({
@@ -921,6 +958,16 @@ describe("Main-only assistant interpreter", () => {
     const modelAccessFailure = createAssistantInterpreter({
       getConfiguration: () => ({ apiKey: "", model: "" }),
       createProvider: () => ({ interpret: async () => { throw { status: 404, message: "private" }; } }),
+      logError
+    });
+    const authorizationFailure = createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => ({ interpret: async () => { throw { status: 403, message: "private" }; } }),
+      logError
+    });
+    const quotaFailure = createAssistantInterpreter({
+      getConfiguration: () => ({ apiKey: "", model: "" }),
+      createProvider: () => ({ interpret: async () => { throw { status: 429, code: "insufficient_quota", message: "private" }; } }),
       logError
     });
     const rateLimited = createAssistantInterpreter({
@@ -941,6 +988,8 @@ describe("Main-only assistant interpreter", () => {
       await providerFailure.interpret({ instruction: "x" }),
       await authenticationFailure.interpret({ instruction: "x" }),
       await modelAccessFailure.interpret({ instruction: "x" }),
+      await authorizationFailure.interpret({ instruction: "x" }),
+      await quotaFailure.interpret({ instruction: "x" }),
       await rateLimited.interpret({ instruction: "x" }),
       await timeout.interpret({ instruction: "x" }),
       await interpreterFor("not json").interpret({ instruction: "x" })
@@ -979,6 +1028,20 @@ describe("Main-only assistant interpreter", () => {
         summary: "El modelo configurado no está disponible para esta cuenta."
       }
     });
+    expect(await authorizationFailure.interpret({ instruction: "x" })).toMatchObject({
+      ok: true,
+      data: {
+        errorCode: "ASSISTANT_AUTHORIZATION_UNAVAILABLE",
+        summary: "La cuenta configurada no tiene acceso al servicio de interpretación."
+      }
+    });
+    expect(await quotaFailure.interpret({ instruction: "x" })).toMatchObject({
+      ok: true,
+      data: {
+        errorCode: "ASSISTANT_QUOTA_UNAVAILABLE",
+        summary: "La cuenta configurada no tiene cuota disponible para interpretar solicitudes."
+      }
+    });
     expect(await rateLimited.interpret({ instruction: "x" })).toMatchObject({
       ok: true,
       data: {
@@ -988,6 +1051,9 @@ describe("Main-only assistant interpreter", () => {
     });
     expect(JSON.stringify(logError.mock.calls)).not.toContain("private");
     expect(JSON.stringify(logError.mock.calls)).not.toContain("sensitive");
+    expect(JSON.stringify([cases, logError.mock.calls])).not.toContain("api-key-should-not-leak");
+    expect(JSON.stringify([cases, logError.mock.calls])).not.toContain("transcript-should-not-leak");
+    expect(JSON.stringify([cases, logError.mock.calls])).not.toContain("provider-body-should-not-leak");
     expect(logError).toHaveBeenCalledWith(
       "Assistant interpretation failed [ASSISTANT_AUTHENTICATION_UNAVAILABLE]."
     );
