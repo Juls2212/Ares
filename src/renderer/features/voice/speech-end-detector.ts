@@ -1,5 +1,9 @@
 export const SPEECH_END_SILENCE_MS = 1_700;
 export const SPEECH_ACTIVITY_THRESHOLD = 0.025;
+const VOICE_LEVEL_NOISE_FLOOR = 0.008;
+const VOICE_LEVEL_RANGE = 0.16;
+const VOICE_LEVEL_ATTACK = 0.38;
+const VOICE_LEVEL_RELEASE = 0.18;
 
 type AnalyserLike = {
   fftSize: number;
@@ -19,6 +23,7 @@ type SpeechEndDetectorDependencies = {
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (handle: number) => void;
   onSpeechEnded: () => void;
+  onLevel?: (level: number) => void;
 };
 
 export type SpeechEndDetector = {
@@ -34,6 +39,11 @@ const measureLevel = (values: Uint8Array): number => {
     total += sample * sample;
   }
   return Math.sqrt(total / values.length);
+};
+
+export const normalizeVoiceLevel = (level: number): number => {
+  if (!Number.isFinite(level)) return 0;
+  return Math.min(1, Math.max(0, (level - VOICE_LEVEL_NOISE_FLOOR) / VOICE_LEVEL_RANGE));
 };
 
 /** Renderer-only end-of-speech monitor. It never records, stores, or uploads audio. */
@@ -56,6 +66,12 @@ export const createSpeechEndDetector = (dependencies: SpeechEndDetectorDependenc
   let speechDetected = false;
   let silenceStartedAt: number | undefined;
   let ended = false;
+  let smoothedLevel = 0;
+
+  const resetLevel = (): void => {
+    smoothedLevel = 0;
+    dependencies.onLevel?.(0);
+  };
 
   const dispose = (): void => {
     if (animationFrame !== undefined) cancelFrame(animationFrame);
@@ -65,6 +81,7 @@ export const createSpeechEndDetector = (dependencies: SpeechEndDetectorDependenc
     const closingContext = context;
     context = undefined;
     analyser = undefined;
+    resetLevel();
     if (closingContext?.close) void closingContext.close().catch(() => undefined);
   };
 
@@ -72,14 +89,20 @@ export const createSpeechEndDetector = (dependencies: SpeechEndDetectorDependenc
     if (!analyser || ended) return;
     const values = new Uint8Array(analyser.fftSize);
     analyser.getByteTimeDomainData(values);
+    const measuredLevel = measureLevel(values);
+    const normalizedLevel = normalizeVoiceLevel(measuredLevel);
+    const smoothing = normalizedLevel > smoothedLevel ? VOICE_LEVEL_ATTACK : VOICE_LEVEL_RELEASE;
+    smoothedLevel += (normalizedLevel - smoothedLevel) * smoothing;
+    dependencies.onLevel?.(Math.min(1, Math.max(0, smoothedLevel)));
     const current = now();
-    if (measureLevel(values) >= SPEECH_ACTIVITY_THRESHOLD) {
+    if (measuredLevel >= SPEECH_ACTIVITY_THRESHOLD) {
       speechDetected = true;
       silenceStartedAt = undefined;
     } else if (speechDetected) {
       silenceStartedAt ??= current;
       if (current - silenceStartedAt >= SPEECH_END_SILENCE_MS) {
         ended = true;
+        resetLevel();
         dependencies.onSpeechEnded();
         return;
       }
