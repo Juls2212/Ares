@@ -98,6 +98,7 @@ export const App = () => {
         setVoiceShortcutEnabled(result.data.preferences.enabled);
         setSelectedVoiceShortcut(result.data.preferences.shortcut);
         setVoiceShortcutStatus(result.data.effectiveStatus);
+        if (result.data.effectiveStatus === "UNAVAILABLE") setVoiceMessage("El atajo global no está disponible. Puedes usar el orbe.");
       } catch {
         setVoicePreferencesMessage("La configuración de voz no está disponible.");
       }
