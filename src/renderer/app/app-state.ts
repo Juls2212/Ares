@@ -3,7 +3,6 @@ import type { RegisterableCatalogApplication } from "../../shared/application-co
 import type { VoiceShortcutEffectiveStatus } from "../../shared/settings-contracts";
 import type { ParticleOrbState } from "../components/particle-orb";
 
-export type Destination = "ARES" | "CALENDAR";
 export type VoiceState = "IDLE" | "RECORDING" | "PROCESSING";
 
 export const actionLabels: Record<ActionSubmission["action"], string> = {
@@ -29,8 +28,18 @@ export const actionLabels: Record<ActionSubmission["action"], string> = {
   UPDATE_HABIT: "Actualizar hábito",
   COMPLETE_HABIT: "Completar hábito",
   OPEN_APPLICATION: "Abrir aplicación registrada",
+  REGISTER_CATALOG_APPLICATION: "Registrar aplicación aprobada",
+  REQUEST_CUSTOM_APPLICATION_REGISTRATION: "Registrar aplicación propia",
+  OPEN_APPROVED_PAGE: "Abrir sitio aprobado",
+  SEARCH_APPROVED_SITE: "Buscar en sitio aprobado",
   OPEN_WEB_PAGE: "Abrir página web autorizada",
   SEARCH_FILES: "Buscar archivos",
+  REVEAL_FOUND_FILE: "Mostrar archivo encontrado",
+  OPEN_FOUND_FILE: "Abrir archivo encontrado",
+  RENAME_FOUND_ITEM: "Renombrar elemento encontrado",
+  MOVE_FOUND_ITEMS: "Mover elementos encontrados",
+  ORGANIZE_FOUND_ITEMS: "Organizar elementos encontrados",
+  DELETE_FOUND_ITEM: "Enviar a la Papelera",
   CREATE_FOLDER: "Crear carpeta",
   RENAME_FILE: "Renombrar archivo",
   RENAME_FOLDER: "Renombrar carpeta",
