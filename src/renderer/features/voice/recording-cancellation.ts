@@ -1,13 +1,14 @@
-/** Local cancellation only; it never uploads audio or submits an instruction. */
-export const bindRecordingCancellation = (documentTarget: EventTarget, windowTarget: EventTarget, isHidden: () => boolean, cancel: () => void) => {
+/**
+ * Local cancellation only; it never uploads audio or submits an instruction.
+ * Escape and real page teardown cancel. Minimizing or hiding the window deliberately does not,
+ * so a session started by the orb or the global shortcut survives background operation.
+ */
+export const bindRecordingCancellation = (documentTarget: EventTarget, windowTarget: EventTarget, cancel: () => void) => {
   const onKey = (event: Event) => { if ((event as KeyboardEvent).key === "Escape") cancel(); };
-  const onVisibility = () => { if (isHidden()) cancel(); };
   documentTarget.addEventListener("keydown", onKey);
-  documentTarget.addEventListener("visibilitychange", onVisibility);
   windowTarget.addEventListener("pagehide", cancel);
   return () => {
     documentTarget.removeEventListener("keydown", onKey);
-    documentTarget.removeEventListener("visibilitychange", onVisibility);
     windowTarget.removeEventListener("pagehide", cancel);
   };
 };

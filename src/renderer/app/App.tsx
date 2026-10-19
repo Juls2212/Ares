@@ -118,7 +118,7 @@ export const App = () => {
     }
   };
   useEffect(() => {
-    const cleanup = bindRecordingCancellation(document, window, () => document.hidden, cancelRecording);
+    const cleanup = bindRecordingCancellation(document, window, cancelRecording);
     return () => { voiceGeneration.current++; speechEndDetector.current?.dispose(); voiceRecorder.current?.dispose(); cleanup(); };
   }, []);
   useEffect(() => { if (destination !== "ARES") cancelRecording(); }, [destination]);
