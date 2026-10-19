@@ -46,6 +46,8 @@ const serviceMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_TEXT_TOO_LONG: "Uno de los textos supera la longitud permitida.",
   APPLICATION_IDENTIFIER_INVALID: "Uno de los identificadores no es válido.",
   APPLICATION_PLATFORM_INVALID: "La plataforma de la aplicación no es válida.",
+  APPLICATION_LAUNCH_MODE_INVALID: "El tipo de apertura de la aplicación no es válido.",
+  APPLICATION_CATALOG_KEY_INVALID: "La aplicación del catálogo no es válida.",
   APPLICATION_EXECUTABLE_PATH_INVALID: "La ruta del ejecutable no es válida.",
   APPLICATION_EXECUTABLE_NOT_FOUND: "No se encontró el ejecutable de la aplicación registrada.",
   APPLICATION_EXECUTABLE_NOT_FILE: "El ejecutable registrado no es un archivo válido.",
@@ -63,7 +65,8 @@ const serviceMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_CATALOG_PICKER_UNAVAILABLE: "No se pudo abrir el selector de aplicaciones.",
   APPLICATION_CUSTOM_SELECTION_INVALID: "Debes seleccionar un archivo ejecutable válido.",
   APPLICATION_CUSTOM_PICKER_UNAVAILABLE: "No se pudo abrir el selector de aplicaciones.",
-  APPLICATION_CUSTOM_CONFIRMATION_UNAVAILABLE: "No se pudo confirmar el registro de la aplicación."
+  APPLICATION_CUSTOM_CONFIRMATION_UNAVAILABLE: "No se pudo confirmar el registro de la aplicación.",
+  APPLICATION_CUSTOM_REGISTRATION_CANCELLED: "Se canceló el registro de la aplicación."
 };
 
 const createFailure = <T>(code: ApplicationErrorCode): ApplicationOperationResult<T> => ({
@@ -122,6 +125,17 @@ export const createApplicationService = (
       const validation = validateUpdateApplicationInput(input);
       if (!validation.ok) return validation;
       try {
+        if (validation.data.executablePath !== undefined) {
+          const launchMode = await dependencies.repositories.findApplicationLaunchModeById(
+            validation.data.applicationId
+          );
+          if (launchMode === undefined) {
+            return createFailure(APPLICATION_ERROR_CODES.notFound);
+          }
+          if (launchMode !== "WINDOWS_EXECUTABLE") {
+            return createFailure(APPLICATION_ERROR_CODES.executablePathInvalid);
+          }
+        }
         if (validation.data.name !== undefined) {
           const existingId = await dependencies.repositories.findApplicationIdByNormalizedName(
             validation.data.name
