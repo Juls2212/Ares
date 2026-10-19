@@ -46,6 +46,13 @@ export type TrustedApplicationReference = {
   alias: string;
 };
 
+/** Fixed provider-safe catalog metadata. It never contains a platform target or availability. */
+export type KnownCatalogApplicationReference = {
+  key: import("./application-contracts").ApplicationCatalogKey;
+  displayName: string;
+  recognitionAliases: string[];
+};
+
 export type AssistantInterpretation = {
   state: AssistantInterpretationState;
   summary: string;
@@ -64,6 +71,9 @@ export type AssistantInterpretationReference = {
   now: string;
   timeZone: string;
   knownApplicationAliases?: string[];
+  knownCatalogApplications?: KnownCatalogApplicationReference[];
+  /** Count only: whether a recent file search exists. It never carries names or paths. */
+  activeFileSearch?: { resultCount: number };
   /** Bounded Main-derived labels only; identifiers and routine records are excluded. */
   knownWeeklyScheduleTitles?: string[];
   /** Bounded active labels and fixed icon keys only; no habit records or histories. */
@@ -78,9 +88,12 @@ export const ASSISTANT_ERROR_CODES = {
   unavailable: "ASSISTANT_UNAVAILABLE",
   configuration: "ASSISTANT_CONFIGURATION_UNAVAILABLE",
   authentication: "ASSISTANT_AUTHENTICATION_UNAVAILABLE",
+  authorization: "ASSISTANT_AUTHORIZATION_UNAVAILABLE",
   modelAccess: "ASSISTANT_MODEL_ACCESS_UNAVAILABLE",
   timeout: "ASSISTANT_TIMEOUT",
+  quota: "ASSISTANT_QUOTA_UNAVAILABLE",
   rateLimited: "ASSISTANT_RATE_LIMITED",
+  network: "ASSISTANT_NETWORK_UNAVAILABLE",
   provider: "ASSISTANT_PROVIDER_UNAVAILABLE",
   malformed: "ASSISTANT_MALFORMED_OUTPUT",
   rejected: "ASSISTANT_REJECTED",
