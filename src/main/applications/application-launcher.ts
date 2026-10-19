@@ -9,6 +9,8 @@ import { getApplicationService } from "./application-composition";
 import type { ApplicationService } from "./application-service";
 import type { ResolvedApplicationTarget } from "./application-repositories";
 import type { TrustedWebDestination } from "./trusted-web-destinations";
+import { createCatalogApplicationAdapter, type CatalogApplicationAdapter } from "./catalog-application-adapter";
+import { CATALOG_LAUNCH_FAILURE } from "./catalog-registration-failures";
 
 type PathStats = {
   isFile: () => boolean;
@@ -24,6 +26,7 @@ type SpawnedProcess = {
 
 type ApplicationLauncherDependencies = {
   applicationService: ApplicationService;
+  catalogAdapter: CatalogApplicationAdapter;
   realpath: (path: string) => Promise<string>;
   stat: (path: string) => Promise<PathStats>;
   spawn: (
@@ -60,7 +63,9 @@ const launcherMessages = {
   APPLICATION_EXECUTABLE_NOT_FILE: "El ejecutable registrado no es un archivo válido.",
   APPLICATION_EXECUTABLE_EXTENSION_INVALID: "El archivo registrado no es un ejecutable válido.",
   APPLICATION_LAUNCH_FAILED: "No se pudo abrir la aplicación registrada.",
-  APPLICATION_DISABLED: "La aplicación está deshabilitada."
+  APPLICATION_DISABLED: "La aplicación está deshabilitada.",
+  APPLICATION_CATALOG_UNAVAILABLE: "No encontré esa aplicación disponible en este equipo.",
+  APPLICATION_CATALOG_LAUNCH_FAILED: CATALOG_LAUNCH_FAILURE.userMessage
 } as const;
 
 type LauncherErrorCode = keyof typeof launcherMessages;
@@ -115,6 +120,7 @@ export const createApplicationLauncher = (
 ): ApplicationLauncher => {
   const dependencies: ApplicationLauncherDependencies = {
     applicationService: overrides.applicationService ?? getApplicationService(),
+    catalogAdapter: overrides.catalogAdapter ?? createCatalogApplicationAdapter(),
     realpath: overrides.realpath ?? resolveRealPath,
     stat: overrides.stat ?? readPathStats,
     spawn: overrides.spawn ?? spawnProcess,
@@ -130,6 +136,24 @@ export const createApplicationLauncher = (
     argumentsList: readonly string[]
   ): Promise<ApplicationOperationResult<ApplicationLaunchData>> => {
     if (!target.isEnabled) return createFailure(APPLICATION_ERROR_CODES.disabled);
+    if (target.launchMode === "CATALOG_APPLICATION") {
+      if (
+        target.executablePath !== null ||
+        target.catalogKey === null ||
+        target.platform !== dependencies.catalogAdapter.getCurrentPlatform()
+      ) return createFailure("APPLICATION_CATALOG_UNAVAILABLE");
+      const catalogResult = await dependencies.catalogAdapter.launch(target.catalogKey);
+      if (catalogResult.ok) return createSuccess(catalogResult.data);
+      return createFailure(
+        catalogResult.error.code === CATALOG_LAUNCH_FAILURE.code
+          ? "APPLICATION_CATALOG_LAUNCH_FAILED"
+          : "APPLICATION_CATALOG_UNAVAILABLE"
+      );
+    }
+
+    if (target.launchMode !== "WINDOWS_EXECUTABLE" || target.executablePath === null || target.catalogKey !== null) {
+      return createFailure("APPLICATION_EXECUTABLE_PATH_INVALID");
+    }
 
     const pathValidation = validateExecutablePath(target.executablePath);
     if (!pathValidation.ok) {
