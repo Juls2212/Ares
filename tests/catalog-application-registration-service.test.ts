@@ -29,6 +29,8 @@ const recordFor = (application: RegisterableCatalogApplication): ApplicationReco
     id,
     name: definition.name,
     platform: "WINDOWS",
+    launchMode: "WINDOWS_EXECUTABLE",
+    catalogKey: null,
     isFavorite: false,
     isEnabled: true,
     lastLaunchedAt: null,
