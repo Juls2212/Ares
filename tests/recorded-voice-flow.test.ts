@@ -45,13 +45,15 @@ describe("supervised recorded transcription", () => {
 
   it("keeps the active control recorded-only and transcription separate from supervised actions", () => {
     const view = readFileSync("src/renderer/views/ares-view.tsx", "utf8");
-    expect(view).not.toContain("BrowserSpeechControls"); expect(view).toContain("VoiceCommandControls");
+    expect(view).not.toContain("BrowserSpeechControls"); expect(view).not.toContain("VoiceCommandControls"); expect(view).toContain("<ParticleOrb");
     const app = readFileSync("src/renderer/app/App.tsx", "utf8");
     const transcription = app.slice(app.indexOf("const transcribeAudio"), app.indexOf("const startRecording"));
-    expect(transcription).toContain("showTranscript: setInstruction"); expect(transcription).toContain("voiceSubmission.current.submit"); expect(transcription).not.toMatch(/actions\.confirm|actions\.cancel/);
-    expect(app).toContain('destination !== "ARES"');
+    expect(transcription).toContain("showTranscript: () => undefined"); expect(transcription).toContain("voiceSubmission.current.submit"); expect(transcription).not.toMatch(/actions\.confirm|actions\.cancel/);
+    // The orb is the recording control: its interaction states record, cancel, and stop speech only.
+    expect(view).toContain("Hablar con Ares");
+    expect(view).toContain("Cancelar grabación");
+    expect(view).not.toMatch(/window\.ares\.(actions|assistant|voice)/);
     const controls = readFileSync("src/renderer/features/voice/voice-command-controls.tsx", "utf8");
-    expect(controls).toContain("¿En qué trabajamos hoy, Juli?");
     expect(controls).toContain('aria-label="Iniciar grabación por voz"');
     expect(controls).not.toContain("audio se enviará a OpenAI");
   });
