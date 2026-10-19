@@ -47,12 +47,111 @@ describe("application validation", () => {
       "APPLICATION_IDENTIFIER_INVALID"
     );
     expectFailureCode(
-      validateRegisterApplicationInput({ ...validInput, platform: "LINUX" }),
+      validateRegisterApplicationInput({ ...validInput, platform: "UNKNOWN" }),
       "APPLICATION_PLATFORM_INVALID"
     );
     expectFailureCode(
       validateRegisterApplicationInput({ ...validInput, command: "start word" }),
       "APPLICATION_UNKNOWN_FIELD"
+    );
+  });
+
+  it.each(["WINDOWS", "MACOS", "LINUX"] as const)(
+    "accepts the bounded catalog target platform %s without a path",
+    (platform) => {
+      expect(
+        validateRegisterApplicationInput({
+          name: "Spotify",
+          aliases: ["spotify"],
+          platform,
+          launchMode: "CATALOG_APPLICATION",
+          catalogKey: "SPOTIFY"
+        })
+      ).toEqual({
+        ok: true,
+        data: {
+          name: "Spotify",
+          aliases: ["spotify"],
+          platform,
+          launchMode: "CATALOG_APPLICATION",
+          catalogKey: "SPOTIFY"
+        }
+      });
+    }
+  );
+
+  it("enforces exclusive legacy executable and catalog target combinations", () => {
+    expect(
+      validateRegisterApplicationInput({
+        ...validInput,
+        launchMode: "WINDOWS_EXECUTABLE"
+      })
+    ).toMatchObject({ ok: true });
+
+    for (const input of [
+      { ...validInput, platform: "MACOS" },
+      { ...validInput, catalogKey: "SPOTIFY" },
+      {
+        name: "Spotify",
+        aliases: ["spotify"],
+        launchMode: "CATALOG_APPLICATION",
+        catalogKey: "SPOTIFY"
+      },
+      {
+        name: "Spotify",
+        aliases: ["spotify"],
+        platform: "LINUX",
+        launchMode: "CATALOG_APPLICATION"
+      },
+      {
+        name: "Spotify",
+        aliases: ["spotify"],
+        platform: "LINUX",
+        launchMode: "CATALOG_APPLICATION",
+        catalogKey: "SPOTIFY",
+        executablePath: "C:\\Program Files\\Spotify\\Spotify.exe"
+      },
+      {
+        name: "Spotify",
+        aliases: ["spotify"],
+        platform: "LINUX",
+        launchMode: "SHELL_COMMAND",
+        catalogKey: "SPOTIFY"
+      },
+      {
+        name: "Unknown",
+        aliases: ["unknown"],
+        platform: "LINUX",
+        launchMode: "CATALOG_APPLICATION",
+        catalogKey: "CUSTOM_APPLICATION"
+      }
+    ]) {
+      expect(validateRegisterApplicationInput(input)).toMatchObject({ ok: false });
+    }
+  });
+
+  it("rejects commands, protocols, arguments, and paths for catalog-managed targets", () => {
+    const target = {
+      name: "Spotify",
+      aliases: ["spotify"],
+      platform: "WINDOWS",
+      launchMode: "CATALOG_APPLICATION",
+      catalogKey: "SPOTIFY"
+    };
+
+    for (const input of [
+      { ...target, command: "spotify" },
+      { ...target, arguments: ["--safe"] },
+      { ...target, protocol: "spotify:" }
+    ]) {
+      expectFailureCode(validateRegisterApplicationInput(input), "APPLICATION_UNKNOWN_FIELD");
+    }
+    expectFailureCode(
+      validateRegisterApplicationInput({
+        ...target,
+        executablePath: "C:\\Program Files\\Spotify\\Spotify.exe"
+      }),
+      "APPLICATION_EXECUTABLE_PATH_INVALID"
     );
   });
 
