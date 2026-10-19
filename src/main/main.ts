@@ -17,6 +17,7 @@ import {
 } from "./voice/microphone-permission";
 import { createGlobalVoiceShortcutLifecycle } from "./voice/global-voice-shortcut";
 import { configureVoicePreferencesService } from "./settings/voice-preferences-composition";
+import { removeFullScreenMenuCommand } from "./compact-window-menu";
 import { formatShortcutForDisplay } from "../shared/settings-contracts";
 import {
   createBackgroundLifecycle,
@@ -132,8 +133,13 @@ const configureSessionSecurity = (): void => {
 
 const createMainWindow = async (): Promise<void> => {
   const createdWindow = new BrowserWindow({
-    width: 900,
-    height: 620,
+    width: 440,
+    height: 440,
+    minWidth: 360,
+    minHeight: 360,
+    useContentSize: true,
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -144,6 +150,9 @@ const createMainWindow = async (): Promise<void> => {
       preload: path.join(__dirname, "preload.js")
     }
   });
+  createdWindow.setAspectRatio(1);
+  const applicationMenu = Menu.getApplicationMenu();
+  if (applicationMenu && removeFullScreenMenuCommand(applicationMenu)) Menu.setApplicationMenu(applicationMenu);
   mainWindow = createdWindow;
   backgroundLifecycle.attachWindow(toManagedWindow(createdWindow));
   const createdWebContents = createdWindow.webContents;

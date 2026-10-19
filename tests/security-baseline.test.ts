@@ -32,6 +32,28 @@ describe("Electron security baseline", () => {
     );
   });
 
+  it("uses a compact resizable assistant window without weakening web preferences", () => {
+    expect(mainSource).toContain("width: 440");
+    expect(mainSource).toContain("height: 440");
+    expect(mainSource).toContain("minWidth: 360");
+    expect(mainSource).toContain("minHeight: 360");
+    expect(mainSource).toContain("useContentSize: true");
+    expect(mainSource).toContain("createdWindow.setAspectRatio(1)");
+    expect(mainSource).toContain("maximizable: false");
+    expect(mainSource).toContain("fullscreenable: false");
+    expect(mainSource).toContain("Menu.getApplicationMenu()");
+    expect(mainSource).toContain("removeFullScreenMenuCommand(applicationMenu)");
+    expect(mainSource).not.toContain("minimizable: false");
+    expect(mainSource).not.toContain("closable: false");
+    expect(mainSource).not.toContain("resizable: false");
+    expect(mainSource).not.toContain("Menu.setApplicationMenu(null)");
+    expect(mainSource).not.toContain("frame: false");
+    expect(mainSource).not.toContain("alwaysOnTop: true");
+    expect(mainSource).toContain("contextIsolation: true");
+    expect(mainSource).toContain("nodeIntegration: false");
+    expect(mainSource).toContain("sandbox: true");
+  });
+
   it("performs one development-only cache-bypassing reload after loading the Vite URL", () => {
     const developmentLoadIndex = mainSource.indexOf("await createdWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)");
     const cacheBypassReloadIndex = mainSource.indexOf("createdWebContents.reloadIgnoringCache()");
