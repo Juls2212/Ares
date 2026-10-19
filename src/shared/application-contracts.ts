@@ -1,8 +1,31 @@
 import type { OperationResult } from "./contracts";
 
-export const APPLICATION_PLATFORMS = ["WINDOWS"] as const;
+export const APPLICATION_PLATFORMS = ["WINDOWS", "MACOS", "LINUX"] as const;
+
+export const APPLICATION_LAUNCH_MODES = [
+  "WINDOWS_EXECUTABLE",
+  "CATALOG_APPLICATION"
+] as const;
+
+/**
+ * Closed catalog identifiers. This list is the single source for the type, the database enum,
+ * and the structured-output schema; each key must also have one declarative entry in the Main catalog.
+ */
+export const APPLICATION_CATALOG_KEYS = [
+  "GOOGLE_CHROME",
+  "MICROSOFT_EDGE",
+  "MOZILLA_FIREFOX",
+  "SPOTIFY",
+  "WHATSAPP",
+  "MICROSOFT_WORD",
+  "VISUAL_STUDIO_CODE",
+  "DISCORD",
+  "CLAUDE"
+] as const;
 
 export type ApplicationPlatform = (typeof APPLICATION_PLATFORMS)[number];
+export type ApplicationLaunchMode = (typeof APPLICATION_LAUNCH_MODES)[number];
+export type ApplicationCatalogKey = (typeof APPLICATION_CATALOG_KEYS)[number];
 export type IsoDateTime = string;
 
 export type ApplicationAliasRecord = {
@@ -16,6 +39,8 @@ export type ApplicationRecord = {
   id: string;
   name: string;
   platform: ApplicationPlatform;
+  launchMode: ApplicationLaunchMode;
+  catalogKey: ApplicationCatalogKey | null;
   isFavorite: boolean;
   isEnabled: boolean;
   lastLaunchedAt: IsoDateTime | null;
@@ -24,14 +49,32 @@ export type ApplicationRecord = {
   updatedAt: IsoDateTime;
 };
 
-export type RegisterApplicationInput = {
+type ApplicationRegistrationBase = {
   name: string;
-  executablePath: string;
   aliases: string[];
-  platform?: ApplicationPlatform;
   isFavorite?: boolean;
   isEnabled?: boolean;
 };
+
+/** Legacy registrations remain restricted to a validated absolute Windows executable. */
+export type RegisterWindowsExecutableApplicationInput = ApplicationRegistrationBase & {
+  executablePath: string;
+  platform?: "WINDOWS";
+  launchMode?: "WINDOWS_EXECUTABLE";
+  catalogKey?: never;
+};
+
+/** Catalog registrations persist no path, command, protocol, or launch arguments. */
+export type RegisterCatalogApplicationTargetInput = ApplicationRegistrationBase & {
+  platform: ApplicationPlatform;
+  launchMode: "CATALOG_APPLICATION";
+  catalogKey: ApplicationCatalogKey;
+  executablePath?: never;
+};
+
+export type RegisterApplicationInput =
+  | RegisterWindowsExecutableApplicationInput
+  | RegisterCatalogApplicationTargetInput;
 
 export type UpdateApplicationInput = {
   applicationId: string;
@@ -98,6 +141,8 @@ export const APPLICATION_ERROR_CODES = {
   textTooLong: "APPLICATION_TEXT_TOO_LONG",
   identifierInvalid: "APPLICATION_IDENTIFIER_INVALID",
   platformInvalid: "APPLICATION_PLATFORM_INVALID",
+  launchModeInvalid: "APPLICATION_LAUNCH_MODE_INVALID",
+  catalogKeyInvalid: "APPLICATION_CATALOG_KEY_INVALID",
   executablePathInvalid: "APPLICATION_EXECUTABLE_PATH_INVALID",
   executableNotFound: "APPLICATION_EXECUTABLE_NOT_FOUND",
   executableNotFile: "APPLICATION_EXECUTABLE_NOT_FILE",
@@ -114,7 +159,8 @@ export const APPLICATION_ERROR_CODES = {
   catalogPickerUnavailable: "APPLICATION_CATALOG_PICKER_UNAVAILABLE",
   customSelectionInvalid: "APPLICATION_CUSTOM_SELECTION_INVALID",
   customPickerUnavailable: "APPLICATION_CUSTOM_PICKER_UNAVAILABLE",
-  customConfirmationUnavailable: "APPLICATION_CUSTOM_CONFIRMATION_UNAVAILABLE"
+  customConfirmationUnavailable: "APPLICATION_CUSTOM_CONFIRMATION_UNAVAILABLE",
+  customRegistrationCancelled: "APPLICATION_CUSTOM_REGISTRATION_CANCELLED"
 } as const;
 
 export type ApplicationErrorCode =
