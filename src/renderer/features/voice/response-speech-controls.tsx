@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { SpokenResponse } from "../../../shared/speech-contracts";
 import { createResponsePlayback, type PlaybackEvent, type PlaybackState } from "./response-playback";
 import { shouldAutomaticallySpeak } from "./speech-eligibility";
 
-export const ResponseSpeechControls = ({ response, blocked, onPlaybackEvent, onPlaybackState }: {
+export const ResponseSpeechControls = ({ response, blocked, onPlaybackEvent, onPlaybackState, stopRef, headless = false }: {
   response?: SpokenResponse;
   blocked: boolean;
   onPlaybackEvent?: (event: PlaybackEvent) => void;
   onPlaybackState?: (state: PlaybackState) => void;
+  stopRef?: RefObject<(() => void) | undefined>;
+  headless?: boolean;
 }) => {
   const [state, setState] = useState<PlaybackState>("IDLE");
   const playback = useRef<ReturnType<typeof createResponsePlayback> | undefined>(undefined);
@@ -25,12 +27,14 @@ export const ResponseSpeechControls = ({ response, blocked, onPlaybackEvent, onP
       onPlaybackEvent: (event) => playbackEvent.current?.(event)
     });
     playback.current = controller;
+    if (stopRef) stopRef.current = controller.stop;
     const escape = (event: KeyboardEvent): void => { if (event.key === "Escape") controller.stop(); };
     // Minimizing or hiding the window must not stop speech: only Escape and real teardown do.
     document.addEventListener("keydown", escape);
     window.addEventListener("pagehide", controller.stop);
     return () => {
       controller.stop(); playback.current = undefined;
+      if (stopRef) stopRef.current = undefined;
       document.removeEventListener("keydown", escape);
       window.removeEventListener("pagehide", controller.stop);
     };
@@ -44,7 +48,7 @@ export const ResponseSpeechControls = ({ response, blocked, onPlaybackEvent, onP
       if (eligible) void playback.current?.play(response.responseId);
     }
   }, [response?.responseId, blocked]);
-  if (!response || (blocked && state === "IDLE")) return null;
+  if (headless || !response || (blocked && state === "IDLE")) return null;
   return <section aria-label="Voz de la respuesta" className="response-speech-controls">
     <button type="button" disabled={!response || blocked || state === "LOADING" || state === "PLAYING"} onClick={() => { if (response && !blocked) void playback.current?.play(response.responseId); }}>Escuchar respuesta</button>
     {state === "PLAYING" && <button type="button" onClick={() => playback.current?.stop()}>Detener voz</button>}
