@@ -69,31 +69,29 @@ const schedule: TodayScheduleData = {
 };
 
 describe("Ares command-center information", () => {
-  it("renders the narrow panels around the centered command column in document order", () => {
+  it("renders the command core without mounting planner-oriented side panels", () => {
     const markup = renderToStaticMarkup(createElement(AresView, {
       technicalState: "SUCCESS",
       voiceLabel: "Listo para grabar",
       voiceState: "IDLE",
       orbState: "idle",
-      instruction: "",
       isInterpreting: false,
       draftStates: {},
-      onInstructionChange: vi.fn(),
-      onInterpret: vi.fn(),
       onStartRecording: vi.fn(),
       onCancelRecording: vi.fn(),
       onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     }));
-    const left = markup.indexOf("support-panel--left");
     const core = markup.indexOf("command-core");
-    const right = markup.indexOf("support-panel--right");
 
-    expect(left).toBeGreaterThan(-1);
-    expect(core).toBeGreaterThan(left);
-    expect(right).toBeGreaterThan(core);
-    expect(markup).toContain("¿En qué trabajamos hoy, Juli?");
-    expect(markup).toContain('aria-label="Iniciar grabación por voz"');
+    expect(core).toBeGreaterThan(-1);
+    expect(markup).not.toContain("support-panel--left");
+    expect(markup).not.toContain("support-panel--right");
+    expect(markup).not.toContain("Resumen de hoy");
+    expect(markup).not.toContain("Próximos eventos");
+    expect(markup).not.toContain("Hábitos de hoy");
+    expect(markup).toContain("Toca para hablar");
+    expect(markup).toContain('aria-label="Hablar con Ares"');
     expect(markup).not.toContain("audio se enviará a OpenAI");
   });
 
@@ -169,7 +167,7 @@ describe("Ares command-center information", () => {
       onCancel: vi.fn()
     }));
 
-    expect(markup).toContain("¿En qué trabajamos hoy, Juli?");
+    expect(markup).toContain("Toca para hablar");
     expect(markup).toContain('aria-label="Iniciar grabación por voz"');
     expect(markup).not.toContain("Instrucción procesada.");
   });
