@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApplicationActionExecutor } from "../src/main/actions/application-action-executor";
 import { getActionPolicy } from "../src/main/actions/action-policy";
+import { catalogRegistrationFailure } from "../src/main/applications/catalog-registration-failures";
 import type { ApplicationLauncher } from "../src/main/applications/application-launcher";
 import type { WebPageLauncher } from "../src/main/applications/web-page-launcher";
 
@@ -43,6 +44,27 @@ describe("application action executor", () => {
     expect(JSON.stringify(outcome)).not.toContain("C:\\");
   });
 
+  it("returns only Spotify's trusted display name after the catalog adapter reports a successful launch", async () => {
+    const launcher = createLauncher();
+    vi.mocked(launcher.launchByAlias).mockResolvedValueOnce({
+      ok: true,
+      data: { applicationName: "Spotify" }
+    });
+    const executor = createApplicationActionExecutor({ launcher, logError: vi.fn() });
+
+    const outcome = await executor.execute(
+      { ...proposal, input: { alias: "spotify" } },
+      getActionPolicy("OPEN_APPLICATION")
+    );
+
+    expect(outcome).toMatchObject({
+      status: "SUCCEEDED",
+      data: { applicationName: "Spotify" },
+      userSummary: "Se abrió Spotify."
+    });
+    expect(JSON.stringify(outcome)).not.toContain("spotify:");
+  });
+
   it("preserves controlled launch failures without paths or raw errors", async () => {
     const launcher = createLauncher();
     vi.mocked(launcher.launchByAlias).mockResolvedValueOnce({
@@ -62,6 +84,36 @@ describe("application action executor", () => {
       userSummary: "No se encontró el ejecutable de la aplicación registrada."
     });
     expect(JSON.stringify(outcome)).not.toContain("C:\\");
+  });
+
+  it("maps each catalog registration failure category to its own status and bounded Spanish summary", async () => {
+    const registrationProposal = {
+      actionId: proposal.actionId,
+      action: "REGISTER_CATALOG_APPLICATION" as const,
+      input: { catalogKey: "SPOTIFY" as const, alias: "spotify" }
+    };
+    const cases = [
+      ["UNKNOWN_CATALOG_KEY", "VALIDATION_FAILED", "Esa aplicación no está en el catálogo aprobado."],
+      ["UNSUPPORTED_PLATFORM", "VALIDATION_FAILED", "Este sistema todavía no permite registrar aplicaciones aprobadas."],
+      ["NOT_AVAILABLE", "VALIDATION_FAILED", "No encontré esa aplicación disponible en este equipo."],
+      ["ALREADY_REGISTERED", "VALIDATION_FAILED", "Esa aplicación ya está registrada."],
+      ["ALIAS_CONFLICT", "VALIDATION_FAILED", "Ya existe una aplicación o alias con esos datos."],
+      ["PREPARATION_FAILED", "EXECUTION_FAILED", "No pude preparar el registro de la aplicación."],
+      ["PERSISTENCE_FAILED", "EXECUTION_FAILED", "No pude guardar el registro de la aplicación."]
+    ] as const;
+    expect(new Set(cases.map(([, , message]) => message)).size).toBe(cases.length);
+    for (const [category, status, message] of cases) {
+      const executor = createApplicationActionExecutor({
+        catalogRegistrationService: {
+          prepare: vi.fn(),
+          register: vi.fn(async () => catalogRegistrationFailure(category))
+        },
+        logError: vi.fn()
+      });
+      const outcome = await executor.execute(registrationProposal, getActionPolicy("REGISTER_CATALOG_APPLICATION"));
+      expect(outcome).toMatchObject({ status, userSummary: message });
+      expect(JSON.stringify(outcome)).not.toMatch(/spotify:|\.exe|C:\\/i);
+    }
   });
 
   it("maps OPEN_WEB_PAGE through the trusted launcher with no URL in the terminal outcome", async () => {
