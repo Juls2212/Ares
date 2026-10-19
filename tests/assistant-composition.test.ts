@@ -23,6 +23,8 @@ const chromeRecord: ApplicationRecord = {
   id: "550e8400-e29b-41d4-a716-446655440000",
   name: "Google Chrome",
   platform: "WINDOWS",
+  launchMode: "WINDOWS_EXECUTABLE",
+  catalogKey: null,
   isFavorite: false,
   isEnabled: true,
   lastLaunchedAt: null,
@@ -79,7 +81,7 @@ describe("assistant interpretation composition", () => {
     await expect(service.interpret({ text: "Crear una tarea" })).resolves.toEqual(readyResult);
     expect(interpret).toHaveBeenCalledWith(
       { instruction: "Crear una tarea" },
-      { knownApplicationAliases: [] },
+      expect.objectContaining({ knownApplicationAliases: [], knownCatalogApplications: expect.any(Array) }),
       undefined,
       expect.any(Function)
     );
@@ -131,11 +133,12 @@ describe("assistant interpretation composition", () => {
   it("supplies only normalized enabled aliases before the provider request and validates them again for application drafts", async () => {
     const disabledRecord = { ...chromeRecord, id: "550e8400-e29b-41d4-a716-446655440005", isEnabled: false, aliases: [{ ...chromeRecord.aliases[0], applicationId: "550e8400-e29b-41d4-a716-446655440005", alias: "disabled" }] };
     const interpret = vi.fn(async (_input, reference, _context, resolveTrustedReference) => {
-      expect(reference).toEqual({ knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"] });
+      expect(reference).toMatchObject({ knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"], knownCatalogApplications: expect.any(Array) });
       const resolved = await resolveTrustedReference(["OPEN_APPLICATION"]);
       expect(resolved).toEqual({
         reference: {
-          knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"]
+          knownApplicationAliases: ["chrome", "vscode", "visualstudio", "spotify", "example-app"],
+          knownCatalogApplications: expect.any(Array)
         },
         currentContext: undefined
       });
@@ -152,7 +155,7 @@ describe("assistant interpretation composition", () => {
     expect(listApplications).toHaveBeenCalledTimes(2);
     const providerReference = interpret.mock.calls[0]?.[1];
     expect(JSON.stringify(providerReference)).not.toContain("executablePath");
-    expect(JSON.stringify(providerReference)).not.toContain("Google Chrome");
+    expect(JSON.stringify(providerReference)).toContain("GOOGLE_CHROME");
     expect(JSON.stringify(providerReference)).not.toContain("disabled");
     expect(JSON.stringify(providerReference)).not.toContain(chromeRecord.id);
   });
@@ -221,7 +224,7 @@ describe("assistant interpretation composition", () => {
       updatedAt: "2026-10-03T00:00:00.000Z"
     };
     const interpret = vi.fn(async (_input, reference) => {
-      expect(reference).toEqual({ knownApplicationAliases: [], knownWeeklyScheduleTitles: ["Universidad"] });
+      expect(reference).toMatchObject({ knownApplicationAliases: [], knownWeeklyScheduleTitles: ["Universidad"], knownCatalogApplications: expect.any(Array) });
       return readyResult;
     });
     const service = createAssistantInterpretationService({
@@ -274,10 +277,10 @@ describe("assistant interpretation composition", () => {
     });
 
     await expect(service.interpret({ text: "Hola" })).resolves.toMatchObject({ ok: true, data: { state: "CONVERSATIONAL" } });
-    expect(interpret).toHaveBeenCalledWith({ instruction: "Hola" }, { knownApplicationAliases: [], knownWeeklyScheduleTitles: [] }, undefined, expect.any(Function));
+    expect(interpret).toHaveBeenCalledWith({ instruction: "Hola" }, expect.objectContaining({ knownApplicationAliases: [], knownWeeklyScheduleTitles: [], knownCatalogApplications: expect.any(Array) }), undefined, expect.any(Function));
   });
 
-  it("passes only the validated context token, kind, and label to the provider boundary", async () => {
+  it("does not pass a legacy file context to the provider boundary", async () => {
     const interpret = vi.fn(async () => readyResult);
     const context = {
       providerContext: { token: "$CURRENT_CONTEXT" as const, kind: "FOLDER" as const, label: "inbox" },
@@ -294,7 +297,7 @@ describe("assistant interpretation composition", () => {
     await service.interpret({ text: "Organiza esta carpeta" }, 42);
     expect(interpret).toHaveBeenCalledWith(
       { instruction: "Organiza esta carpeta" },
-      { knownApplicationAliases: [], currentContext: context.providerContext },
+      expect.objectContaining({ knownApplicationAliases: [], knownCatalogApplications: expect.any(Array) }),
       undefined,
       expect.any(Function)
     );

@@ -15,6 +15,8 @@ import { createHabitMutationReferences } from "../actions/habit-mutation-referen
 import { getHabitService } from "../habits/habit-composition";
 import type { HabitService } from "../habits/habit-service";
 import { HABIT_ICON_KEYS } from "../../shared/habit-contracts";
+import { getKnownApplicationProviderReferences } from "../applications/known-application-catalog";
+import { getSupervisedFileService } from "../files/supervised-file-composition";
 import {
   getAssistantContextService,
   type AssistantContextService
@@ -32,13 +34,15 @@ type AssistantInterpretationServiceDependencies = {
   getPlannerService?: () => Pick<PlannerService, "listWeeklySchedules">;
   getHabitService?: () => Pick<HabitService, "list">;
   getContextService?: () => AssistantContextService;
+  /** Count-only view of the last file search; it never exposes names or paths. */
+  getActiveFileSearch?: () => { resultCount: number } | undefined;
 };
 
 const maximumTrustedApplicationAliases = 100;
 const maximumTrustedWeeklyScheduleTitles = 50;
 const maximumTrustedHabitTitles = 100;
 const requiresTrustedApplicationReferences = (actions: readonly string[]): boolean =>
-  actions.some((action) => action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE");
+  actions.some((action) => action === "OPEN_APPLICATION");
 
 const toTrustedApplicationAliases = (
   applications: Awaited<ReturnType<ApplicationService["listApplications"]>>
@@ -71,6 +75,11 @@ const toTrustedHabitTitles = (
     .filter((title) => title.length > 0))]
     .slice(0, maximumTrustedHabitTitles);
 };
+
+const supportedProviderContext = (context: ReturnType<AssistantContextService["getCachedProviderContext"]>) =>
+  context && ["TASK", "EVENT", "REMINDER", "APPLICATION"].includes(context.kind)
+    ? context
+    : undefined;
 
 const unavailable = (
   code: "ASSISTANT_BUSY" | "ASSISTANT_IPC_UNAVAILABLE"
@@ -137,12 +146,14 @@ export const createAssistantInterpretationService = (
           : undefined;
         const reference = {
           knownApplicationAliases: initialApplications ? toTrustedApplicationAliases(initialApplications) : [],
+          knownCatalogApplications: getKnownApplicationProviderReferences(),
+          ...(dependencies.getActiveFileSearch?.() ? { activeFileSearch: dependencies.getActiveFileSearch() } : {}),
           ...(plannerService ? { knownWeeklyScheduleTitles: initialWeeklySchedules ? toTrustedWeeklyScheduleTitles(initialWeeklySchedules) : [] } : {}),
           ...(dependencies.getHabitService ? {
             knownHabitTitles: initialHabits ? toTrustedHabitTitles(initialHabits) : [],
             allowedHabitIcons: [...HABIT_ICON_KEYS]
           } : {}),
-          ...(cachedContext ? { currentContext: cachedContext } : {})
+          ...(supportedProviderContext(cachedContext) ? { currentContext: supportedProviderContext(cachedContext) } : {})
         };
         return await dependencies.getInterpreter().interpret(
           normalizedInput,
@@ -162,10 +173,14 @@ export const createAssistantInterpretationService = (
               webContentsId === undefined || !contextService
                 ? undefined
                 : await contextService.getValidated(webContentsId);
+            const providerContext = currentContext
+              ? supportedProviderContext(currentContext.providerContext)
+              : undefined;
             return {
               reference: {
                 knownApplicationAliases: trustedApplicationAliases,
-                ...(currentContext ? { currentContext: currentContext.providerContext } : {})
+                knownCatalogApplications: getKnownApplicationProviderReferences(),
+                ...(providerContext ? { currentContext: providerContext } : {})
               },
               currentContext
             };
@@ -191,8 +206,12 @@ export const getAssistantInterpretationService = (): AssistantInterpretationServ
       resolveHabitMutationReferences: createHabitMutationReferences(() => ({
         ...getHabitService(),
         listCategories: getPlannerService().listCategories
-      }))
+      })),
+      getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
+      resolveFoundFileName: (name) => getSupervisedFileService().resolveFoundFileByName(name),
+      resolveFoundFolderName: (name) => getSupervisedFileService().resolveFoundFolderByName(name)
     }),
+    getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
     getApplicationService,
     getPlannerService,
     getHabitService,
