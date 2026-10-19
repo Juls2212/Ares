@@ -31,6 +31,38 @@ describe("assistant IPC registration", () => {
     if (result.ok) expect(result.data.spokenResponse?.text).toBe(result.data.summary);
   });
 
+  it("issues Main-bound speech references only for final assistant outcomes", () => {
+    const clear = vi.fn();
+    const remember = vi.fn((_windowId: number, text: string) => ({ responseId: `response-${text.length}`, text }));
+    const responses = { clear, remember };
+
+    for (const state of ["CONVERSATIONAL", "NEEDS_CLARIFICATION", "REJECTED", "UNAVAILABLE"] as const) {
+      const result = attachSpokenAssistantResponse(702, {
+        ok: true,
+        data: { state, summary: "Respuesta final.", drafts: [], clarifications: [] }
+      }, responses);
+      expect(result.ok && result.data.spokenResponse).toMatchObject({ responseId: expect.any(String), text: "Respuesta final." });
+    }
+
+    const draft = attachSpokenAssistantResponse(702, {
+      ok: true,
+      data: {
+        state: "READY",
+        summary: "Preparé los borradores solicitados.",
+        drafts: [{ action: "CREATE_TASK", input: { title: "Informe" } }],
+        clarifications: []
+      }
+    }, responses);
+    const providerFailure = attachSpokenAssistantResponse(702, {
+      ok: false,
+      error: { code: "ASSISTANT_PROVIDER_UNAVAILABLE", userMessage: "La interpretación no está disponible." }
+    }, responses);
+
+    expect(draft.ok && draft.data.spokenResponse).toBeUndefined();
+    expect(providerFailure.ok ? undefined : providerFailure.error.spokenResponse).toMatchObject({ responseId: expect.any(String) });
+    expect(clear).toHaveBeenCalled();
+  });
+
   it("registers the explicit interpretation and context channels once", async () => {
     const handlers = new Map<string, AssistantIpcHandler>();
     const interpret = vi.fn(async () => ({ ok: true as const, data: { state: "READY", drafts: [], clarifications: [], summary: "Listo." } }));

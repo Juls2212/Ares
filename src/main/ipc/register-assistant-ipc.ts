@@ -86,13 +86,24 @@ export const createAssistantIpcRegistration = (
 };
 
 const speechWindows = new WeakSet<Electron.WebContents>();
+type SpeechResponseStore = Pick<typeof speechService, "clear" | "remember">;
+
+const isFinalAssistantState = (state: AssistantInterpretation["state"]): boolean =>
+  state === "CONVERSATIONAL" || state === "NEEDS_CLARIFICATION" || state === "REJECTED" || state === "UNAVAILABLE";
+
 export const attachSpokenAssistantResponse = (
   webContentsId: number,
-  result: AssistantOperationResult<AssistantInterpretation>
+  result: AssistantOperationResult<AssistantInterpretation>,
+  responses: SpeechResponseStore = speechService
 ): AssistantOperationResult<AssistantInterpretation> => {
-  if (!result.ok) return result;
-  speechService.clear(webContentsId);
-  result.data.spokenResponse = speechService.remember(webContentsId, result.data.summary);
+  responses.clear(webContentsId);
+  if (!result.ok) {
+    result.error.spokenResponse = responses.remember(webContentsId, result.error.userMessage);
+    return result;
+  }
+  if (isFinalAssistantState(result.data.state)) {
+    result.data.spokenResponse = responses.remember(webContentsId, result.data.summary);
+  }
   return result;
 };
 
