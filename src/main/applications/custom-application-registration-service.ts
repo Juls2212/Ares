@@ -1,4 +1,5 @@
 import { dialog } from "electron";
+import { randomUUID } from "node:crypto";
 import { realpath as resolveRealPath, stat as readPathStats } from "node:fs/promises";
 import path from "node:path";
 
@@ -26,14 +27,25 @@ type CustomApplicationRegistrationDependencies = {
   showConfirmation: (displayName: string, executableBasename: string) => Promise<NativeConfirmationResult>;
   realpath: (selectedPath: string) => Promise<string>;
   stat: (canonicalPath: string) => Promise<PathStats>;
+  now: () => number;
+  generateIdentifier: () => string;
   applicationService: ApplicationService;
   logError: (message: string) => void;
+};
+
+export type PreparedCustomApplicationSelection = {
+  displayName: string;
+  selectionId: string;
 };
 
 export type CustomApplicationRegistrationService = {
   registerCustomApplication: (
     input: unknown
   ) => Promise<ApplicationOperationResult<CustomApplicationRegistrationData>>;
+  /** Opens the native picker and keeps the validated selection inside Main; no path is returned. */
+  prepareSelection: (input: unknown) => Promise<ApplicationOperationResult<PreparedCustomApplicationSelection>>;
+  /** Registers a previously prepared, single-use selection after the standard confirmation. */
+  commitSelection: (input: unknown) => Promise<ApplicationOperationResult<{ applicationName: string }>>;
 };
 
 const customMessages = {
@@ -45,6 +57,7 @@ const customMessages = {
   [APPLICATION_ERROR_CODES.customPickerUnavailable]: "No se pudo abrir el selector de aplicaciones.",
   [APPLICATION_ERROR_CODES.customConfirmationUnavailable]:
     "No se pudo confirmar el registro de la aplicación.",
+  [APPLICATION_ERROR_CODES.customRegistrationCancelled]: "Se canceló el registro de la aplicación.",
   [APPLICATION_ERROR_CODES.conflict]: "Ya existe una aplicación o alias con esos datos.",
   [APPLICATION_ERROR_CODES.databaseUnavailable]:
     "No se pudo acceder al catálogo de aplicaciones."
@@ -125,6 +138,16 @@ const defaultConfirmation = (
     noLink: true
   });
 
+const PENDING_SELECTION_LIFETIME_MS = 5 * 60 * 1000;
+const MAXIMUM_PENDING_SELECTIONS = 8;
+
+type PendingSelection = {
+  displayName: string;
+  alias: string;
+  executablePath: string;
+  expiresAt: number;
+};
+
 /** Main-only registration of a user-named executable with a derived, trusted alias. */
 export const createCustomApplicationRegistrationService = (
   overrides: Partial<CustomApplicationRegistrationDependencies> = {}
@@ -134,6 +157,8 @@ export const createCustomApplicationRegistrationService = (
     showConfirmation: overrides.showConfirmation ?? defaultConfirmation,
     realpath: overrides.realpath ?? resolveRealPath,
     stat: overrides.stat ?? readPathStats,
+    now: overrides.now ?? (() => Date.now()),
+    generateIdentifier: overrides.generateIdentifier ?? randomUUID,
     applicationService: overrides.applicationService ?? getApplicationService(),
     logError:
       overrides.logError ??
@@ -170,7 +195,136 @@ export const createCustomApplicationRegistrationService = (
     return success(exact);
   };
 
+  const pendingSelections = new Map<string, PendingSelection>();
+
+  const pickExecutable = async (): Promise<ApplicationOperationResult<string>> => {
+    let selection: NativeDialogResult;
+    try {
+      selection = await dependencies.showOpenDialog();
+    } catch {
+      dependencies.logError("Custom application registration picker failed.");
+      return failure(APPLICATION_ERROR_CODES.customPickerUnavailable);
+    }
+    if (selection.canceled) return failure(APPLICATION_ERROR_CODES.customRegistrationCancelled);
+    if (selection.filePaths.length !== 1 || typeof selection.filePaths[0] !== "string") {
+      return failure(APPLICATION_ERROR_CODES.customSelectionInvalid);
+    }
+    return validateExecutableSelection(selection.filePaths[0]);
+  };
+
+  const validateExecutableSelection = async (selectedPath: string): Promise<ApplicationOperationResult<string>> => {
+    let canonicalPath: string;
+    try {
+      canonicalPath = await dependencies.realpath(selectedPath);
+    } catch {
+      dependencies.logError("Custom application registration path resolution failed.");
+      return failure(APPLICATION_ERROR_CODES.customSelectionInvalid);
+    }
+    if (path.extname(canonicalPath).toLocaleLowerCase("en-US") !== ".exe") {
+      return failure(APPLICATION_ERROR_CODES.customSelectionInvalid);
+    }
+    const executablePath = validateExecutablePath(canonicalPath);
+    if (!executablePath.ok) return failure(APPLICATION_ERROR_CODES.customSelectionInvalid);
+    try {
+      if (!(await dependencies.stat(canonicalPath)).isFile()) {
+        return failure(APPLICATION_ERROR_CODES.customSelectionInvalid);
+      }
+    } catch {
+      dependencies.logError("Custom application registration path inspection failed.");
+      return failure(APPLICATION_ERROR_CODES.customSelectionInvalid);
+    }
+    return success(executablePath.data);
+  };
+
+  const parsePrepareInput = (input: unknown): ApplicationOperationResult<{ displayName?: string }> => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      return failure(APPLICATION_ERROR_CODES.inputInvalid);
+    }
+    const keys = Object.keys(input);
+    if (keys.some((key) => key !== "displayName")) return failure(APPLICATION_ERROR_CODES.inputInvalid);
+    const value = (input as { displayName?: unknown }).displayName;
+    if (value === undefined) return success({});
+    const displayName = validateCustomApplicationDisplayName(value);
+    return displayName.ok
+      ? success({ displayName: displayName.data })
+      : failure(displayName.error.code as CustomRegistrationErrorCode);
+  };
+
   return {
+    prepareSelection: async (input) => {
+      const parsed = parsePrepareInput(input);
+      if (!parsed.ok) return parsed;
+      try {
+        if (parsed.data.displayName !== undefined) {
+          const early = validateInput({ displayName: parsed.data.displayName });
+          if (!early.ok) return early;
+          const existing = await findExisting(early.data.displayName, early.data.alias);
+          if (!existing.ok) return existing;
+          if (existing.data) return failure(APPLICATION_ERROR_CODES.conflict);
+        }
+        const picked = await pickExecutable();
+        if (!picked.ok) return picked;
+        // Without a spoken name, the friendly name is the executable file name without its extension.
+        const candidateName = parsed.data.displayName ?? path.basename(picked.data, path.extname(picked.data));
+        const named = validateInput({ displayName: candidateName });
+        if (!named.ok) return named;
+        const existing = await findExisting(named.data.displayName, named.data.alias);
+        if (!existing.ok) return existing;
+        if (existing.data) return failure(APPLICATION_ERROR_CODES.conflict);
+
+        const now = dependencies.now();
+        for (const [selectionId, pending] of pendingSelections) {
+          if (pending.expiresAt <= now) pendingSelections.delete(selectionId);
+        }
+        while (pendingSelections.size >= MAXIMUM_PENDING_SELECTIONS) {
+          const oldest = pendingSelections.keys().next().value;
+          if (oldest === undefined) break;
+          pendingSelections.delete(oldest);
+        }
+        const selectionId = dependencies.generateIdentifier();
+        pendingSelections.set(selectionId, {
+          displayName: named.data.displayName,
+          alias: named.data.alias,
+          executablePath: picked.data,
+          expiresAt: now + PENDING_SELECTION_LIFETIME_MS
+        });
+        return success({ displayName: named.data.displayName, selectionId });
+      } catch {
+        dependencies.logError("Custom application selection preparation failed.");
+        return failure(APPLICATION_ERROR_CODES.customPickerUnavailable);
+      }
+    },
+    commitSelection: async (input) => {
+      if (!input || typeof input !== "object" || Array.isArray(input)) {
+        return failure(APPLICATION_ERROR_CODES.inputInvalid);
+      }
+      const keys = Object.keys(input);
+      const selectionId = (input as { selectionId?: unknown }).selectionId;
+      if (keys.length !== 1 || typeof selectionId !== "string") {
+        return failure(APPLICATION_ERROR_CODES.inputInvalid);
+      }
+      const pending = pendingSelections.get(selectionId);
+      pendingSelections.delete(selectionId);
+      if (!pending || pending.expiresAt <= dependencies.now()) {
+        return failure(APPLICATION_ERROR_CODES.customConfirmationUnavailable);
+      }
+      try {
+        const stillValid = await validateExecutableSelection(pending.executablePath);
+        if (!stillValid.ok) return stillValid;
+        const registered = await dependencies.applicationService.registerApplication({
+          name: pending.displayName,
+          executablePath: stillValid.data,
+          aliases: [pending.alias],
+          platform: "WINDOWS",
+          isEnabled: true
+        });
+        if (!registered.ok) return mapApplicationFailure(registered);
+        return success({ applicationName: pending.displayName });
+      } catch {
+        dependencies.logError("Custom application selection registration failed.");
+        return failure(APPLICATION_ERROR_CODES.databaseUnavailable);
+      }
+    },
     registerCustomApplication: async (input) => {
       const validInput = validateInput(input);
       if (!validInput.ok) return validInput;
