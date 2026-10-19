@@ -43,6 +43,20 @@
       "when": 1791128219964,
       "tag": "0005_habit_icons",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791731540629,
+      "tag": "0006_application_catalog_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792000000000,
+      "tag": "0007_application_catalog_claude",
+      "breakpoints": true
     }
   ]
 }

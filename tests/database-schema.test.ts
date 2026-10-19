@@ -3,9 +3,13 @@ import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { APPLICATION_CATALOG_KEYS } from "../src/shared/application-contracts";
 import {
   actionHistory,
   actionResultStatusEnum,
+  applicationCatalogKeyEnum,
+  applicationLaunchModeEnum,
+  applicationPlatformEnum,
   applicationAliases,
   applicationAliasesRelations,
   applications,
@@ -38,6 +42,11 @@ import {
 } from "../src/main/database/schema";
 
 const schemaDirectory = path.resolve(process.cwd(), "src/main/database/schema");
+const applicationCatalogTargetsMigration = readFileSync(
+  path.resolve(process.cwd(), "drizzle/0006_application_catalog_targets.sql"),
+  "utf8"
+);
+const migrationJournal = readFileSync(path.resolve(process.cwd(), "drizzle/meta/_journal.json"), "utf8");
 
 const readSchemaFiles = (directory: string): string[] =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -121,6 +130,27 @@ describe("Ares MVP database schema", () => {
     expect(reminderStatusEnum.enumValues).toEqual(["PENDING", "TRIGGERED", "CANCELLED"]);
     expect(weekdayEnum.enumValues).toEqual(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]);
     expect(habitFrequencyEnum.enumValues).toEqual(["DAILY", "WEEKLY"]);
+    expect(applicationPlatformEnum.enumValues).toEqual(["WINDOWS", "MACOS", "LINUX"]);
+    expect(applicationLaunchModeEnum.enumValues).toEqual([
+      "WINDOWS_EXECUTABLE",
+      "CATALOG_APPLICATION"
+    ]);
+    expect(applicationCatalogKeyEnum.enumValues).toEqual([
+      "GOOGLE_CHROME",
+      "MICROSOFT_EDGE",
+      "MOZILLA_FIREFOX",
+      "SPOTIFY",
+      "WHATSAPP",
+      "MICROSOFT_WORD",
+      "VISUAL_STUDIO_CODE",
+      "DISCORD",
+      "CLAUDE"
+    ]);
+    expect(applicationCatalogKeyEnum.enumValues).toEqual([...APPLICATION_CATALOG_KEYS]);
+    expect(migrationJournal).toContain('"tag": "0007_application_catalog_claude"');
+    expect(readFileSync(path.resolve(process.cwd(), "drizzle/0007_application_catalog_claude.sql"), "utf8")).toContain(
+      "ADD VALUE IF NOT EXISTS 'CLAUDE'"
+    );
     expect(actionResultStatusEnum.enumValues).toEqual([
       "SUCCEEDED",
       "CANCELLED",
@@ -200,18 +230,44 @@ describe("Ares MVP database schema", () => {
     expect(deliveryStateCheckSql).toContain("IS NULL");
   });
 
-  it("keeps application launch data limited to registered paths and aliases", () => {
+  it("keeps application targets limited to legacy executable or catalog key fields", () => {
     const applicationColumns = getColumnNames(applications);
     const aliasConfig = getTableConfig(applicationAliases);
 
     expect(applicationColumns).toContain("executable_path");
+    expect(applicationColumns).toContain("launch_mode");
+    expect(applicationColumns).toContain("catalog_key");
     expect(applicationColumns).not.toContain("command");
     expect(applicationColumns).not.toContain("arguments");
+    expect(applicationColumns).not.toContain("protocol");
+    expect(getTableConfig(applications).checks.map((check) => check.name)).toContain(
+      "applications_launch_target_check"
+    );
+    const targetCheck = getNamedCheckSql(applications, "applications_launch_target_check");
+    expect(targetCheck).toContain("WINDOWS_EXECUTABLE");
+    expect(targetCheck).toContain("CATALOG_APPLICATION");
+    expect(targetCheck).toContain("catalog_key");
     expect(aliasConfig.indexes.map((index) => index.config.name)).toContain(
       "application_aliases_alias_lower_unique"
     );
     expect(aliasConfig.foreignKeys).toHaveLength(1);
     expect(aliasConfig.foreignKeys[0]?.onDelete).toBe("cascade");
+  });
+
+  it("records a backfill-before-constraints migration for catalog application targets", () => {
+    expect(migrationJournal).toContain('"tag": "0006_application_catalog_targets"');
+    expect(applicationCatalogTargetsMigration).toContain(
+      'CREATE TYPE "public"."application_launch_mode"'
+    );
+    expect(applicationCatalogTargetsMigration).toContain(
+      'CREATE TYPE "public"."application_catalog_key"'
+    );
+    expect(applicationCatalogTargetsMigration).toContain(
+      'UPDATE "applications" SET "platform" = \'WINDOWS\', "launch_mode" = \'WINDOWS_EXECUTABLE\', "catalog_key" = NULL'
+    );
+    expect(applicationCatalogTargetsMigration.indexOf('UPDATE "applications"')).toBeLessThan(
+      applicationCatalogTargetsMigration.indexOf('ADD CONSTRAINT "applications_launch_target_check"')
+    );
   });
 
   it("declares the required indexes, relations, and secret-free settings columns", () => {
