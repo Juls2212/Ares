@@ -10,6 +10,7 @@ import {
   type ActionProposal,
   type ActionRiskLevel
 } from "../../shared/action-contracts";
+import { getEnabledAssistantCapability } from "./capability-registry";
 
 type PolicyDefinition = {
   approval: ActionApprovalClass;
@@ -27,6 +28,42 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       scopeSummary: "Aplicación registrada"
     }
   },
+  REGISTER_CATALOG_APPLICATION: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se registrará una aplicación aprobada.",
+      affectedItemCount: 1,
+      scopeSummary: "Aplicación aprobada"
+    }
+  },
+  REQUEST_CUSTOM_APPLICATION_REGISTRATION: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se registrará una aplicación elegida por ti.",
+      affectedItemCount: 1,
+      scopeSummary: "Aplicación elegida"
+    }
+  },
+  OPEN_APPROVED_PAGE: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se abrirá un sitio aprobado.",
+      affectedItemCount: 1,
+      scopeSummary: "Sitio aprobado"
+    }
+  },
+  SEARCH_APPROVED_SITE: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se realizará una búsqueda en un sitio aprobado.",
+      affectedItemCount: 1,
+      scopeSummary: "Búsqueda aprobada"
+    }
+  },
   OPEN_WEB_PAGE: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
@@ -37,12 +74,66 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
     }
   },
   CREATE_FOLDER: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se creará una carpeta en una ubicación aprobada.",
+      affectedItemCount: 1,
+      scopeSummary: "Ubicación aprobada"
+    }
+  },
+  REVEAL_FOUND_FILE: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
     confirmation: {
-      summary: "Se creará una carpeta autorizada.",
+      summary: "Se mostrará un resultado de la última búsqueda.",
       affectedItemCount: 1,
-      scopeSummary: "Carpeta autorizada"
+      scopeSummary: "Resultado de búsqueda"
+    }
+  },
+  RENAME_FOUND_ITEM: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se cambiará el nombre de un resultado de la última búsqueda.",
+      affectedItemCount: 1,
+      scopeSummary: "Resultado de búsqueda"
+    }
+  },
+  MOVE_FOUND_ITEMS: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se moverán resultados de la última búsqueda.",
+      affectedItemCount: null,
+      scopeSummary: "Resultados de búsqueda"
+    }
+  },
+  ORGANIZE_FOUND_ITEMS: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se organizarán resultados de la última búsqueda en una carpeta.",
+      affectedItemCount: null,
+      scopeSummary: "Resultados de búsqueda"
+    }
+  },
+  DELETE_FOUND_ITEM: {
+    approval: "REINFORCED_CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se enviará un resultado de la última búsqueda a la Papelera.",
+      affectedItemCount: 1,
+      scopeSummary: "Resultado de búsqueda"
+    }
+  },
+  OPEN_FOUND_FILE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se abrirá un resultado de la última búsqueda.",
+      affectedItemCount: 1,
+      scopeSummary: "Resultado de búsqueda"
     }
   },
   RENAME_FILE: {
@@ -322,11 +413,12 @@ const createFailure = <T>(
 
 export const getActionPolicy = (action: ActionKind): ActionPolicy => {
   const definition = policyDefinitions[action];
+  const capability = getEnabledAssistantCapability(action);
   return {
     action,
     approval: definition.approval,
     riskLevel: riskLevelByApproval[definition.approval],
-    availability: definition.availability,
+    availability: capability ? definition.availability : "DEFERRED",
     confirmation: {
       ...definition.confirmation,
       required: definition.approval !== "DIRECT"
@@ -350,6 +442,10 @@ export const evaluateActionProposal = (
   const lookup = lookupActionPolicy(action);
   if (!lookup.ok) return lookup;
   const policy = lookup.data;
+  const capability = getEnabledAssistantCapability(action);
+  if (!capability || capability.approval !== policy.approval) {
+    return createFailure(ACTION_ERROR_CODES.unsupported);
+  }
   if (policy.availability === "DEFERRED") {
     return createFailure(ACTION_ERROR_CODES.deferred);
   }
