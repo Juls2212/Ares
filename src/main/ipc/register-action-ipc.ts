@@ -71,6 +71,40 @@ export const createActionIpcRegistration = (dependencies: ActionIpcDependencies)
 };
 
 const speechWindows = new WeakSet<Electron.WebContents>();
+type SpeechResponseStore = Pick<typeof speechService, "clear" | "remember">;
+
+const isSilentConfirmationFailure = (code: string): boolean =>
+  code === ACTION_ERROR_CODES.confirmationInvalid || code === ACTION_ERROR_CODES.confirmationUnavailable;
+
+const isTerminalActionOutcome = (value: unknown): value is import("../../shared/action-contracts").ActionOutcome =>
+  typeof value === "object" && value !== null && "status" in value;
+
+const isAwaitingConfirmation = (value: unknown): value is import("../../shared/action-contracts").AwaitingActionConfirmation =>
+  typeof value === "object" && value !== null && "lifecycleState" in value;
+
+/** Attaches speech only to completed, displayable outcomes; review and cancellation remain silent. */
+export const attachSpokenActionResponse = (
+  windowId: number,
+  result: ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult>,
+  responses: SpeechResponseStore = speechService
+): ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult> => {
+  responses.clear(windowId);
+  if (!result.ok) {
+    if (!isSilentConfirmationFailure(result.error.code)) {
+      result.error.spokenResponse = responses.remember(windowId, result.error.userMessage);
+    }
+    return result;
+  }
+  if (isAwaitingConfirmation(result.data) || !isTerminalActionOutcome(result.data) || result.data.status === "CANCELLED") {
+    return result;
+  }
+  const composed = composeFinalResponse(result.data);
+  const text = composed ?? result.data.userSummary;
+  if (composed) result.data.userSummary = composed;
+  result.data.spokenResponse = responses.remember(windowId, text);
+  return result;
+};
+
 const registerElectronHandler: ActionIpcHandlerRegistrar = (channel, handler): void => {
   ipcMain.handle(channel, async (event, input: unknown) => {
     if (!speechWindows.has(event.sender)) {
@@ -78,20 +112,12 @@ const registerElectronHandler: ActionIpcHandlerRegistrar = (channel, handler): v
       speechWindows.add(event.sender);
       event.sender.once("destroyed", () => speechService.clear(windowId));
     }
-    speechService.clear(event.sender.id);
     const result = await handler(input);
-    if (!result.ok) {
-      result.error.spokenResponse = speechService.remember(event.sender.id, result.error.userMessage);
-    } else if (result.data && typeof result.data === "object") {
-      if ("lifecycleState" in result.data) {
-        const awaiting = result.data as import("../../shared/action-contracts").AwaitingActionConfirmation;
-        awaiting.spokenResponse = speechService.remember(event.sender.id, awaiting.confirmation.summary);
-      } else if ("status" in result.data) {
-        const outcome = result.data as import("../../shared/action-contracts").ActionOutcome;
-        const text = composeFinalResponse(outcome) ?? outcome.userSummary;
-        if (composeFinalResponse(outcome)) outcome.userSummary = text;
-        outcome.spokenResponse = speechService.remember(event.sender.id, text);
-      }
+    if ([IPC_CHANNELS.actions.propose, IPC_CHANNELS.actions.confirm, IPC_CHANNELS.actions.cancel].includes(channel as never)) {
+      return attachSpokenActionResponse(
+        event.sender.id,
+        result as ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult>
+      );
     }
     return result;
   });

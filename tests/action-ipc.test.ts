@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("electron", () => ({ ipcMain: { handle: vi.fn() } }));
 
 import {
+  attachSpokenActionResponse,
   createActionIpcRegistration,
   type ActionIpcHandler,
   type ActionIpcHandlerRegistrar
@@ -49,6 +50,65 @@ const channelDelegations: ReadonlyArray<{
 ];
 
 describe("action IPC registration", () => {
+  it("issues Main-bound speech references only for final non-cancelled action outcomes", () => {
+    const clear = vi.fn();
+    const remember = vi.fn((_windowId: number, text: string) => ({ responseId: `response-${text.length}`, text }));
+    const responses = { clear, remember };
+    const finalResult = attachSpokenActionResponse(18, {
+      ok: true,
+      data: {
+        actionId: "action-1",
+        action: "SEARCH_APPROVED_SITE",
+        riskLevel: 1,
+        status: "SUCCEEDED",
+        data: { site: "YOUTUBE", mode: "SEARCH" },
+        userSummary: "Internal summary."
+      }
+    }, responses);
+    const plannerFailure = attachSpokenActionResponse(18, {
+      ok: true,
+      data: {
+        actionId: "action-2",
+        action: "GET_TODAY_SCHEDULE",
+        riskLevel: 1,
+        status: "EXECUTION_FAILED",
+        userSummary: "No se pudo consultar la agenda."
+      }
+    }, responses);
+    const awaiting = attachSpokenActionResponse(18, {
+      ok: true,
+      data: {
+        lifecycleState: "AWAITING_CONFIRMATION",
+        actionId: "action-3",
+        action: "CREATE_TASK",
+        riskLevel: 2,
+        confirmationId,
+        confirmation: { required: true, affectedItemCount: 1, summary: "Se creará la tarea.", scopeSummary: "Una tarea." }
+      }
+    }, responses);
+    const cancelled = attachSpokenActionResponse(18, {
+      ok: true,
+      data: {
+        actionId: "action-4",
+        action: "CREATE_TASK",
+        riskLevel: 2,
+        status: "CANCELLED",
+        userSummary: "Se canceló la acción solicitada."
+      }
+    }, responses);
+    const expired = attachSpokenActionResponse(18, {
+      ok: false,
+      error: { code: "ACTION_CONFIRMATION_UNAVAILABLE", userMessage: "La confirmación ya no está disponible." }
+    }, responses);
+
+    expect(finalResult.ok && finalResult.data.spokenResponse?.text).toBe("Listo, busqué en YouTube.");
+    expect(plannerFailure.ok && plannerFailure.data.spokenResponse?.text).toBe("No se pudo consultar la agenda.");
+    expect(awaiting.ok && awaiting.data.spokenResponse).toBeUndefined();
+    expect(cancelled.ok && cancelled.data.spokenResponse).toBeUndefined();
+    expect(expired.ok ? undefined : expired.error.spokenResponse).toBeUndefined();
+    expect(clear).toHaveBeenCalledTimes(5);
+  });
+
   it("registers exactly the four approved action channels once", () => {
     const handlers = new Map<string, ActionIpcHandler>();
     const registerHandler: ActionIpcHandlerRegistrar = (channel, handler) => handlers.set(channel, handler);
