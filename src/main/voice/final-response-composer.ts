@@ -15,12 +15,33 @@ const getResolvedApplicationName = (outcome: ActionOutcome): string | undefined 
   return name.length > 0 && name.length <= 160 && !/[\\/\r\n\0]/.test(name) ? name : undefined;
 };
 
+const getApprovedWebSiteName = (outcome: ActionOutcome): string | undefined => {
+  if (!isRecord(outcome.data) || !("site" in outcome.data) || typeof outcome.data.site !== "string") return undefined;
+  return ({ GOOGLE: "Google", YOUTUBE: "YouTube", SPOTIFY: "Spotify" } as const)[outcome.data.site as "GOOGLE" | "YOUTUBE" | "SPOTIFY"];
+};
+
 /** Uses only completed Main-side outcome data; it never consumes provider prose or launch targets. */
 export const composeFinalResponse = (outcome: ActionOutcome): string | undefined => {
   if (outcome.status !== "SUCCEEDED") return undefined;
   if (outcome.action === "OPEN_APPLICATION") {
     const name = getResolvedApplicationName(outcome);
     return name ? `Listo, abrí ${name}.` : undefined;
+  }
+  if (outcome.action === "REGISTER_CATALOG_APPLICATION") {
+    const name = getResolvedApplicationName(outcome);
+    return name ? `Listo, registré ${name}. Ya puedes pedirme que lo abra.` : undefined;
+  }
+  if (outcome.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION") {
+    const name = getResolvedApplicationName(outcome);
+    return name ? `Listo, registré ${name}. Ya puedes pedirme que la abra.` : undefined;
+  }
+  if (outcome.action === "OPEN_APPROVED_PAGE") {
+    const site = getApprovedWebSiteName(outcome);
+    return site ? `Listo, abrí ${site}.` : undefined;
+  }
+  if (outcome.action === "SEARCH_APPROVED_SITE") {
+    const site = getApprovedWebSiteName(outcome);
+    return site ? `Listo, busqué en ${site}.` : undefined;
   }
 
   if (outcome.action === "CREATE_TASK") return hasConfirmedPlannerRecord(outcome) ? "Listo, agregué la tarea." : undefined;
