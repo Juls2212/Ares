@@ -38,15 +38,38 @@ import type {
   CreateHabitInput,
   UpdateHabitInput
 } from "./habit-contracts";
+import type { ApplicationCatalogKey } from "./application-contracts";
+import type {
+  CreateSupervisedFolderInput,
+  DeleteFoundItemInput,
+  MoveFoundItemsInput,
+  OpenFoundFileInput,
+  OrganizeFoundItemsInput,
+  RenameFoundItemInput,
+  RevealFoundFileInput,
+  SearchFilesInput,
+  SupervisedFileMutationData,
+  SupervisedFileSearchData
+} from "./supervised-file-contracts";
 
 export const ACTION_NAMES = [
   "OPEN_APPLICATION",
+  "REGISTER_CATALOG_APPLICATION",
+  "REQUEST_CUSTOM_APPLICATION_REGISTRATION",
+  "OPEN_APPROVED_PAGE",
+  "SEARCH_APPROVED_SITE",
   "OPEN_WEB_PAGE",
   "CREATE_FOLDER",
   "RENAME_FILE",
   "RENAME_FOLDER",
   "MOVE_FILE",
   "SEARCH_FILES",
+  "REVEAL_FOUND_FILE",
+  "OPEN_FOUND_FILE",
+  "RENAME_FOUND_ITEM",
+  "MOVE_FOUND_ITEMS",
+  "ORGANIZE_FOUND_ITEMS",
+  "DELETE_FOUND_ITEM",
   "ORGANIZE_FILES",
   "CREATE_TASK",
   "UPDATE_TASK",
@@ -197,6 +220,36 @@ export type OpenApplicationInput = {
   alias: string;
 };
 
+/** A closed catalog key and optional validated public alias; no launch target is caller supplied. */
+export type RegisterCatalogApplicationInput = {
+  catalogKey: ApplicationCatalogKey;
+  alias?: string;
+};
+
+/** Only an optional friendly name; the executable is always chosen in a Main-owned native picker. */
+export type RequestCustomApplicationRegistrationInput = {
+  displayName?: string;
+};
+
+/** Main-only shape after the picker ran: the opaque selection reference never comes from a caller. */
+export type PreparedCustomApplicationRegistrationInput = {
+  displayName: string;
+  selectionId: string;
+};
+
+/** A closed Main-owned site identifier; callers never provide a URL or domain. */
+export const APPROVED_SITES = ["GOOGLE", "YOUTUBE", "SPOTIFY"] as const;
+export type ApprovedSite = (typeof APPROVED_SITES)[number];
+
+export type OpenApprovedPageInput = {
+  site: ApprovedSite;
+};
+
+export type SearchApprovedSiteInput = {
+  site: ApprovedSite;
+  query: string;
+};
+
 export type WeatherActionProposal = ActionProposalBase & {
   action: "GET_WEATHER";
   input: GetWeatherInput;
@@ -218,6 +271,20 @@ export type OpenApplicationActionProposal = ActionProposalBase & {
   input: OpenApplicationInput;
 };
 
+export type RegisterCatalogApplicationActionProposal = ActionProposalBase & {
+  action: "REGISTER_CATALOG_APPLICATION";
+  input: RegisterCatalogApplicationInput;
+};
+
+export type RequestCustomApplicationRegistrationActionProposal = ActionProposalBase & {
+  action: "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
+  input: RequestCustomApplicationRegistrationInput | PreparedCustomApplicationRegistrationInput;
+};
+
+export type ApprovedWebActionProposal =
+  | (ActionProposalBase & { action: "OPEN_APPROVED_PAGE"; input: OpenApprovedPageInput })
+  | (ActionProposalBase & { action: "SEARCH_APPROVED_SITE"; input: SearchApprovedSiteInput });
+
 export type OpenWebPageActionProposal = ActionProposalBase & {
   action: "OPEN_WEB_PAGE";
   input: OpenWebPageInput;
@@ -236,13 +303,31 @@ export type FileActionProposal =
       plan?: FileOrganizationPlan;
     });
 
+/** The supervised FILES domain: ordinals and enum values only, never a caller-supplied path. */
+export type SupervisedFilesActionProposal =
+  | (ActionProposalBase & { action: "SEARCH_FILES"; input: SearchFilesInput })
+  | (ActionProposalBase & { action: "REVEAL_FOUND_FILE"; input: RevealFoundFileInput })
+  | (ActionProposalBase & { action: "OPEN_FOUND_FILE"; input: OpenFoundFileInput })
+  | (ActionProposalBase & { action: "CREATE_FOLDER"; input: CreateSupervisedFolderInput })
+  | (ActionProposalBase & { action: "RENAME_FOUND_ITEM"; input: RenameFoundItemInput })
+  | (ActionProposalBase & { action: "MOVE_FOUND_ITEMS"; input: MoveFoundItemsInput })
+  | (ActionProposalBase & { action: "ORGANIZE_FOUND_ITEMS"; input: OrganizeFoundItemsInput })
+  | (ActionProposalBase & { action: "DELETE_FOUND_ITEM"; input: DeleteFoundItemInput });
+
+/** Legacy file shapes that stay unregistered; SEARCH_FILES and CREATE_FOLDER now use the supervised shapes. */
+export type LegacyFileActionProposal = Exclude<FileActionProposal, { action: "SEARCH_FILES" | "CREATE_FOLDER" }>;
+
 export type ExecutableActionProposal =
   | PlannerActionProposal
   | HabitActionProposal
   | WeatherActionProposal
   | OpenApplicationActionProposal
+  | RegisterCatalogApplicationActionProposal
+  | RequestCustomApplicationRegistrationActionProposal
+  | ApprovedWebActionProposal
   | OpenWebPageActionProposal
-  | FileActionProposal;
+  | LegacyFileActionProposal
+  | SupervisedFilesActionProposal;
 
 export type DeferredActionName = Exclude<ActionName, ExecutableActionProposal["action"]>;
 
@@ -289,6 +374,20 @@ export type OpenApplicationActionSubmission = {
   input: OpenApplicationInput;
 };
 
+export type RegisterCatalogApplicationActionSubmission = {
+  action: "REGISTER_CATALOG_APPLICATION";
+  input: RegisterCatalogApplicationInput;
+};
+
+export type RequestCustomApplicationRegistrationActionSubmission = {
+  action: "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
+  input: RequestCustomApplicationRegistrationInput;
+};
+
+export type ApprovedWebActionSubmission =
+  | { action: "OPEN_APPROVED_PAGE"; input: OpenApprovedPageInput }
+  | { action: "SEARCH_APPROVED_SITE"; input: SearchApprovedSiteInput };
+
 export type OpenWebPageActionSubmission = {
   action: "OPEN_WEB_PAGE";
   input: OpenWebPageInput;
@@ -302,6 +401,18 @@ export type FileActionSubmission =
   | { action: "MOVE_FILE"; input: MoveFileInput }
   | { action: "ORGANIZE_FILES"; input: OrganizeFilesInput };
 
+export type SupervisedFilesActionSubmission =
+  | { action: "SEARCH_FILES"; input: SearchFilesInput }
+  | { action: "REVEAL_FOUND_FILE"; input: RevealFoundFileInput }
+  | { action: "OPEN_FOUND_FILE"; input: Omit<OpenFoundFileInput, "preparedId"> }
+  | { action: "CREATE_FOLDER"; input: Omit<CreateSupervisedFolderInput, "preparedId"> }
+  | { action: "RENAME_FOUND_ITEM"; input: Omit<RenameFoundItemInput, "preparedId"> }
+  | { action: "MOVE_FOUND_ITEMS"; input: Omit<MoveFoundItemsInput, "preparedId"> }
+  | { action: "ORGANIZE_FOUND_ITEMS"; input: Omit<OrganizeFoundItemsInput, "preparedId"> }
+  | { action: "DELETE_FOUND_ITEM"; input: Omit<DeleteFoundItemInput, "preparedId"> };
+
+export type LegacyFileActionSubmission = Exclude<FileActionSubmission, { action: "SEARCH_FILES" | "CREATE_FOLDER" }>;
+
 export type DeferredActionSubmission = {
   action: DeferredActionName;
 };
@@ -312,8 +423,12 @@ export type ActionSubmission =
   | HabitActionSubmission
   | WeatherActionSubmission
   | OpenApplicationActionSubmission
+  | RegisterCatalogApplicationActionSubmission
+  | RequestCustomApplicationRegistrationActionSubmission
+  | ApprovedWebActionSubmission
   | OpenWebPageActionSubmission
-  | FileActionSubmission
+  | LegacyFileActionSubmission
+  | SupervisedFilesActionSubmission
   | DeferredActionSubmission;
 
 export type ActionConfirmationRequirement = {
@@ -364,6 +479,12 @@ export type OpenApplicationActionData = {
   applicationName: string;
 };
 
+/** Safe terminal data deliberately excludes both the query and generated URL. */
+export type ApprovedWebActionData = {
+  site: ApprovedSite;
+  mode: "HOME" | "SEARCH";
+};
+
 export type OpenWebPageActionData = {
   applicationName: string;
   destination: WebDestination;
@@ -374,7 +495,14 @@ export type FileActionData =
   | SafeFileMutationRecord
   | FileOrganizationExecutionData;
 
-export type ActionData = PlannerActionData | OpenApplicationActionData | OpenWebPageActionData | FileActionData;
+export type ActionData =
+  | PlannerActionData
+  | OpenApplicationActionData
+  | ApprovedWebActionData
+  | OpenWebPageActionData
+  | SupervisedFileSearchData
+  | SupervisedFileMutationData
+  | FileActionData;
 
 export type ActionOutcome = {
   spokenResponse?: import("./speech-contracts").SpokenResponse;
