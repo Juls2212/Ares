@@ -1,4 +1,5 @@
-import { app, BrowserWindow, globalShortcut, Menu, nativeImage, session, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, Menu, nativeImage, nativeTheme, session, Tray } from "electron";
+import os from "node:os";
 import path from "node:path";
 import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
 import { registerAssistantIpcHandlers } from "./ipc/register-assistant-ipc";
@@ -10,6 +11,10 @@ import { registerSettingsIpcHandlers } from "./ipc/register-settings-ipc";
 import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
 import { registerVoiceIpcHandlers } from "./ipc/register-voice-ipc";
 import { registerSpeechIpcHandlers } from "./ipc/register-speech-ipc";
+import { registerMessagingIpcHandlers } from "./ipc/register-messaging-ipc";
+import { configureContactFormSender, shutdownMessaging } from "./messaging/messaging-composition";
+import { shutdownSpotify } from "./spotify/spotify-composition";
+import { IPC_CHANNELS } from "../shared/contracts";
 import { getReminderDeliveryScheduler } from "./reminders/reminder-composition";
 import { registerReminderDeliveryShutdown } from "./reminders/register-reminder-delivery-lifecycle";
 import {
@@ -18,6 +23,7 @@ import {
 import { createGlobalVoiceShortcutLifecycle } from "./voice/global-voice-shortcut";
 import { configureVoicePreferencesService } from "./settings/voice-preferences-composition";
 import { removeFullScreenMenuCommand } from "./compact-window-menu";
+import { getWindowAppearance } from "./window-appearance";
 import { formatShortcutForDisplay } from "../shared/settings-contracts";
 import {
   createBackgroundLifecycle,
@@ -131,7 +137,17 @@ const configureSessionSecurity = (): void => {
   });
 };
 
+/** Reads only values Electron exposes (no registry): platform, OS build and the accessibility settings. */
+const readWindowAppearance = () => getWindowAppearance({
+  platform: process.platform,
+  release: os.release(),
+  shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
+  shouldUseHighContrastColors: nativeTheme.shouldUseHighContrastColors,
+  prefersReducedTransparency: nativeTheme.prefersReducedTransparency
+});
+
 const createMainWindow = async (): Promise<void> => {
+  const windowAppearance = readWindowAppearance();
   const createdWindow = new BrowserWindow({
     width: 440,
     height: 440,
@@ -140,6 +156,7 @@ const createMainWindow = async (): Promise<void> => {
     useContentSize: true,
     maximizable: false,
     fullscreenable: false,
+    ...windowAppearance.options,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -151,6 +168,17 @@ const createMainWindow = async (): Promise<void> => {
     }
   });
   createdWindow.setAspectRatio(1);
+  // Glass (Acrylic) when the system supports it; otherwise an opaque surface that follows the system theme.
+  // No stylesheet is injected: the opaque surface is the window background, and the translucent tint stays legible over it.
+  const applyWindowAppearance = (): void => {
+    if (createdWindow.isDestroyed()) return;
+    const appearance = readWindowAppearance();
+    if (process.platform === "win32") createdWindow.setBackgroundMaterial(appearance.material === "acrylic" ? "acrylic" : "none");
+    createdWindow.setBackgroundColor(appearance.backgroundColor);
+  };
+  nativeTheme.on("updated", applyWindowAppearance);
+  createdWindow.once("closed", () => nativeTheme.removeListener("updated", applyWindowAppearance));
+  createdWindow.webContents.on("did-finish-load", applyWindowAppearance);
   const applicationMenu = Menu.getApplicationMenu();
   if (applicationMenu && removeFullScreenMenuCommand(applicationMenu)) Menu.setApplicationMenu(applicationMenu);
   mainWindow = createdWindow;
@@ -195,6 +223,14 @@ app.whenReady().then(async () => {
   registerPlannerIpcHandlers();
   registerHabitIpcHandlers();
   registerActionIpcHandlers();
+  registerMessagingIpcHandlers();
+  // The contact form is shown by the one trusted window; the renderer receives only a friendly name.
+  configureContactFormSender((request) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    backgroundLifecycle.showMainWindow();
+    mainWindow.webContents.send(IPC_CHANNELS.messaging.contactFormRequested, request);
+    return true;
+  });
   registerAssistantIpcHandlers();
   registerVoiceIpcHandlers();
   registerSpeechIpcHandlers();
@@ -217,6 +253,8 @@ app.whenReady().then(async () => {
 });
 
 app.once("before-quit", () => {
+  shutdownMessaging();
+  shutdownSpotify();
   globalVoiceShortcutLifecycle.stop();
 });
 
