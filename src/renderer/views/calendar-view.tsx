@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { EventRecord } from "../../shared/planner-contracts";
 
 import { CalendarDayDetails, canDeleteLoadedCalendarEvents, resolveSelectedCalendarEvent } from "../features/calendar/calendar-day-details";
-import { loadCalendarData, type CalendarLoadData } from "../features/calendar/calendar-data";
+import { loadCalendarData, loadCalendarRangeData, type CalendarLoadData } from "../features/calendar/calendar-data";
 import { CalendarEventDeleteDialog } from "../features/calendar/calendar-event-delete-dialog";
 import { CalendarEventEditDialog } from "../features/calendar/calendar-event-edit-dialog";
 import { saveCalendarEventEdit } from "../features/calendar/calendar-event-editing";
@@ -15,19 +15,26 @@ import {
   createMonthGrid,
   firstSelectedDateForMonth,
   formatCalendarMonth,
+  formatCalendarDateHeading,
   groupCalendarRecordsByDay,
+  addLocalCalendarDays,
+  mondayForLocalDate,
   monthStartFor,
   nextMonthStartFor,
   toLocalCalendarDate
 } from "../features/calendar/calendar-date-utils";
+import { CalendarAgendaView, CalendarDayView, CalendarWeekView } from "../features/calendar/calendar-date-views";
 import { CalendarGrid } from "../features/calendar/calendar-grid";
+import { HabitPlanner } from "../features/calendar/habit-planner";
 import { WeeklyRoutinePlanner } from "../features/calendar/weekly-routine-planner";
 
 const emptyCalendarData: CalendarLoadData = { tasks: [], events: [] };
 
 export const CalendarView = () => {
-  const [plannerView, setPlannerView] = useState<"CALENDAR" | "WEEKLY_ROUTINES">("CALENDAR");
+  const [plannerView, setPlannerView] = useState<"CALENDAR" | "WEEKLY_ROUTINES" | "HABITS">("CALENDAR");
+  const [calendarView, setCalendarView] = useState<"MONTH" | "DAY" | "WEEK" | "AGENDA">("MONTH");
   const [weeklyPlannerSession, setWeeklyPlannerSession] = useState(0);
+  const [habitPlannerSession, setHabitPlannerSession] = useState(0);
   const [displayedMonth, setDisplayedMonth] = useState(() => monthStartFor(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => firstSelectedDateForMonth(monthStartFor(new Date()), new Date()));
   const [calendarData, setCalendarData] = useState<CalendarLoadData>(emptyCalendarData);
@@ -53,7 +60,11 @@ export const CalendarView = () => {
     if (plannerView !== "CALENDAR") return;
     let current = true;
     setIsLoading(true);
-    void loadCalendarData(window.ares?.planner, displayedMonth)
+    const rangeStart = calendarView === "WEEK" ? mondayForLocalDate(selectedDate) : selectedDate;
+    const loader = calendarView === "MONTH"
+      ? loadCalendarData(window.ares?.planner, displayedMonth)
+      : loadCalendarRangeData(window.ares?.planner, rangeStart, calendarView === "AGENDA" ? 14 : calendarView === "WEEK" ? 7 : 1);
+    void loader
       .then((data) => {
         if (current) setCalendarData(data);
       })
@@ -69,7 +80,7 @@ export const CalendarView = () => {
         if (current) setIsLoading(false);
       });
     return () => { current = false; };
-  }, [displayedMonth, reloadVersion, plannerView]);
+  }, [calendarView, displayedMonth, reloadVersion, plannerView, selectedDate]);
 
   useEffect(() => {
     if (eventToDelete || !focusAfterClosing.current) return;
@@ -112,6 +123,13 @@ export const CalendarView = () => {
   useEffect(() => { setSelectedEventId(null); setSelectedTaskId(null); }, [selectedDate]);
   const hasRecords = calendarData.tasks.length > 0 || calendarData.events.length > 0;
   const todayDate = toLocalCalendarDate(new Date());
+  const calendarHeading = calendarView === "MONTH"
+    ? formatCalendarMonth(displayedMonth)
+    : calendarView === "DAY"
+      ? formatCalendarDateHeading(selectedDate)
+      : calendarView === "WEEK"
+        ? `Semana del ${formatCalendarDateHeading(mondayForLocalDate(selectedDate))}`
+        : "Agenda";
 
   const showMonth = (month: Date): void => {
     const normalizedMonth = monthStartFor(month);
@@ -123,6 +141,16 @@ export const CalendarView = () => {
     const today = new Date();
     setDisplayedMonth(monthStartFor(today));
     setSelectedDate(toLocalCalendarDate(today));
+  };
+
+  const moveCalendarView = (amount: number): void => {
+    if (calendarView === "MONTH") {
+      showMonth(new Date(displayedMonth.getFullYear(), displayedMonth.getMonth() + amount, 1));
+      return;
+    }
+    const next = addLocalCalendarDays(selectedDate, amount * (calendarView === "WEEK" ? 7 : calendarView === "AGENDA" ? 14 : 1));
+    setSelectedDate(next);
+    setDisplayedMonth(monthStartFor(new Date(`${next}T12:00:00`)));
   };
 
   const requestEventDeletion = async (event: EventRecord, trigger: HTMLButtonElement): Promise<void> => {
@@ -179,26 +207,47 @@ export const CalendarView = () => {
     setReloadVersion((version) => version + 1);
   };
 
+  const selectedDayDetails = <CalendarDayDetails
+    isoDate={selectedDate}
+    items={selectedItems}
+    selectedEventId={eventActionsAvailable ? selectedEventId : null}
+    onSelectEvent={eventActionsAvailable ? (id) => { setSelectedTaskId(null); setSelectedEventId(id); } : undefined}
+    selectedTaskId={eventActionsAvailable ? selectedTaskId : null}
+    onSelectTask={eventActionsAvailable ? (id) => { setSelectedEventId(null); setSelectedTaskId(id); } : undefined}
+    onTaskRefresh={() => setReloadVersion((version) => version + 1)}
+    onTaskDeleted={() => { setSelectedTaskId(null); focusRail.current?.focus(); }}
+    onTaskBusyChange={(busy) => { taskActionBusy.current = busy; }}
+    onRequestEventEdit={eventActionsAvailable ? (event, trigger) => {
+      if (deletionInFlight.current || eventToDelete) return;
+      editTrigger.current = trigger;
+      setEventToEdit(event);
+    } : undefined}
+    onRequestEventDeletion={eventActionsAvailable ? requestEventDeletion : undefined}
+  />;
+
   return <section aria-label="Calendario" className="calendar-shell">
     <header className="calendar-header">
       <div className="calendar-header__identity">
         <p className="eyebrow">Planificación</p>
-        <h1>{plannerView === "CALENDAR" ? formatCalendarMonth(displayedMonth) : "Horario semanal"}</h1>
+        <h1>{plannerView === "CALENDAR" ? calendarHeading : plannerView === "WEEKLY_ROUTINES" ? "Horario semanal" : "Hábitos"}</h1>
       </div>
       <div className="calendar-header__actions">
         <div aria-label="Vista del planificador" className="planner-view-switch" role="tablist">
           <button aria-controls="calendar-month-view" aria-selected={plannerView === "CALENDAR"} onClick={() => setPlannerView("CALENDAR")} role="tab" type="button">Calendario</button>
           <button aria-controls="weekly-routine-view" aria-selected={plannerView === "WEEKLY_ROUTINES"} onClick={() => { setWeeklyPlannerSession((session) => session + 1); setPlannerView("WEEKLY_ROUTINES"); }} role="tab" type="button">Horario semanal</button>
+          <button aria-controls="habit-view" aria-selected={plannerView === "HABITS"} onClick={() => { setHabitPlannerSession((session) => session + 1); setPlannerView("HABITS"); }} role="tab" type="button">Hábitos</button>
         </div>
-        {plannerView === "CALENDAR" ? <div aria-label="Navegación del calendario" className="calendar-controls">
-          <button className="calendar-controls__previous" onClick={() => showMonth(new Date(displayedMonth.getFullYear(), displayedMonth.getMonth() - 1, 1))} type="button">Mes anterior</button>
+        {plannerView === "CALENDAR" ? <><div aria-label="Vista del calendario" className="calendar-date-view-switch" role="tablist">
+          {(["MONTH", "DAY", "WEEK", "AGENDA"] as const).map((view) => <button aria-selected={calendarView === view} key={view} onClick={() => setCalendarView(view)} role="tab" type="button">{{ MONTH: "Mes", DAY: "Día", WEEK: "Semana", AGENDA: "Agenda" }[view]}</button>)}
+        </div><div aria-label="Navegación del calendario" className="calendar-controls">
+          <button className="calendar-controls__previous" onClick={() => moveCalendarView(-1)} type="button">Anterior</button>
           <button className="calendar-controls__today" onClick={showToday} type="button">Hoy</button>
-          <button className="calendar-controls__next" onClick={() => showMonth(nextMonthStartFor(displayedMonth))} type="button">Mes siguiente</button>
-        </div> : null}
+          <button className="calendar-controls__next" onClick={() => moveCalendarView(1)} type="button">Siguiente</button>
+        </div></> : null}
       </div>
     </header>
 
-    {plannerView === "WEEKLY_ROUTINES" ? <WeeklyRoutinePlanner key={weeklyPlannerSession} /> : <div className="calendar-console" id="calendar-month-view" role="tabpanel">
+    {plannerView === "WEEKLY_ROUTINES" ? <WeeklyRoutinePlanner key={weeklyPlannerSession} /> : plannerView === "HABITS" ? <HabitPlanner key={habitPlannerSession} /> : <div className={`calendar-console calendar-console--${calendarView.toLowerCase()}`} id="calendar-month-view" role="tabpanel">
       <div className="calendar-notices">
         {deletionError && !eventToDelete && <p className="calendar-status calendar-status--error" role="alert">{deletionError}</p>}
         {isLoading && <p className="calendar-status calendar-status--loading" role="status">Cargando calendario...</p>}
@@ -206,28 +255,12 @@ export const CalendarView = () => {
         {calendarData.eventError && <p className="calendar-status calendar-status--error">{calendarData.eventError}</p>}
         {!isLoading && !hasRecords && !calendarData.taskError && !calendarData.eventError && <p className="calendar-status calendar-status--empty">No hay tareas ni eventos para este mes.</p>}
       </div>
-      <div className="calendar-surface">
+      {calendarView === "MONTH" ? <><div className="calendar-surface">
         <CalendarGrid days={days} itemsByDay={itemsByDay} key={toLocalCalendarDate(displayedMonth)} onSelectDate={setSelectedDate} selectedDate={selectedDate} todayDate={todayDate} />
       </div>
       <aside className="calendar-focus-rail" ref={focusRail} tabIndex={-1}>
-        <CalendarDayDetails
-          isoDate={selectedDate}
-          items={selectedItems}
-          selectedEventId={eventActionsAvailable ? selectedEventId : null}
-          onSelectEvent={eventActionsAvailable ? (id) => { setSelectedTaskId(null); setSelectedEventId(id); } : undefined}
-          selectedTaskId={eventActionsAvailable ? selectedTaskId : null}
-          onSelectTask={eventActionsAvailable ? (id) => { setSelectedEventId(null); setSelectedTaskId(id); } : undefined}
-          onTaskRefresh={() => setReloadVersion((version) => version + 1)}
-          onTaskDeleted={() => { setSelectedTaskId(null); focusRail.current?.focus(); }}
-          onTaskBusyChange={(busy) => { taskActionBusy.current = busy; }}
-          onRequestEventEdit={eventActionsAvailable ? (event, trigger) => {
-            if (deletionInFlight.current || eventToDelete) return;
-            editTrigger.current = trigger;
-            setEventToEdit(event);
-          } : undefined}
-          onRequestEventDeletion={eventActionsAvailable ? requestEventDeletion : undefined}
-        />
-      </aside>
+        {selectedDayDetails}
+      </aside></> : calendarView === "DAY" ? <CalendarDayView selectedDate={selectedDate} itemsByDay={itemsByDay} details={selectedDayDetails} /> : calendarView === "WEEK" ? <CalendarWeekView selectedDate={mondayForLocalDate(selectedDate)} itemsByDay={itemsByDay} /> : <CalendarAgendaView selectedDate={selectedDate} itemsByDay={itemsByDay} />}
     </div>}
     {eventToEdit && <CalendarEventEditDialog
       event={eventToEdit}

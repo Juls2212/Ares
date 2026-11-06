@@ -12,11 +12,8 @@ it("renders Ares without audio APIs or automatic speech requests", () => {
       voiceLabel: "Listo para grabar",
       voiceState: "IDLE",
       orbState: "idle",
-      instruction: "",
       isInterpreting: false,
       draftStates: {},
-      onInstructionChange: vi.fn(),
-      onInterpret: vi.fn(),
       onStartRecording: vi.fn(),
       onCancelRecording: vi.fn(),
       onPropose: vi.fn(),
@@ -25,7 +22,12 @@ it("renders Ares without audio APIs or automatic speech requests", () => {
   );
 
   expect(markup).toContain("Ares");
-  expect(markup).toContain('aria-label="Iniciar grabación por voz"');
-  expect(markup).toContain("Interpretar");
-  expect(markup).toContain("particle-orb__fallback");
+  expect(markup).toContain('aria-label="Toca para hablar"');
+  expect(markup).not.toContain("voice-button--microphone");
+  expect(markup).not.toContain("voice-controls");
+  expect(markup).toContain("Toca el orbe para hablar");
+  expect(markup).not.toContain("Interpretar");
+  expect(markup).not.toContain("assistant-instruction");
+  expect(markup).not.toContain("textarea");
+  expect(markup).toContain("glass-orb__sphere");
 });

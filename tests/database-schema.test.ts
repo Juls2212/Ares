@@ -3,9 +3,13 @@ import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { APPLICATION_CATALOG_KEYS } from "../src/shared/application-contracts";
 import {
   actionHistory,
   actionResultStatusEnum,
+  applicationCatalogKeyEnum,
+  applicationLaunchModeEnum,
+  applicationPlatformEnum,
   applicationAliases,
   applicationAliasesRelations,
   applications,
@@ -13,6 +17,11 @@ import {
   categories,
   categoriesRelations,
   events,
+  habitCompletions,
+  habitCompletionsRelations,
+  habitFrequencyEnum,
+  habits,
+  habitsRelations,
   eventNotificationDeliveries,
   eventNotificationDeliveriesRelations,
   eventsRelations,
@@ -33,6 +42,11 @@ import {
 } from "../src/main/database/schema";
 
 const schemaDirectory = path.resolve(process.cwd(), "src/main/database/schema");
+const applicationCatalogTargetsMigration = readFileSync(
+  path.resolve(process.cwd(), "drizzle/0006_application_catalog_targets.sql"),
+  "utf8"
+);
+const migrationJournal = readFileSync(path.resolve(process.cwd(), "drizzle/meta/_journal.json"), "utf8");
 
 const readSchemaFiles = (directory: string): string[] =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -90,7 +104,9 @@ describe("Ares MVP database schema", () => {
       actionHistory,
       settings,
       weeklyRoutines,
-      weeklySchedules
+      weeklySchedules,
+      habits,
+      habitCompletions
     ].map(getTableName)).toEqual([
       "categories",
       "tasks",
@@ -102,7 +118,9 @@ describe("Ares MVP database schema", () => {
       "action_history",
       "settings",
       "weekly_routines",
-      "weekly_schedules"
+      "weekly_schedules",
+      "habits",
+      "habit_completions"
     ]);
   });
 
@@ -111,6 +129,28 @@ describe("Ares MVP database schema", () => {
     expect(taskPriorityEnum.enumValues).toEqual(["LOW", "MEDIUM", "HIGH"]);
     expect(reminderStatusEnum.enumValues).toEqual(["PENDING", "TRIGGERED", "CANCELLED"]);
     expect(weekdayEnum.enumValues).toEqual(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]);
+    expect(habitFrequencyEnum.enumValues).toEqual(["DAILY", "WEEKLY"]);
+    expect(applicationPlatformEnum.enumValues).toEqual(["WINDOWS", "MACOS", "LINUX"]);
+    expect(applicationLaunchModeEnum.enumValues).toEqual([
+      "WINDOWS_EXECUTABLE",
+      "CATALOG_APPLICATION"
+    ]);
+    expect(applicationCatalogKeyEnum.enumValues).toEqual([
+      "GOOGLE_CHROME",
+      "MICROSOFT_EDGE",
+      "MOZILLA_FIREFOX",
+      "SPOTIFY",
+      "WHATSAPP",
+      "MICROSOFT_WORD",
+      "VISUAL_STUDIO_CODE",
+      "DISCORD",
+      "CLAUDE"
+    ]);
+    expect(applicationCatalogKeyEnum.enumValues).toEqual([...APPLICATION_CATALOG_KEYS]);
+    expect(migrationJournal).toContain('"tag": "0007_application_catalog_claude"');
+    expect(readFileSync(path.resolve(process.cwd(), "drizzle/0007_application_catalog_claude.sql"), "utf8")).toContain(
+      "ADD VALUE IF NOT EXISTS 'CLAUDE'"
+    );
     expect(actionResultStatusEnum.enumValues).toEqual([
       "SUCCEEDED",
       "CANCELLED",
@@ -134,6 +174,7 @@ describe("Ares MVP database schema", () => {
       [events, "events_title_non_blank_check"],
       [weeklyRoutines, "weekly_routines_title_non_blank_check"],
       [weeklySchedules, "weekly_schedules_title_non_blank_check"],
+      [habits, "habits_title_non_blank_check"],
       [reminders, "reminders_title_non_blank_check"],
       [applications, "applications_name_non_blank_check"],
       [applications, "applications_executable_path_non_blank_check"],
@@ -189,18 +230,44 @@ describe("Ares MVP database schema", () => {
     expect(deliveryStateCheckSql).toContain("IS NULL");
   });
 
-  it("keeps application launch data limited to registered paths and aliases", () => {
+  it("keeps application targets limited to legacy executable or catalog key fields", () => {
     const applicationColumns = getColumnNames(applications);
     const aliasConfig = getTableConfig(applicationAliases);
 
     expect(applicationColumns).toContain("executable_path");
+    expect(applicationColumns).toContain("launch_mode");
+    expect(applicationColumns).toContain("catalog_key");
     expect(applicationColumns).not.toContain("command");
     expect(applicationColumns).not.toContain("arguments");
+    expect(applicationColumns).not.toContain("protocol");
+    expect(getTableConfig(applications).checks.map((check) => check.name)).toContain(
+      "applications_launch_target_check"
+    );
+    const targetCheck = getNamedCheckSql(applications, "applications_launch_target_check");
+    expect(targetCheck).toContain("WINDOWS_EXECUTABLE");
+    expect(targetCheck).toContain("CATALOG_APPLICATION");
+    expect(targetCheck).toContain("catalog_key");
     expect(aliasConfig.indexes.map((index) => index.config.name)).toContain(
       "application_aliases_alias_lower_unique"
     );
     expect(aliasConfig.foreignKeys).toHaveLength(1);
     expect(aliasConfig.foreignKeys[0]?.onDelete).toBe("cascade");
+  });
+
+  it("records a backfill-before-constraints migration for catalog application targets", () => {
+    expect(migrationJournal).toContain('"tag": "0006_application_catalog_targets"');
+    expect(applicationCatalogTargetsMigration).toContain(
+      'CREATE TYPE "public"."application_launch_mode"'
+    );
+    expect(applicationCatalogTargetsMigration).toContain(
+      'CREATE TYPE "public"."application_catalog_key"'
+    );
+    expect(applicationCatalogTargetsMigration).toContain(
+      'UPDATE "applications" SET "platform" = \'WINDOWS\', "launch_mode" = \'WINDOWS_EXECUTABLE\', "catalog_key" = NULL'
+    );
+    expect(applicationCatalogTargetsMigration.indexOf('UPDATE "applications"')).toBeLessThan(
+      applicationCatalogTargetsMigration.indexOf('ADD CONSTRAINT "applications_launch_target_check"')
+    );
   });
 
   it("declares the required indexes, relations, and secret-free settings columns", () => {
@@ -213,6 +280,21 @@ describe("Ares MVP database schema", () => {
     expect(getTableConfig(weeklyRoutines).indexes.map((index) => index.config.name)).toEqual(
       expect.arrayContaining(["weekly_routines_schedule_weekday_start_time_index", "weekly_routines_category_id_index"])
     );
+    expect(getTableConfig(habits).indexes.map((index) => index.config.name)).toEqual(
+      expect.arrayContaining(["habits_active_created_at_index", "habits_category_id_index"])
+    );
+    expect(getTableConfig(habits).foreignKeys.map((foreignKey) => foreignKey.onDelete)).toContain("set null");
+    expect(getTableConfig(habitCompletions).indexes.map((index) => index.config.name)).toEqual(
+      expect.arrayContaining(["habit_completions_habit_id_completed_on_index", "habit_completions_completed_on_index"])
+    );
+    expect(getTableConfig(habitCompletions).foreignKeys[0]?.onDelete).toBe("cascade");
+    expect(getTableConfig(habitCompletions).uniqueConstraints.map((constraint) => constraint.name)).toContain(
+      "habit_completions_habit_id_completed_on_unique"
+    );
+    expect(getTableConfig(habits).checks.map((check) => check.name)).toEqual(
+      expect.arrayContaining(["habits_target_count_check", "habits_frequency_target_check", "habits_icon_check"])
+    );
+    expect(getColumnNames(habits)).toContain("icon");
     expect(getTableConfig(weeklyRoutines).foreignKeys.map((foreignKey) => foreignKey.onDelete)).toEqual(
       expect.arrayContaining(["set null", "cascade"])
     );
@@ -246,6 +328,8 @@ describe("Ares MVP database schema", () => {
       applicationAliasesRelations
       , weeklyRoutinesRelations
       , weeklySchedulesRelations
+      , habitsRelations
+      , habitCompletionsRelations
     ].every(Boolean)).toBe(true);
     expect(getColumnNames(settings).join(" ")).not.toMatch(
       /secret|credential|password|token|api[_]?key/i

@@ -16,7 +16,8 @@ const fixture = (overrides: {
   const shortcutLifecycle: GlobalVoiceShortcutLifecycle = {
     apply: overrides.apply ?? vi.fn(() => ({ ok: true as const, effectiveStatus: "ACTIVE" as const })),
     stop: vi.fn(),
-    getEffectiveStatus: vi.fn(() => "ACTIVE" as const)
+    getEffectiveStatus: vi.fn(() => "ACTIVE" as const),
+    getActiveShortcut: vi.fn(() => undefined)
   };
   return {
     service: createVoicePreferencesService({ repository, shortcutLifecycle, logError: vi.fn() }),

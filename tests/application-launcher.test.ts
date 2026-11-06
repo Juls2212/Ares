@@ -3,6 +3,7 @@ import { createApplicationLauncher } from "../src/main/applications/application-
 import { resolveTrustedWebDestination } from "../src/main/applications/trusted-web-destinations";
 import type { ApplicationService } from "../src/main/applications/application-service";
 import type { ResolvedApplicationTarget } from "../src/main/applications/application-repositories";
+import type { CatalogApplicationAdapter } from "../src/main/applications/catalog-application-adapter";
 import type { OperationResult } from "../src/shared/contracts";
 
 const executablePath = "C:\\Registered Apps\\Ares Test\\launcher.exe";
@@ -12,8 +13,18 @@ const target: ResolvedApplicationTarget = {
   id: "550e8400-e29b-41d4-a716-446655440000",
   name: "Aplicación de prueba",
   platform: "WINDOWS",
+  launchMode: "WINDOWS_EXECUTABLE",
+  catalogKey: null,
   executablePath,
   isEnabled: true
+};
+
+const catalogTarget: ResolvedApplicationTarget = {
+  ...target,
+  name: "Spotify",
+  launchMode: "CATALOG_APPLICATION",
+  catalogKey: "SPOTIFY",
+  executablePath: null
 };
 
 type TestChild = {
@@ -48,6 +59,13 @@ const createApplicationService = (
   ({
     resolveEnabledApplicationByAlias: vi.fn(async () => result)
   }) as unknown as ApplicationService;
+
+const createCatalogAdapter = (): CatalogApplicationAdapter =>
+  ({
+    getCurrentPlatform: vi.fn(() => "WINDOWS" as const),
+    isAvailable: vi.fn(),
+    launch: vi.fn(async () => ({ ok: true as const, data: { applicationName: "Spotify" } }))
+  }) as unknown as CatalogApplicationAdapter;
 
 const createLauncher = (overrides: Record<string, unknown> = {}) => {
   const child = createChild();
@@ -142,6 +160,49 @@ describe("application launcher", () => {
     expect(disabled.realpath).not.toHaveBeenCalled();
   });
 
+  it("re-resolves an enabled catalog alias immediately before calling its fixed Main-owned adapter", async () => {
+    const applicationService = createApplicationService({ ok: true, data: catalogTarget });
+    const catalogAdapter = createCatalogAdapter();
+    const { launcher, realpath, stat, spawn } = createLauncher({ applicationService, catalogAdapter });
+
+    const result = await launcher.launchByAlias("spotify");
+
+    expect(applicationService.resolveEnabledApplicationByAlias).toHaveBeenCalledTimes(1);
+    expect(applicationService.resolveEnabledApplicationByAlias).toHaveBeenCalledWith("spotify");
+    expect(catalogAdapter.launch).toHaveBeenCalledWith("SPOTIFY");
+    expect(realpath).not.toHaveBeenCalled();
+    expect(stat).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, data: { applicationName: "Spotify" } });
+    expect(JSON.stringify(result)).not.toContain("C:\\");
+  });
+
+  it("returns a controlled catalog failure without exposing adapter details", async () => {
+    const applicationService = createApplicationService({ ok: true, data: catalogTarget });
+    const catalogAdapter = createCatalogAdapter();
+    vi.mocked(catalogAdapter.launch).mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: "APPLICATION_CATALOG_UNAVAILABLE",
+        userMessage: "private adapter failure at C:\\Users\\Juli\\Spotify.exe"
+      }
+    });
+    const { launcher, spawn } = createLauncher({ applicationService, catalogAdapter });
+
+    const result = await launcher.launchByAlias("spotify");
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "APPLICATION_CATALOG_UNAVAILABLE",
+        userMessage: "No encontré esa aplicación disponible en este equipo."
+      }
+    });
+    expect(JSON.stringify(result)).not.toContain("private adapter failure");
+    expect(JSON.stringify(result)).not.toContain("C:\\Users");
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid, missing, non-file, and non-executable registered targets", async () => {
     const invalid = createLauncher();
     await expect(
@@ -166,6 +227,22 @@ describe("application launcher", () => {
       ok: false,
       error: { code: "APPLICATION_EXECUTABLE_EXTENSION_INVALID" }
     });
+  });
+
+  it("rejects catalog-managed records that do not match the active Main-owned adapter platform", async () => {
+    const incompatibleCatalogTarget: ResolvedApplicationTarget = {
+      ...catalogTarget,
+      platform: "MACOS",
+    };
+    const { launcher, realpath, stat, spawn } = createLauncher();
+
+    await expect(launcher.launchResolvedTarget(incompatibleCatalogTarget)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "APPLICATION_CATALOG_UNAVAILABLE" }
+    });
+    expect(realpath).not.toHaveBeenCalled();
+    expect(stat).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it("maps synchronous and asynchronous spawn failures without technical leakage", async () => {

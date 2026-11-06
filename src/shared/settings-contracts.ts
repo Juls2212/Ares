@@ -8,6 +8,13 @@ export const VOICE_SHORTCUTS = [
 
 export type VoiceShortcut = (typeof VOICE_SHORTCUTS)[number];
 
+/** Human-readable form of a fixed accelerator, for example «Ctrl+Alt+Space». Display only. */
+export const formatShortcutForDisplay = (shortcut: string): string =>
+  shortcut
+    .split("+")
+    .map((part) => (part === "CommandOrControl" || part === "Control" ? "Ctrl" : part === "Command" ? "Cmd" : part === "Option" ? "Alt" : part))
+    .join("+");
+
 export type VoicePreferences = {
   enabled: boolean;
   shortcut: VoiceShortcut;

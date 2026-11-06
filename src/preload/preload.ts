@@ -73,6 +73,14 @@ import type {
   UpdateApplicationInput
 } from "../shared/application-contracts";
 import type {
+  ContactFormCancellation,
+  ContactFormCancellationData,
+  ContactFormRequest,
+  ContactFormSubmission,
+  ContactFormSubmissionData,
+  MessagingOperationResult
+} from "../shared/messaging-contracts";
+import type {
   DashboardOperationResult,
   DashboardTodaySummary
 } from "../shared/dashboard-contracts";
@@ -93,6 +101,21 @@ import type {
   UpdateVoicePreferencesInput,
   VoicePreferencesData
 } from "../shared/settings-contracts";
+import type {
+  CompleteHabitInput,
+  CreateHabitInput,
+  HabitCompletionRecord,
+  HabitDailyProgressData,
+  HabitDailyProgressInput,
+  HabitListData,
+  HabitListInput,
+  HabitMutationData,
+  HabitOperationResult,
+  HabitRecord,
+  HabitWeeklyProgressData,
+  HabitWeeklyProgressInput,
+  UpdateHabitInput
+} from "../shared/habit-contracts";
 
 const aresApi = {
   system: {
@@ -233,6 +256,14 @@ const aresApi = {
         >
     }
   },
+  habits: {
+    create: (input: CreateHabitInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.create, input) as Promise<HabitOperationResult<HabitMutationData<HabitRecord>>>,
+    list: (input: HabitListInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.list, input) as Promise<HabitOperationResult<HabitListData<HabitRecord>>>,
+    update: (input: UpdateHabitInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.update, input) as Promise<HabitOperationResult<HabitMutationData<HabitRecord>>>,
+    complete: (input: CompleteHabitInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.complete, input) as Promise<HabitOperationResult<HabitMutationData<HabitCompletionRecord>>>,
+    getDailyProgress: (input: HabitDailyProgressInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.getDailyProgress, input) as Promise<HabitOperationResult<HabitDailyProgressData>>,
+    getWeeklyProgress: (input: HabitWeeklyProgressInput) => ipcRenderer.invoke(IPC_CHANNELS.habits.getWeeklyProgress, input) as Promise<HabitOperationResult<HabitWeeklyProgressData>>
+  },
   actions: {
     propose: (submission: ActionSubmission) =>
       ipcRenderer.invoke(IPC_CHANNELS.actions.propose, submission) as Promise<
@@ -299,6 +330,23 @@ const aresApi = {
         ipcRenderer.removeListener(IPC_CHANNELS.voice.globalShortcutActivated, listener);
       };
     }
+  },
+  messaging: {
+    onContactFormRequested: (callback: (request: ContactFormRequest) => void) => {
+      const listener = (_event: unknown, request: ContactFormRequest): void => callback(request);
+      ipcRenderer.on(IPC_CHANNELS.messaging.contactFormRequested, listener);
+      return (): void => {
+        ipcRenderer.removeListener(IPC_CHANNELS.messaging.contactFormRequested, listener);
+      };
+    },
+    submitContactForm: (input: ContactFormSubmission) =>
+      ipcRenderer.invoke(IPC_CHANNELS.messaging.submitContactForm, input) as Promise<
+        MessagingOperationResult<ContactFormSubmissionData>
+      >,
+    cancelContactForm: (input: ContactFormCancellation) =>
+      ipcRenderer.invoke(IPC_CHANNELS.messaging.cancelContactForm, input) as Promise<
+        MessagingOperationResult<ContactFormCancellationData>
+      >
   },
   speech: {
     speak: (input: { responseId: string }) => ipcRenderer.invoke(IPC_CHANNELS.speech.speak, input) as Promise<OperationResult<import("../shared/speech-contracts").SpeechAudio>>

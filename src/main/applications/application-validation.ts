@@ -1,8 +1,12 @@
 import {
   APPLICATION_ERROR_CODES,
+  APPLICATION_CATALOG_KEYS,
+  APPLICATION_LAUNCH_MODES,
   APPLICATION_PLATFORMS,
+  type ApplicationCatalogKey,
   type ApplicationErrorCode,
   type ApplicationListInput,
+  type ApplicationLaunchMode,
   type ApplicationOperationResult,
   type ApplicationPlatform,
   type RegisterApplicationInput,
@@ -30,6 +34,8 @@ const validationMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_TEXT_TOO_LONG: "Uno de los textos supera la longitud permitida.",
   APPLICATION_IDENTIFIER_INVALID: "Uno de los identificadores no es válido.",
   APPLICATION_PLATFORM_INVALID: "La plataforma de la aplicación no es válida.",
+  APPLICATION_LAUNCH_MODE_INVALID: "El tipo de apertura de la aplicación no es válido.",
+  APPLICATION_CATALOG_KEY_INVALID: "La aplicación del catálogo no es válida.",
   APPLICATION_EXECUTABLE_PATH_INVALID: "La ruta del ejecutable no es válida.",
   APPLICATION_EXECUTABLE_NOT_FOUND: "No se encontró el ejecutable de la aplicación registrada.",
   APPLICATION_EXECUTABLE_NOT_FILE: "El ejecutable registrado no es un archivo válido.",
@@ -48,7 +54,8 @@ const validationMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_CUSTOM_SELECTION_INVALID: "Debes seleccionar un archivo ejecutable válido.",
   APPLICATION_CUSTOM_PICKER_UNAVAILABLE: "No se pudo abrir el selector de aplicaciones.",
   APPLICATION_CUSTOM_CONFIRMATION_UNAVAILABLE:
-    "No se pudo confirmar el registro de la aplicación."
+    "No se pudo confirmar el registro de la aplicación.",
+  APPLICATION_CUSTOM_REGISTRATION_CANCELLED: "Se canceló el registro de la aplicación."
 };
 
 const createFailure = <T>(code: ApplicationErrorCode): ApplicationOperationResult<T> => ({
@@ -130,6 +137,30 @@ const validateOptionalPlatform = (
   input: InputObject
 ): ApplicationOperationResult<ApplicationPlatform | undefined> =>
   hasOwn(input, "platform") ? validatePlatform(input.platform) : createSuccess(undefined);
+
+const validateLaunchMode = (
+  value: unknown
+): ApplicationOperationResult<ApplicationLaunchMode> => {
+  if (
+    typeof value !== "string" ||
+    !APPLICATION_LAUNCH_MODES.includes(value as ApplicationLaunchMode)
+  ) {
+    return createFailure(APPLICATION_ERROR_CODES.launchModeInvalid);
+  }
+  return createSuccess(value as ApplicationLaunchMode);
+};
+
+export const validateApplicationCatalogKey = (
+  value: unknown
+): ApplicationOperationResult<ApplicationCatalogKey> => {
+  if (
+    typeof value !== "string" ||
+    !APPLICATION_CATALOG_KEYS.includes(value as ApplicationCatalogKey)
+  ) {
+    return createFailure(APPLICATION_ERROR_CODES.catalogKeyInvalid);
+  }
+  return createSuccess(value as ApplicationCatalogKey);
+};
 
 export const validateExecutablePath = (value: unknown): ApplicationOperationResult<string> => {
   if (typeof value !== "string" || value.length === 0 || value !== value.trim()) {
@@ -218,6 +249,8 @@ export const validateRegisterApplicationInput = (
     "executablePath",
     "aliases",
     "platform",
+    "launchMode",
+    "catalogKey",
     "isFavorite",
     "isEnabled"
   ]);
@@ -225,22 +258,55 @@ export const validateRegisterApplicationInput = (
 
   const name = validateRequiredText(object.data, "name", applicationNameMaximumLength);
   if (!name.ok) return name;
-  const executablePath = validateExecutablePath(object.data.executablePath);
-  if (!executablePath.ok) return executablePath;
   const aliases = validateAliases(object.data.aliases);
   if (!aliases.ok) return aliases;
   const platform = validateOptionalPlatform(object.data);
   if (!platform.ok) return platform;
+  const launchMode = hasOwn(object.data, "launchMode")
+    ? validateLaunchMode(object.data.launchMode)
+    : createSuccess<ApplicationLaunchMode>("WINDOWS_EXECUTABLE");
+  if (!launchMode.ok) return launchMode;
   const isFavorite = validateOptionalBoolean(object.data, "isFavorite");
   if (!isFavorite.ok) return isFavorite;
   const isEnabled = validateOptionalBoolean(object.data, "isEnabled");
   if (!isEnabled.ok) return isEnabled;
 
+  if (launchMode.data === "WINDOWS_EXECUTABLE") {
+    if (platform.data !== undefined && platform.data !== "WINDOWS") {
+      return createFailure(APPLICATION_ERROR_CODES.platformInvalid);
+    }
+    if (hasOwn(object.data, "catalogKey")) {
+      return createFailure(APPLICATION_ERROR_CODES.catalogKeyInvalid);
+    }
+    const executablePath = validateExecutablePath(object.data.executablePath);
+    if (!executablePath.ok) return executablePath;
+
+    return createSuccess({
+      name: name.data,
+      executablePath: executablePath.data,
+      aliases: aliases.data,
+      ...(platform.data === undefined ? {} : { platform: platform.data }),
+      ...(hasOwn(object.data, "launchMode") ? { launchMode: launchMode.data } : {}),
+      ...(isFavorite.data === undefined ? {} : { isFavorite: isFavorite.data }),
+      ...(isEnabled.data === undefined ? {} : { isEnabled: isEnabled.data })
+    });
+  }
+
+  if (platform.data === undefined) {
+    return createFailure(APPLICATION_ERROR_CODES.requiredFieldMissing);
+  }
+  if (hasOwn(object.data, "executablePath")) {
+    return createFailure(APPLICATION_ERROR_CODES.executablePathInvalid);
+  }
+  const catalogKey = validateApplicationCatalogKey(object.data.catalogKey);
+  if (!catalogKey.ok) return catalogKey;
+
   return createSuccess({
     name: name.data,
-    executablePath: executablePath.data,
     aliases: aliases.data,
-    ...(platform.data === undefined ? {} : { platform: platform.data }),
+    platform: platform.data,
+    launchMode: "CATALOG_APPLICATION",
+    catalogKey: catalogKey.data,
     ...(isFavorite.data === undefined ? {} : { isFavorite: isFavorite.data }),
     ...(isEnabled.data === undefined ? {} : { isEnabled: isEnabled.data })
   });

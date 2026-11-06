@@ -35,22 +35,27 @@ describe("supervised recorded transcription", () => {
     expect(trackStop).toHaveBeenCalledOnce(); expect(createRecorder).not.toHaveBeenCalled(); expect(onAudio).not.toHaveBeenCalled();
   });
 
-  it("binds local Escape, hiding and closing cancellation and removes listeners", () => {
+  it("binds local Escape and teardown cancellation, ignores hiding and blur, and removes listeners", () => {
     const doc = new EventTarget(); const win = new EventTarget(); const cancel = vi.fn();
-    const cleanup = bindRecordingCancellation(doc, win, () => true, cancel);
-    doc.dispatchEvent(Object.assign(new Event("keydown"), { key: "Escape" })); doc.dispatchEvent(new Event("visibilitychange")); win.dispatchEvent(new Event("pagehide")); win.dispatchEvent(new Event("blur"));
-    expect(cancel).toHaveBeenCalledTimes(3); cleanup(); win.dispatchEvent(new Event("blur")); expect(cancel).toHaveBeenCalledTimes(3);
+    const cleanup = bindRecordingCancellation(doc, win, cancel);
+    doc.dispatchEvent(Object.assign(new Event("keydown"), { key: "Escape" })); doc.dispatchEvent(new Event("visibilitychange")); win.dispatchEvent(new Event("blur"));
+    expect(cancel).toHaveBeenCalledTimes(1); win.dispatchEvent(new Event("pagehide"));
+    expect(cancel).toHaveBeenCalledTimes(2); cleanup(); win.dispatchEvent(new Event("pagehide")); doc.dispatchEvent(Object.assign(new Event("keydown"), { key: "Escape" })); expect(cancel).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the active control recorded-only and transcription separate from supervised actions", () => {
     const view = readFileSync("src/renderer/views/ares-view.tsx", "utf8");
-    expect(view).not.toContain("BrowserSpeechControls"); expect(view).toContain("VoiceCommandControls");
+    expect(view).not.toContain("BrowserSpeechControls"); expect(view).not.toContain("VoiceCommandControls"); expect(view).toContain("<GlassOrb");
     const app = readFileSync("src/renderer/app/App.tsx", "utf8");
     const transcription = app.slice(app.indexOf("const transcribeAudio"), app.indexOf("const startRecording"));
-    expect(transcription).toContain("showTranscript: setInstruction"); expect(transcription).toContain("voiceSubmission.current.submit"); expect(transcription).not.toMatch(/actions\.confirm|actions\.cancel/);
-    expect(app).toContain('destination !== "ARES"');
+    expect(transcription).toContain("showTranscript: () => undefined"); expect(transcription).toContain("voiceSubmission.current.submit"); expect(transcription).not.toMatch(/actions\.confirm|actions\.cancel/);
+    // The orb is the recording control: its interaction states record, cancel, and stop speech only.
+    const orbNames = readFileSync("src/renderer/components/orb-visuals.ts", "utf8");
+    expect(orbNames).toContain("Toca para hablar");
+    expect(orbNames).toContain("Escuchando. Toca para cancelar");
+    expect(view).toContain("orbAccessibleName(state, reviewOpen)");
+    expect(view).not.toMatch(/window\.ares\.(actions|assistant|voice)/);
     const controls = readFileSync("src/renderer/features/voice/voice-command-controls.tsx", "utf8");
-    expect(controls).toContain("¿En qué trabajamos hoy, Juli?");
     expect(controls).toContain('aria-label="Iniciar grabación por voz"');
     expect(controls).not.toContain("audio se enviará a OpenAI");
   });

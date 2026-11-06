@@ -1,4 +1,5 @@
 import {
+  SPOTIFY_SEARCH_KINDS,
   WEB_BROWSERS,
   WEB_DESTINATIONS,
   type ActionSubmission
@@ -12,7 +13,24 @@ import {
   type AssistantOperationResult
 } from "../../shared/assistant-contracts";
 import type { SafeFileReference } from "../../shared/file-contracts";
-import { validateApplicationAlias } from "../applications/application-validation";
+import { validateApplicationAlias, validateCustomApplicationDisplayName } from "../applications/application-validation";
+import { parseFoundFileCommand, type OrdinalReference } from "./found-file-references";
+import { parseFileMutationCommand, type FileMutationCommand, type OrdinalSelection } from "./found-file-mutations";
+import type { FoundFileNameResolution } from "../files/supervised-file-service";
+import {
+  isFileSearchKind,
+  isFoundOrdinal,
+  isSupervisedFileRoot,
+  parseSelection,
+  validateFolderName,
+  validateSearchQuery
+} from "../files/supervised-file-validation";
+import {
+  KNOWN_APPLICATION_CATALOG,
+  getKnownApplication,
+  isKnownApplicationCatalogKey,
+  normalizeApplicationAlias
+} from "../applications/known-application-catalog";
 import { getOpenAiConfiguration, type OpenAiConfiguration } from "../config/openai-environment";
 import {
   validateCreateFolderInput,
@@ -32,8 +50,13 @@ import {
   validateUpdateEventInput,
   validateUpdateTaskInput,
   validateDeleteEventInput,
-  validateEventListInput
+  validateEventListInput,
+  validateCreateWeeklyRoutineInput,
+  validateCreateWeeklyScheduleInput,
+  validateUpdateWeeklyRoutineInput,
+  validateUpdateWeeklyScheduleInput
 } from "../planner/planner-validation";
+import { WEEKDAYS } from "../../shared/planner-contracts";
 import {
   ASSISTANT_PROVIDER_TIMEOUT_MS,
   createOpenAiStructuredProvider,
@@ -47,8 +70,28 @@ import {
 import { isUnsafeAssistantDraftText, isUnsafeAssistantInstruction } from "./assistant-safety";
 import type { ResolvedAssistantContext } from "./assistant-context-service";
 import { normalizeEventTitle, type ResolveEventDeletion } from "./assistant-event-reference";
-import { getAssistantProviderFailureCategory } from "./provider-failure-category";
+import {
+  getAssistantProviderFailureDiagnostic,
+  type AssistantProviderFailureDiagnostic
+} from "./provider-failure-category";
 import type { WeeklyScheduleReferenceResolution } from "../actions/weekly-schedule-analysis";
+import type { WeeklyScheduleMutationReferences } from "../actions/weekly-schedule-mutation-references";
+import type { HabitMutationReferences } from "../actions/habit-mutation-references";
+import { validateCreateHabitInput, validateUpdateHabitInput } from "../habits/habit-validation";
+import { isEnabledAssistantAction } from "../actions/capability-registry";
+import { validateApprovedWebActionInput } from "../actions/approved-web-action-executor";
+import { parseMessagingCommand } from "./messaging-phrases";
+import { parseStreamingCommand } from "./streaming-phrases";
+import { parseSpotifyControlCommand } from "./spotify-control-phrases";
+import { validateSpotifySearchQuery } from "../applications/spotify-search";
+import type { ContactResolution } from "../messaging/messaging-service";
+import { MESSAGING_FAILURES } from "../messaging/messaging-failures";
+import {
+  sanitizeMessageBody,
+  toLookupKey,
+  validateContactAliases,
+  validateContactName
+} from "../messaging/messaging-validation";
 
 const MAX_INSTRUCTION_LENGTH = 2_000;
 const MAX_DRAFTS = 8;
@@ -66,6 +109,22 @@ export type AssistantInterpreterDependencies = {
   logError?: (message: string) => void;
   resolveEventDeletion?: ResolveEventDeletion;
   resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>;
+  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences;
+  resolveHabitMutationReferences?: HabitMutationReferences;
+  /** Count-only view of the last file search, supplied by Main. */
+  getActiveFileSearch?: () => { resultCount: number } | undefined;
+  /** Main-side matching of a spoken name against the last search; names never reach the provider. */
+  resolveFoundFileName?: (name: string) => FoundFileNameResolution;
+  /** Main-side matching of a spoken folder name against FOLDER entries of the last search. */
+  resolveFoundFolderName?: (name: string) => FoundFileNameResolution;
+  /** Main-side matching of a spoken contact reference; contact names and numbers never reach the provider. */
+  resolveMessagingContact?: (reference: string) => Promise<ContactResolution>;
+  /** Whether a message draft is active; the draft itself is never exposed to the interpreter. */
+  hasActiveMessageDraft?: () => boolean;
+  /** Whether Spotify is registered and enabled; used only to choose between the app and the web search. */
+  isSpotifyAppRegistered?: () => Promise<boolean>;
+  /** Local connection state of the Spotify Web API; it decides whether «pon X» plays or asks to connect. */
+  isSpotifyConnected?: () => Promise<boolean>;
 };
 
 export type TrustedAssistantReference = {
@@ -90,10 +149,18 @@ const unavailableMessage = (
       return "La interpretación requiere configurar OpenAI localmente.";
     case ASSISTANT_ERROR_CODES.authentication:
       return "Ares no pudo autenticarse con el servicio de interpretación.";
+    case ASSISTANT_ERROR_CODES.authorization:
+      return "La cuenta configurada no tiene acceso al servicio de interpretación.";
     case ASSISTANT_ERROR_CODES.modelAccess:
       return "El modelo configurado no está disponible para esta cuenta.";
+    case ASSISTANT_ERROR_CODES.timeout:
+      return "El servicio de interpretación tardó demasiado. Inténtalo de nuevo.";
+    case ASSISTANT_ERROR_CODES.quota:
+      return "La cuenta configurada no tiene cuota disponible para interpretar solicitudes.";
     case ASSISTANT_ERROR_CODES.rateLimited:
       return "El servicio de interpretación alcanzó su límite temporal. Inténtalo más tarde.";
+    case ASSISTANT_ERROR_CODES.network:
+      return "No se pudo conectar con el servicio de interpretación. Inténtalo de nuevo.";
     default:
       return "El servicio de interpretación no está disponible temporalmente. Inténtalo de nuevo más tarde.";
   }
@@ -111,10 +178,498 @@ const unavailable = (code: (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT
 const clarification = (question = "¿Puedes indicar los datos necesarios de forma más específica?"): AssistantOperationResult<AssistantInterpretation> =>
   success({
     state: "NEEDS_CLARIFICATION",
-    summary: "Necesito algunos datos adicionales para preparar la acción.",
+    summary: question,
     drafts: [],
     clarifications: [{ question }]
   });
+
+/**
+ * A bare application name or alias carries no verb, so it is neither small talk nor an action.
+ * This deterministic Main-side check runs before the provider and returns a fixed clarification.
+ */
+const getAliasOnlyClarification = (
+  instruction: string,
+  registeredAliases: readonly string[] | undefined
+): string | undefined => {
+  const normalized = normalizeApplicationAlias(instruction);
+  if (normalized.length === 0) return undefined;
+  const catalogEntry = KNOWN_APPLICATION_CATALOG.find((entry) =>
+    [entry.defaultAlias, entry.displayName, ...entry.recognitionAliases].some(
+      (alias) => normalizeApplicationAlias(alias) === normalized
+    )
+  );
+  if (catalogEntry) return `¿Quieres que abra o que registre ${catalogEntry.displayName}?`;
+  return registeredAliases?.some((alias) => normalizeApplicationAlias(alias) === normalized)
+    ? "¿Quieres que abra esa aplicación registrada?"
+    : undefined;
+};
+
+const FILE_NOUN = /\b(?:archivos?|carpetas?|ficheros?|documentos?|fotos?|imagenes|imagen|pdfs?)\b/u;
+const NON_FILE_NOUN = /\b(?:eventos?|tareas?|recordatorios?|habitos?|horarios?|rutinas?)\b/u;
+
+const DELETE_UNSUPPORTED_QUESTION =
+  "Solo puedo enviar un elemento a la Papelera por solicitud, indicando su número. No puedo borrar varios a la vez, de forma permanente ni por ruta.";
+const DELETE_NEEDS_ORDINAL = "Indica el número del resultado que quieres enviar a la Papelera, por ejemplo el tercero.";
+const SELECTION_QUESTION = "Indica qué resultados, por ejemplo «todo» o el primero y el segundo.";
+const DESTINATION_QUESTION = "Indica el destino: Escritorio, Documentos, Descargas, Imágenes, Música o Videos.";
+const FOLDER_AMBIGUOUS = "Hay varias carpetas con ese nombre. Indica cuál por su número.";
+const FOLDER_UNMATCHED = "No encontré esa carpeta entre los últimos resultados. Indica una ubicación como Documentos o busca primero la carpeta.";
+const INVALID_ITEM_NAME = "Indica un nombre válido para el elemento.";
+
+/**
+ * «renombra el primero a X», «mueve el segundo a Documentos», «organiza estos archivos en una carpeta
+ * llamada X en Documentos» and «elimina el tercero» are resolved in Main against the last search before
+ * any provider call. Requests that stay unavailable (several deletions, permanent deletion, typed paths)
+ * answer with a fixed clarification, so no action and no confirmation dialog can follow.
+ */
+const resolveFileMutationCommand = (
+  instruction: string,
+  activeFileSearch: { resultCount: number } | undefined,
+  resolveFoundFolderName: AssistantInterpreterDependencies["resolveFoundFolderName"]
+): AssistantOperationResult<AssistantInterpretation> | undefined => {
+  const command: FileMutationCommand | undefined = parseFileMutationCommand(instruction);
+  if (!command) return undefined;
+  const normalized = normalizeApplicationAlias(instruction);
+  if (NON_FILE_NOUN.test(normalized)) return undefined;
+  if (!activeFileSearch && !FILE_NOUN.test(normalized)) return undefined;
+  if (command.kind === "DELETE_UNSUPPORTED") return clarification(DELETE_UNSUPPORTED_QUESTION);
+  if (!activeFileSearch) return clarification(FOUND_FILE_NO_SEARCH);
+  const count = activeFileSearch.resultCount;
+  const ready = (action: string, input: unknown): AssistantOperationResult<AssistantInterpretation> =>
+    success({
+      state: "READY",
+      summary: READY_SUMMARY,
+      drafts: [{ action, input } as ActionSubmission],
+      clarifications: []
+    });
+  const toOrdinal = (reference: OrdinalReference): number | undefined => {
+    const ordinal = reference === "LAST" ? count : reference;
+    return ordinal >= 1 && ordinal <= count ? ordinal : undefined;
+  };
+  const selectionInput = (selection: OrdinalSelection): { all: true } | { ordinals: number[] } | undefined => {
+    if ("all" in selection) return { all: true };
+    const ordinals: number[] = [];
+    for (const reference of selection.ordinals) {
+      const ordinal = toOrdinal(reference);
+      if (ordinal === undefined) return undefined;
+      if (!ordinals.includes(ordinal)) ordinals.push(ordinal);
+    }
+    return { ordinals };
+  };
+
+  switch (command.kind) {
+    case "INCOMPLETE":
+      return clarification(
+        command.action === "DELETE" ? DELETE_NEEDS_ORDINAL
+          : command.missing === "DESTINATION" ? DESTINATION_QUESTION
+          : command.missing === "NAME" ? INVALID_ITEM_NAME
+          : command.action === "RENAME" ? "Indica el número del resultado que quieres renombrar, por ejemplo el primero."
+          : SELECTION_QUESTION
+      );
+    case "DELETE": {
+      const ordinal = toOrdinal(command.ordinal);
+      return ordinal === undefined ? clarification(outOfRangeQuestion(count)) : ready("DELETE_FOUND_ITEM", { ordinal });
+    }
+    case "RENAME": {
+      const ordinal = toOrdinal(command.ordinal);
+      if (ordinal === undefined) return clarification(outOfRangeQuestion(count));
+      const newName = validateFolderName(command.newName);
+      if (!newName || isUnsafeAssistantDraftText(newName)) return clarification(INVALID_ITEM_NAME);
+      return ready("RENAME_FOUND_ITEM", { ordinal, newName });
+    }
+    case "MOVE": {
+      const selection = selectionInput(command.selection);
+      if (!selection) return clarification(outOfRangeQuestion(count));
+      if ("root" in command.destination) {
+        return ready("MOVE_FOUND_ITEMS", { ...selection, destinationRoot: command.destination.root });
+      }
+      const folder = resolveFoundFolderName?.(command.destination.folderName) ?? { state: "NONE" as const };
+      if (folder.state === "AMBIGUOUS") return clarification(FOLDER_AMBIGUOUS);
+      if (folder.state !== "RESOLVED") return clarification(FOLDER_UNMATCHED);
+      return ready("MOVE_FOUND_ITEMS", { ...selection, destinationOrdinal: folder.ordinal });
+    }
+    case "ORGANIZE": {
+      const selection = selectionInput(command.selection);
+      if (!selection) return clarification(outOfRangeQuestion(count));
+      const folderName = validateFolderName(command.folderName);
+      if (!folderName || isUnsafeAssistantDraftText(folderName)) return clarification(INVALID_ITEM_NAME);
+      return ready("ORGANIZE_FOUND_ITEMS", { ...selection, folderName, root: command.root });
+    }
+  }
+};
+
+const FOUND_FILE_NO_SEARCH = "Primero haz una búsqueda de archivos para poder elegir un resultado.";
+const FOUND_FILE_AMBIGUOUS = "Hay varios resultados con ese nombre. Indica cuál por su número, por ejemplo el segundo.";
+const FOUND_FILE_UNMATCHED = "No encontré ese nombre entre los últimos resultados. Indica el número del resultado.";
+
+const outOfRangeQuestion = (resultCount: number): string =>
+  resultCount === 1
+    ? "Solo hay 1 resultado. Indica el número 1."
+    : `Solo hay ${resultCount} resultados. Indica un número entre 1 y ${resultCount}.`;
+
+/**
+ * «abre el segundo (archivo)», «muéstrame el primero» and «abre <nombre del resultado>» are resolved
+ * in Main against the last search before any provider call. A known application alias always wins,
+ * and an unmatched name falls through to the provider so applications keep working.
+ */
+const resolveFoundFileCommand = (
+  instruction: string,
+  activeFileSearch: { resultCount: number } | undefined,
+  knownAliases: readonly string[],
+  resolveFoundFileName: AssistantInterpreterDependencies["resolveFoundFileName"]
+): AssistantOperationResult<AssistantInterpretation> | undefined => {
+  const command = parseFoundFileCommand(instruction);
+  if (!command) return undefined;
+  const readyDraft = (ordinal: number): AssistantOperationResult<AssistantInterpretation> =>
+    success({
+      state: "READY",
+      summary: READY_SUMMARY,
+      drafts: [{ action: command.action, input: { ordinal } }],
+      clarifications: []
+    });
+
+  if (command.target.kind === "ORDINAL") {
+    if (!activeFileSearch) return clarification(FOUND_FILE_NO_SEARCH);
+    const ordinal = command.target.ordinal === "LAST" ? activeFileSearch.resultCount : command.target.ordinal;
+    return ordinal >= 1 && ordinal <= activeFileSearch.resultCount
+      ? readyDraft(ordinal)
+      : clarification(outOfRangeQuestion(activeFileSearch.resultCount));
+  }
+
+  if (!activeFileSearch || !resolveFoundFileName) return undefined;
+  const name = command.target.name;
+  const catalogAlias = KNOWN_APPLICATION_CATALOG.some((entry) =>
+    [entry.defaultAlias, entry.displayName, ...entry.recognitionAliases].some(
+      (alias) => normalizeApplicationAlias(alias) === name
+    )
+  );
+  const registeredAlias = knownAliases.some((alias) => normalizeApplicationAlias(alias) === name);
+  if (catalogAlias || registeredAlias) return undefined;
+  const resolution = resolveFoundFileName(name);
+  if (resolution.state === "RESOLVED") return readyDraft(resolution.ordinal);
+  return resolution.state === "AMBIGUOUS" ? clarification(FOUND_FILE_AMBIGUOUS) : undefined;
+};
+
+type MessagingInterpretationDependencies = Pick<
+  AssistantInterpreterDependencies,
+  "resolveMessagingContact" | "hasActiveMessageDraft"
+>;
+
+const MESSAGING_DRAFT_ACTIONS = [
+  "SAVE_CONTACT",
+  "LIST_CONTACTS",
+  "DELETE_CONTACT",
+  "PREPARE_MESSAGE_DRAFT",
+  "EDIT_MESSAGE_DRAFT",
+  "DISCARD_MESSAGE_DRAFT",
+  "OPEN_WHATSAPP_CHAT_WITH_DRAFT"
+] as const;
+
+const isMessagingDraftAction = (action: unknown): boolean =>
+  typeof action === "string" && (MESSAGING_DRAFT_ACTIONS as readonly string[]).includes(action);
+
+const PHONE_IN_VOICE_QUESTION =
+  "No me dictes el número por voz. Dime solo el nombre del contacto y escribirás el número en un formulario.";
+const SAVE_NEEDS_NAME = "¿Cómo se llama el contacto que quieres guardar?";
+const DRAFT_NEEDS_RECIPIENT = "¿A quién quieres escribirle?";
+const DRAFT_NEEDS_BODY = "¿Qué quieres decirle? Solo prepararé un borrador; no lo enviaré.";
+const EDIT_NEEDS_BODY = "¿Por qué texto quieres cambiar el mensaje?";
+const OPEN_CHAT_NAMED_QUESTION =
+  "Solo puedo abrir el chat del mensaje que preparaste. Di «envíalo» para abrirlo en WhatsApp y pulsar enviar tú.";
+
+const PHONE_DIGITS_IN_TEXT = /\d(?:[\s().-]*\d){6,}/u;
+const CONTACT_SAVE_INTENT =
+  /\b(?:guarda|guardar|agrega|agregar|a[ñn]ade|a[ñn]adir|crea|crear|registra|registrar|anota|apunta)\b.*\b(?:contacto|n[uú]mero|tel[eé]fono|celular)\b/iu;
+
+/** A number said aloud must not reach the provider: the contact form is the only place to enter it. */
+const getPhoneInVoiceClarification = (instruction: string): AssistantOperationResult<AssistantInterpretation> | undefined =>
+  PHONE_DIGITS_IN_TEXT.test(instruction) && CONTACT_SAVE_INTENT.test(instruction)
+    ? clarification(PHONE_IN_VOICE_QUESTION)
+    : undefined;
+
+const resolveContactForDraft = async (
+  reference: string,
+  dependencies: MessagingInterpretationDependencies
+): Promise<{ displayName: string } | { question: string }> => {
+  if (!dependencies.resolveMessagingContact) return { displayName: reference };
+  const resolution = await dependencies.resolveMessagingContact(reference);
+  if (resolution.state === "RESOLVED") return { displayName: resolution.displayName };
+  return {
+    question:
+      resolution.state === "AMBIGUOUS"
+        ? MESSAGING_FAILURES.MESSAGING_CONTACT_AMBIGUOUS
+        : resolution.state === "UNAVAILABLE"
+          ? MESSAGING_FAILURES.MESSAGING_STORAGE_UNAVAILABLE
+          : MESSAGING_FAILURES.MESSAGING_CONTACT_NOT_FOUND
+  };
+};
+
+/**
+ * «guarda un contacto llamado Mamá», «qué contactos tengo», «escríbele a Mamá que llego en diez minutos»,
+ * «cámbialo por …» and «descarta el mensaje» are classified and resolved in Main before any provider call.
+ * A request to send or to open the chat only receives the fixed notice that nothing is sent yet, and
+ * another channel only receives the fixed notice that WhatsApp drafts are the only option.
+ */
+const resolveMessagingCommand = async (
+  instruction: string,
+  dependencies: MessagingInterpretationDependencies
+): Promise<AssistantOperationResult<AssistantInterpretation> | undefined> => {
+  const command = parseMessagingCommand(instruction);
+  if (!command) return getPhoneInVoiceClarification(instruction);
+  const ready = (action: string, input: unknown): AssistantOperationResult<AssistantInterpretation> =>
+    success({
+      state: "READY",
+      summary: READY_SUMMARY,
+      drafts: [{ action, input } as ActionSubmission],
+      clarifications: []
+    });
+  const hasDraft = dependencies.hasActiveMessageDraft?.() ?? false;
+
+  switch (command.kind) {
+    case "PHONE_IN_VOICE":
+      return clarification(PHONE_IN_VOICE_QUESTION);
+    case "SAVE_CONTACT_INCOMPLETE":
+      return clarification(SAVE_NEEDS_NAME);
+    case "SAVE_CONTACT": {
+      const name = validateContactName(command.name);
+      return name.ok ? ready("SAVE_CONTACT", { contactName: name.data.displayName }) : clarification(name.error.userMessage);
+    }
+    case "LIST_CONTACTS":
+      return ready("LIST_CONTACTS", {});
+    case "DELETE_CONTACT": {
+      const resolved = await resolveContactForDraft(command.name, dependencies);
+      return "question" in resolved ? clarification(resolved.question) : ready("DELETE_CONTACT", { contactName: resolved.displayName });
+    }
+    case "DRAFT_INCOMPLETE":
+      return clarification(command.missing === "RECIPIENT" ? DRAFT_NEEDS_RECIPIENT : DRAFT_NEEDS_BODY);
+    case "OTHER_CHANNEL_REQUEST":
+      return clarification(MESSAGING_FAILURES.MESSAGING_UNSUPPORTED_CHANNEL);
+    case "PREPARE_DRAFT": {
+      if (command.channel !== "WHATSAPP") return clarification(MESSAGING_FAILURES.MESSAGING_UNSUPPORTED_CHANNEL);
+      const body = sanitizeMessageBody(command.body);
+      if (!body.ok) return clarification(body.error.userMessage);
+      const resolved = await resolveContactForDraft(command.recipient, dependencies);
+      return "question" in resolved
+        ? clarification(resolved.question)
+        : ready("PREPARE_MESSAGE_DRAFT", { recipient: resolved.displayName, body: body.data, channel: "WHATSAPP" });
+    }
+    case "EDIT_INCOMPLETE":
+      return clarification(hasDraft ? EDIT_NEEDS_BODY : MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+    case "EDIT_DRAFT": {
+      if (!hasDraft) return clarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+      const body = sanitizeMessageBody(command.body);
+      return body.ok ? ready("EDIT_MESSAGE_DRAFT", { body: body.data }) : clarification(body.error.userMessage);
+    }
+    case "DISCARD_DRAFT":
+      return hasDraft ? ready("DISCARD_MESSAGE_DRAFT", {}) : clarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+    case "SEND_REQUEST":
+    case "OPEN_CHAT_REQUEST":
+      return hasDraft
+        ? ready("OPEN_WHATSAPP_CHAT_WITH_DRAFT", {})
+        : clarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+    case "OPEN_CHAT_NAMED":
+      return clarification(OPEN_CHAT_NAMED_QUESTION);
+  }
+};
+
+const mentionsInInstruction = (instruction: string, value: string): boolean => {
+  const key = toLookupKey(value);
+  return key.length > 0 && toLookupKey(instruction).includes(key);
+};
+
+/**
+ * Validates a provider draft for the MESSAGING actions with the same closed rules as the deterministic
+ * path. Names and the message text must come from what the person said, and the provider never supplies
+ * a number: the strict output schema has no field for one.
+ */
+const validateMessagingProviderDraft = async (
+  candidate: UnknownRecord,
+  instruction: string,
+  dependencies: MessagingInterpretationDependencies
+): Promise<DraftValidationResult> => {
+  const action = candidate.action as (typeof MESSAGING_DRAFT_ACTIONS)[number];
+  if (candidate.input != null || (candidate.messagingAction != null && !isRecord(candidate.messagingAction))) return null;
+  const fields: UnknownRecord = isRecord(candidate.messagingAction)
+    ? Object.fromEntries(Object.entries(candidate.messagingAction).filter(([, value]) => value !== null))
+    : {};
+  const only = (allowed: readonly string[]): boolean => hasOnlyKeys(fields, allowed);
+  if (action === "OPEN_WHATSAPP_CHAT_WITH_DRAFT") {
+    if (Object.keys(fields).length !== 0) return null;
+    return dependencies.hasActiveMessageDraft?.() ?? false
+      ? ({ action, input: {} } as ActionSubmission)
+      : draftClarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+  }
+  if ((action === "LIST_CONTACTS" || action === "DISCARD_MESSAGE_DRAFT") && Object.keys(fields).length === 0) {
+    return { action, input: {} } as ActionSubmission;
+  }
+  if (action === "LIST_CONTACTS" || action === "DISCARD_MESSAGE_DRAFT") return null;
+
+  if (action === "SAVE_CONTACT") {
+    if (!only(["contactName", "aliases"])) return null;
+    const name = validateContactName(fields.contactName);
+    if (!name.ok) return draftClarification(SAVE_NEEDS_NAME);
+    const aliases = validateContactAliases(fields.aliases);
+    if (!aliases.ok) return draftClarification(aliases.error.userMessage);
+    if (!mentionsInInstruction(instruction, name.data.displayName)) return draftClarification(SAVE_NEEDS_NAME);
+    if (!aliases.data.every((alias) => mentionsInInstruction(instruction, alias.displayName))) return null;
+    return {
+      action,
+      input: {
+        contactName: name.data.displayName,
+        ...(aliases.data.length === 0 ? {} : { aliases: aliases.data.map((alias) => alias.displayName) })
+      }
+    } as ActionSubmission;
+  }
+  if (action === "DELETE_CONTACT") {
+    if (!only(["contactName"]) || typeof fields.contactName !== "string") return draftClarification(MESSAGING_FAILURES.MESSAGING_CONTACT_NOT_FOUND);
+    const resolved = await resolveContactForDraft(fields.contactName, dependencies);
+    return "question" in resolved
+      ? draftClarification(resolved.question)
+      : ({ action, input: { contactName: resolved.displayName } } as ActionSubmission);
+  }
+  if (action === "PREPARE_MESSAGE_DRAFT") {
+    if (!only(["recipient", "body", "channel"])) return null;
+    if (fields.channel !== undefined && fields.channel !== "WHATSAPP") return draftClarification(MESSAGING_FAILURES.MESSAGING_UNSUPPORTED_CHANNEL);
+    if (typeof fields.recipient !== "string") return draftClarification(DRAFT_NEEDS_RECIPIENT);
+    const body = sanitizeMessageBody(fields.body);
+    if (!body.ok) return draftClarification(typeof fields.body === "string" ? body.error.userMessage : DRAFT_NEEDS_BODY);
+    if (!mentionsInInstruction(instruction, body.data)) return draftClarification(DRAFT_NEEDS_BODY);
+    const resolved = await resolveContactForDraft(fields.recipient, dependencies);
+    return "question" in resolved
+      ? draftClarification(resolved.question)
+      : ({ action, input: { recipient: resolved.displayName, body: body.data, channel: "WHATSAPP" } } as ActionSubmission);
+  }
+  // EDIT_MESSAGE_DRAFT
+  if (!only(["body"])) return null;
+  if (!(dependencies.hasActiveMessageDraft?.() ?? false)) return draftClarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+  const body = sanitizeMessageBody(fields.body);
+  if (!body.ok) return draftClarification(typeof fields.body === "string" ? body.error.userMessage : EDIT_NEEDS_BODY);
+  if (!mentionsInInstruction(instruction, body.data)) return draftClarification(EDIT_NEEDS_BODY);
+  return { action, input: { body: body.data } } as ActionSubmission;
+};
+
+const NOT_CONNECTED_QUESTION =
+  "Para reproducir música necesito conectar tu cuenta de Spotify. Di «conecta Spotify».";
+const APP_SEARCH_HINT = " Mientras tanto, «busca algo en Spotify» abre la búsqueda en la aplicación.";
+const VOLUME_QUESTION = "El volumen debe estar entre 0 y 100.";
+
+const isSpotifyConnected = async (dependencies: StreamingInterpretationDependencies): Promise<boolean> => {
+  try {
+    return (await dependencies.isSpotifyConnected?.()) ?? false;
+  } catch {
+    return false;
+  }
+};
+
+/** Asks to connect instead of playing; it never falls back silently to another route. */
+const notConnectedQuestion = async (dependencies: StreamingInterpretationDependencies): Promise<string> =>
+  (await isSpotifyRegistered(dependencies)) ? `${NOT_CONNECTED_QUESTION}${APP_SEARCH_HINT}` : NOT_CONNECTED_QUESTION;
+
+/** «conecta Spotify», «pausa», «siguiente», «sube el volumen», «qué está sonando»: classified in Main, no provider. */
+const resolveSpotifyControlCommand = (instruction: string): AssistantOperationResult<AssistantInterpretation> | undefined => {
+  const command = parseSpotifyControlCommand(instruction);
+  if (!command) return undefined;
+  const ready = (action: string, input: unknown): AssistantOperationResult<AssistantInterpretation> =>
+    success({ state: "READY", summary: READY_SUMMARY, drafts: [{ action, input } as ActionSubmission], clarifications: [] });
+  switch (command.kind) {
+    case "CONNECT": return ready("CONNECT_SPOTIFY", {});
+    case "DISCONNECT": return ready("DISCONNECT_SPOTIFY", {});
+    case "STATUS": return ready("GET_SPOTIFY_STATUS", {});
+    case "PAUSE": return ready("PAUSE_SPOTIFY", {});
+    case "RESUME": return ready("RESUME_SPOTIFY", {});
+    case "NEXT": return ready("NEXT_SPOTIFY_TRACK", {});
+    case "PREVIOUS": return ready("PREVIOUS_SPOTIFY_TRACK", {});
+    case "WHAT_IS_PLAYING": return ready("WHAT_IS_PLAYING", {});
+    case "VOLUME_CHANGE": return ready("SET_SPOTIFY_VOLUME", { change: command.direction });
+    case "VOLUME_LEVEL": return ready("SET_SPOTIFY_VOLUME", { level: command.level });
+    case "VOLUME_INVALID": return clarification(VOLUME_QUESTION);
+  }
+};
+
+type StreamingInterpretationDependencies = {
+  isSpotifyAppRegistered?: () => Promise<boolean>;
+  isSpotifyConnected?: () => Promise<boolean>;
+};
+
+const SPOTIFY_QUERY_QUESTION = "Indica qué canción, artista o álbum quieres buscar en Spotify.";
+const WEB_QUERY_QUESTION = "Indica una búsqueda válida para Google, YouTube o Spotify.";
+
+const isSpotifyRegistered = async (dependencies: StreamingInterpretationDependencies): Promise<boolean> => {
+  try {
+    return (await dependencies.isSpotifyAppRegistered?.()) ?? false;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * «busca/pon/reproduce X en Spotify» and «pon música de X» open the registered Spotify app on a search, or fall
+ * back to the approved Spotify web search when the app is not registered; exactly one of them, never both.
+ * «busca X en Google/YouTube», «pon X en YouTube» and «abre Google/YouTube» use the approved web actions. A
+ * registered application alias with the same name keeps priority and falls through to the provider.
+ */
+const resolveStreamingCommand = async (
+  instruction: string,
+  knownAliases: readonly string[],
+  dependencies: StreamingInterpretationDependencies
+): Promise<AssistantOperationResult<AssistantInterpretation> | undefined> => {
+  const command = parseStreamingCommand(instruction);
+  if (!command) return undefined;
+  const ready = (action: string, input: unknown): AssistantOperationResult<AssistantInterpretation> =>
+    success({ state: "READY", summary: READY_SUMMARY, drafts: [{ action, input } as ActionSubmission], clarifications: [] });
+
+  if (command.kind === "SPOTIFY_SEARCH") {
+    const query = validateSpotifySearchQuery(command.query);
+    if (!query) return clarification(SPOTIFY_QUERY_QUESTION);
+    if (command.playRequested) {
+      return (await isSpotifyConnected(dependencies))
+        ? ready("PLAY_SPOTIFY_MUSIC", { query, ...(command.searchKind === "ANY" ? {} : { kind: command.searchKind }) })
+        : clarification(await notConnectedQuestion(dependencies));
+    }
+    if (await isSpotifyRegistered(dependencies)) {
+      return ready("SEARCH_SPOTIFY_APP", {
+        query,
+        ...(command.searchKind === "ANY" ? {} : { kind: command.searchKind }),
+        ...(command.playRequested ? { playRequested: true } : {})
+      });
+    }
+    const web = validateApprovedWebActionInput("SEARCH_APPROVED_SITE", { site: "SPOTIFY", query });
+    return web ? ready("SEARCH_APPROVED_SITE", web.input) : clarification(WEB_QUERY_QUESTION);
+  }
+
+  const siteAlias = normalizeApplicationAlias(command.site);
+  if (knownAliases.some((alias) => normalizeApplicationAlias(alias) === siteAlias)) return undefined;
+  if (command.kind === "WEB_OPEN") return ready("OPEN_APPROVED_PAGE", { site: command.site });
+  const web = validateApprovedWebActionInput("SEARCH_APPROVED_SITE", { site: command.site, query: command.query });
+  return web ? ready("SEARCH_APPROVED_SITE", web.input) : clarification(WEB_QUERY_QUESTION);
+};
+
+/** The model may name either Spotify route; Main keeps it consistent with whether the app is registered. */
+const reconcileSpotifyRouting = async (
+  draft: ActionSubmission,
+  dependencies: StreamingInterpretationDependencies
+): Promise<ActionSubmission | { clarification: string }> => {
+  if (draft.action === "PLAY_SPOTIFY_MUSIC") {
+    return (await isSpotifyConnected(dependencies)) ? draft : { clarification: await notConnectedQuestion(dependencies) };
+  }
+  if (draft.action === "SEARCH_SPOTIFY_APP" && draft.input.playRequested === true) {
+    if (!(await isSpotifyConnected(dependencies))) return { clarification: await notConnectedQuestion(dependencies) };
+    return {
+      action: "PLAY_SPOTIFY_MUSIC",
+      input: { query: draft.input.query, ...(draft.input.kind && draft.input.kind !== "ANY" ? { kind: draft.input.kind } : {}) }
+    };
+  }
+  if (draft.action === "SEARCH_SPOTIFY_APP") {
+    if (await isSpotifyRegistered(dependencies)) return draft;
+    const web = validateApprovedWebActionInput("SEARCH_APPROVED_SITE", { site: "SPOTIFY", query: draft.input.query });
+    return web ? ({ action: web.action, input: web.input } as ActionSubmission) : draft;
+  }
+  if (draft.action === "SEARCH_APPROVED_SITE" && draft.input.site === "SPOTIFY" && (await isSpotifyRegistered(dependencies))) {
+    const query = validateSpotifySearchQuery(draft.input.query);
+    return query ? { action: "SEARCH_SPOTIFY_APP", input: { query } } : draft;
+  }
+  return draft;
+};
 
 const rejection = (
   code: (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT_ERROR_CODES] =
@@ -122,7 +677,9 @@ const rejection = (
 ): AssistantOperationResult<AssistantInterpretation> =>
   success({
     state: "REJECTED",
-    summary: "No puedo preparar esa solicitud de forma segura.",
+    summary: code === ASSISTANT_ERROR_CODES.malformed
+      ? "La respuesta del servicio de interpretación no se pudo validar. Inténtalo de nuevo."
+      : "No puedo preparar esa solicitud de forma segura.",
     drafts: [],
     clarifications: [],
     errorCode: code
@@ -163,6 +720,82 @@ const normalizeScheduleTitle = (value: string): string =>
     .replace(/\s+/g, " ")
     .toLocaleLowerCase("es-CO");
 
+const INTERNAL_REFERENCE_ID = "00000000-0000-4000-8000-000000000001";
+const isMentioned = (instruction: string, value: string): boolean =>
+  normalizeScheduleTitle(instruction).includes(normalizeScheduleTitle(value));
+
+const explicitlyRequestsRemoval = (instruction: string): boolean =>
+  /\b(?:quita|quitar|elimina|eliminar|borra|borrar|sin)\b/iu.test(instruction);
+
+const isLocalTime = (value: unknown): value is string =>
+  typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+
+/** Accepts only an explicitly supplied local clock value and returns strict HH:mm. */
+const normalizeWeeklyLocalTime = (value: unknown): string | undefined => {
+  if (isLocalTime(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const match = value.trim().match(/^([0-9]|1\d|2[0-3])(?::([0-5]\d))?$/u);
+  if (!match) return undefined;
+  return `${match[1].padStart(2, "0")}:${match[2] ?? "00"}`;
+};
+
+const isWeekday = (value: unknown): value is (typeof WEEKDAYS)[number] =>
+  typeof value === "string" && WEEKDAYS.includes(value as (typeof WEEKDAYS)[number]);
+
+const spanishWeekdayValues: Record<string, (typeof WEEKDAYS)[number]> = {
+  lunes: "MONDAY",
+  martes: "TUESDAY",
+  miercoles: "WEDNESDAY",
+  jueves: "THURSDAY",
+  viernes: "FRIDAY",
+  sabado: "SATURDAY",
+  domingo: "SUNDAY"
+};
+
+const normalizeWeekday = (value: unknown): (typeof WEEKDAYS)[number] | undefined => {
+  if (isWeekday(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("es-CO");
+  return spanishWeekdayValues[normalized];
+};
+
+const getExplicitWeekdays = (instruction: string): Array<(typeof WEEKDAYS)[number]> => {
+  const normalizedInstruction = instruction
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es-CO");
+  return WEEKDAYS.filter((weekday) => {
+    const spanishName = Object.entries(spanishWeekdayValues).find(([, value]) => value === weekday)?.[0];
+    return spanishName !== undefined && new RegExp(`\\b${spanishName}\\b`, "u").test(normalizedInstruction);
+  });
+};
+
+const getProviderWeekdays = (input: UnknownRecord): Array<(typeof WEEKDAYS)[number]> | undefined => {
+  const value = input.weekdays ?? input.weekday;
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length === 0 || values.length > WEEKDAYS.length) return undefined;
+  const weekdays = values.map(normalizeWeekday);
+  if (weekdays.some((weekday) => weekday === undefined)) return undefined;
+  const resolved = weekdays as Array<(typeof WEEKDAYS)[number]>;
+  return new Set(resolved).size === resolved.length ? resolved : undefined;
+};
+
+const weeklyReferenceClarification = (
+  state: "MISSING" | "AMBIGUOUS" | "UNAVAILABLE",
+  kind: "schedule" | "routine" | "category"
+): DraftClarification => {
+  const messages = {
+    schedule: state === "MISSING" ? "No encontré ese horario. Indica el nombre exacto de uno existente." : state === "AMBIGUOUS" ? "Encontré varios horarios con ese nombre. Indica uno más específico." : "No se pudieron consultar los horarios. Inténtalo de nuevo.",
+    routine: state === "MISSING" ? "No encontré ese bloque semanal." : state === "AMBIGUOUS" ? "Encontré varios bloques que coinciden. Indica el día u horario exacto." : "No se pudieron consultar los bloques semanales. Inténtalo de nuevo.",
+    category: state === "MISSING" ? "No encontré esa categoría." : state === "AMBIGUOUS" ? "Encontré varias categorías con ese nombre. Indica una más específica." : "No se pudieron consultar las categorías. Inténtalo de nuevo."
+  } as const;
+  return draftClarification(messages[kind]);
+};
+
 const createReference = (
   dependencies: AssistantInterpreterDependencies,
   overrides?: Partial<AssistantInterpretationReference>
@@ -172,6 +805,8 @@ const createReference = (
   ...(overrides?.knownApplicationAliases
     ? { knownApplicationAliases: overrides.knownApplicationAliases }
     : {}),
+  ...(overrides?.knownCatalogApplications ? { knownCatalogApplications: overrides.knownCatalogApplications } : {}),
+  ...(overrides?.activeFileSearch ? { activeFileSearch: overrides.activeFileSearch } : {}),
   ...(overrides?.knownApplications ? { knownApplications: overrides.knownApplications } : {}),
   ...(overrides?.knownWeeklyScheduleTitles ? { knownWeeklyScheduleTitles: overrides.knownWeeklyScheduleTitles } : {}),
   ...(overrides?.knownFileReferences ? { knownFileReferences: overrides.knownFileReferences } : {}),
@@ -216,7 +851,7 @@ const hasUnsafeFileDraftText = (input: UnknownRecord): boolean =>
   [input.query, input.name, input.newName].some((value) => isUnsafeAssistantDraftText(value));
 
 type DraftClarification = { kind: "CLARIFICATION"; question: string };
-type DraftValidationResult = ActionSubmission | DraftClarification | null;
+type DraftValidationResult = ActionSubmission | ActionSubmission[] | DraftClarification | null;
 type ContextTokenResolution = { input: unknown; usedToken: boolean } | DraftClarification | null;
 
 const draftClarification = (question: string): DraftClarification => ({ kind: "CLARIFICATION", question });
@@ -294,6 +929,8 @@ const validateDraft = async (
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
   resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>,
+  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences,
+  resolveHabitMutationReferences?: HabitMutationReferences,
   instruction = ""
 ): Promise<DraftValidationResult> => {
   if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input"]) || typeof candidate.action !== "string") {
@@ -301,6 +938,7 @@ const validateDraft = async (
   }
 
   const { action } = candidate;
+  if (!isEnabledAssistantAction(action)) return null;
   const tokenResolution = resolveCurrentContextToken(action, candidate.input, currentContext);
   if (typeof tokenResolution === "object" && tokenResolution !== null && "kind" in tokenResolution) {
     return tokenResolution as DraftClarification;
@@ -400,8 +1038,18 @@ const validateDraft = async (
     case "ANALYZE_WEEKLY_SCHEDULE": {
       if (!isRecord(input) || typeof input.analysis !== "string" || !["AVAILABILITY", "BUSIEST_DAY", "OVERLAPS"].includes(input.analysis)) return null;
       const referenceInput = { ...input }; delete referenceInput.analysis;
-      const detail = await validateDraft({ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: referenceInput }, reference, temporalResolver, currentContext, resolveEventDeletion, resolveWeeklyScheduleTitle, instruction);
-      if (!detail || isDraftClarification(detail) || detail.action !== "GET_WEEKLY_SCHEDULE_DETAILS") return detail;
+      const detail = await validateDraft(
+        { action: "GET_WEEKLY_SCHEDULE_DETAILS", input: referenceInput },
+        reference,
+        temporalResolver,
+        currentContext,
+        resolveEventDeletion,
+        resolveWeeklyScheduleTitle,
+        resolveWeeklyScheduleMutationReferences,
+        resolveHabitMutationReferences,
+        instruction
+      );
+      if (!detail || Array.isArray(detail) || isDraftClarification(detail) || detail.action !== "GET_WEEKLY_SCHEDULE_DETAILS") return detail;
       return { action, input: { ...detail.input, analysis: input.analysis as "AVAILABILITY" | "BUSIEST_DAY" | "OVERLAPS" } };
     }
     case "GET_TODAY_AVAILABILITY": {
@@ -412,6 +1060,154 @@ const validateDraft = async (
       if (requestedTime !== input.afterTime) return draftClarification("Indica una hora válida para consultar la disponibilidad de hoy.");
       return { action, input: { afterTime: input.afterTime } };
     }
+    case "GET_HABIT_PROGRESS": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["scope", "habitTitle"]) || (input.scope !== "TODAY" && input.scope !== "WEEK")) {
+        return draftClarification("Indica si quieres consultar el progreso de hoy o de esta semana.");
+      }
+      if (input.habitTitle === undefined) return { action, input: { scope: input.scope } };
+      if (!isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences || !isMentioned(instruction, input.habitTitle)) {
+        return draftClarification("Indica el nombre exacto del hábito que quieres consultar.");
+      }
+      const habit = await resolveHabitMutationReferences.resolveHabit(input.habitTitle);
+      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
+      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
+      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos. Inténtalo de nuevo.");
+      return { action, input: { scope: input.scope, habitTitle: habit.habit.title } };
+    }
+    case "CREATE_HABIT": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["title", "description", "frequency", "targetCount", "categoryName", "icon"]) || !resolveHabitMutationReferences) {
+        return draftClarification("Indica el título y la frecuencia del hábito que quieres crear.");
+      }
+      const { categoryName, ...habitInput } = input;
+      const validated = validateCreateHabitInput(habitInput);
+      if (!validated.ok || !isMentioned(instruction, validated.data.title) || (validated.data.description && !isMentioned(instruction, validated.data.description))) {
+        return draftClarification("Indica un título, una frecuencia y una meta válidos para el hábito.");
+      }
+      if (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName))) {
+        return draftClarification("Indica una categoría válida para el hábito.");
+      }
+      if (categoryName !== undefined) {
+        const category = await resolveHabitMutationReferences.resolveCategory(categoryName);
+        if (category.state === "MISSING") return draftClarification("No encontré esa categoría.");
+        if (category.state === "AMBIGUOUS") return draftClarification("Encontré varias categorías con ese nombre. Indica una más específica.");
+        if (category.state !== "RESOLVED") return draftClarification("No se pudieron consultar las categorías.");
+      }
+      return { action, input: { ...validated.data, ...(typeof categoryName === "string" ? { categoryName } : {}) } };
+    }
+    case "UPDATE_HABIT": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["habitTitle", "title", "description", "frequency", "targetCount", "categoryName", "icon"]) || !isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences) {
+        return draftClarification("Indica qué hábito quieres actualizar y los cambios que deseas aplicar.");
+      }
+      const { habitTitle, categoryName, ...changes } = input;
+      const validated = validateUpdateHabitInput({ habitId: INTERNAL_REFERENCE_ID, ...changes });
+      if (!validated.ok || !isMentioned(instruction, habitTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.description === "string" && !isMentioned(instruction, validated.data.description))) {
+        return draftClarification("Indica el hábito y los cambios válidos que quieres aplicar.");
+      }
+      const habit = await resolveHabitMutationReferences.resolveHabit(habitTitle);
+      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
+      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
+      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos.");
+      if (categoryName !== undefined && categoryName !== null) {
+        if (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)) return draftClarification("Indica una categoría válida para el hábito.");
+        const category = await resolveHabitMutationReferences.resolveCategory(categoryName);
+        if (category.state !== "RESOLVED") return draftClarification(category.state === "AMBIGUOUS" ? "Encontré varias categorías con ese nombre. Indica una más específica." : "No encontré esa categoría.");
+      }
+      const { habitId: _habitId, ...validatedChanges } = validated.data;
+      return { action, input: { habitTitle: habit.habit.title, ...validatedChanges, ...(categoryName !== undefined ? { categoryName } : {}) } };
+    }
+    case "COMPLETE_HABIT": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["habitTitle"]) || !isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences || !isMentioned(instruction, input.habitTitle)) {
+        return draftClarification("Indica el nombre exacto del hábito que quieres completar.");
+      }
+      const habit = await resolveHabitMutationReferences.resolveHabit(input.habitTitle);
+      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
+      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
+      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos.");
+      return { action, input: { habitTitle: habit.habit.title } };
+    }
+    case "CREATE_WEEKLY_SCHEDULE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["title", "description", "color"])) return null;
+      const validated = validateCreateWeeklyScheduleInput(input);
+      if (!validated.ok || !isMentioned(instruction, validated.data.title) || (validated.data.description && !isMentioned(instruction, validated.data.description)) || (validated.data.color && !instruction.includes(validated.data.color))) {
+        return draftClarification("Indica el nombre del horario y solo los cambios que quieres aplicar.");
+      }
+      if (!resolveWeeklyScheduleMutationReferences) return draftClarification("No se pudieron consultar los horarios. Inténtalo de nuevo.");
+      const existing = await resolveWeeklyScheduleMutationReferences.resolveSchedule(validated.data.title);
+      if (existing.state === "RESOLVED") return draftClarification("Ya existe un horario con ese nombre. Indica otro nombre.");
+      if (existing.state === "UNAVAILABLE") return weeklyReferenceClarification(existing.state, "schedule");
+      return { action, input: validated.data };
+    }
+    case "UPDATE_WEEKLY_SCHEDULE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "title", "description", "color"]) || !isSafeText(input.scheduleTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica qué horario quieres actualizar.");
+      const { scheduleTitle, ...changes } = input;
+      const validated = validateUpdateWeeklyScheduleInput({ weeklyScheduleId: INTERNAL_REFERENCE_ID, ...changes });
+      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.description === "string" && !isMentioned(instruction, validated.data.description)) || (typeof validated.data.color === "string" && !instruction.includes(validated.data.color)) || ((validated.data.description === null || validated.data.color === null) && !explicitlyRequestsRemoval(instruction))) return draftClarification("Indica el horario y los cambios que quieres aplicar.");
+      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
+      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
+      const { weeklyScheduleId: _weeklyScheduleId, ...validatedChanges } = validated.data;
+      return { action, input: { scheduleTitle: schedule.schedule.title, ...validatedChanges } };
+    }
+    case "CREATE_WEEKLY_ROUTINE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "title", "weekday", "weekdays", "startTime", "endTime", "location", "categoryName"]) || !isSafeText(input.scheduleTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica el horario, bloque, día y horas que quieres agregar.");
+      const providerWeekdays = getProviderWeekdays(input);
+      const explicitWeekdays = getExplicitWeekdays(instruction);
+      if (!providerWeekdays || explicitWeekdays.length === 0 || providerWeekdays.some((weekday) => !explicitWeekdays.includes(weekday))) return draftClarification("Indica uno o más días válidos para el bloque semanal.");
+      const { scheduleTitle, categoryName, weekday: _weekday, weekdays: _weekdays, ...routine } = input;
+      const startTime = normalizeWeeklyLocalTime(routine.startTime);
+      const endTime = normalizeWeeklyLocalTime(routine.endTime);
+      if (!startTime || !endTime) return draftClarification("Indica las horas de inicio y final del bloque semanal.");
+      const validated = validateCreateWeeklyRoutineInput({ ...routine, weekday: explicitWeekdays[0], startTime, endTime, weeklyScheduleId: INTERNAL_REFERENCE_ID });
+      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || !isMentioned(instruction, validated.data.title) || (validated.data.location && !isMentioned(instruction, validated.data.location)) || (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)))) return draftClarification("Indica el horario, bloque, día y horas válidos que quieres agregar.");
+      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
+      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
+      if (categoryName !== undefined) {
+        const category = await resolveWeeklyScheduleMutationReferences.resolveCategory(categoryName);
+        if (category.state !== "RESOLVED") return weeklyReferenceClarification(category.state, "category");
+      }
+      return explicitWeekdays.map((weekday) => ({
+        action,
+        input: {
+          scheduleTitle: schedule.schedule.title,
+          title: validated.data.title,
+          weekday,
+          startTime: validated.data.startTime,
+          endTime: validated.data.endTime,
+          ...(validated.data.location === undefined ? {} : { location: validated.data.location }),
+          ...(typeof categoryName === "string" ? { categoryName } : {})
+        }
+      }));
+    }
+    case "UPDATE_WEEKLY_ROUTINE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "routineTitle", "targetWeekday", "targetStartTime", "targetEndTime", "title", "weekday", "startTime", "endTime", "location", "categoryName"]) || !isSafeText(input.scheduleTitle, 240) || !isSafeText(input.routineTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica el bloque semanal que quieres actualizar.");
+      const { scheduleTitle, routineTitle, targetWeekday, targetStartTime, targetEndTime, categoryName, ...changes } = input;
+      const validated = validateUpdateWeeklyRoutineInput({ routineId: INTERNAL_REFERENCE_ID, weeklyScheduleId: INTERNAL_REFERENCE_ID, ...changes });
+      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || !isMentioned(instruction, routineTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.location === "string" && !isMentioned(instruction, validated.data.location)) || (validated.data.location === null && !explicitlyRequestsRemoval(instruction)) || (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)))) return draftClarification("Indica el bloque y los cambios válidos que quieres aplicar.");
+      const trustedTargetWeekday = isWeekday(targetWeekday) ? targetWeekday : undefined;
+      const trustedTargetStartTime = isLocalTime(targetStartTime) ? targetStartTime : undefined;
+      const trustedTargetEndTime = isLocalTime(targetEndTime) ? targetEndTime : undefined;
+      if ((targetWeekday !== undefined && trustedTargetWeekday === undefined) || (targetStartTime !== undefined && trustedTargetStartTime === undefined) || (targetEndTime !== undefined && trustedTargetEndTime === undefined)) return draftClarification("Indica una referencia de día y hora válida para el bloque.");
+      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
+      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
+      const routine = await resolveWeeklyScheduleMutationReferences.resolveRoutine({ scheduleTitle: schedule.schedule.title, routineTitle, ...(trustedTargetWeekday === undefined ? {} : { weekday: trustedTargetWeekday }), ...(trustedTargetStartTime === undefined ? {} : { startTime: trustedTargetStartTime }), ...(trustedTargetEndTime === undefined ? {} : { endTime: trustedTargetEndTime }) });
+      if (routine.state !== "RESOLVED") return weeklyReferenceClarification(routine.state, "routine");
+      if (categoryName !== undefined) {
+        const category = await resolveWeeklyScheduleMutationReferences.resolveCategory(categoryName);
+        if (category.state !== "RESOLVED") return weeklyReferenceClarification(category.state, "category");
+      }
+      const { routineId: _routineId, weeklyScheduleId: _weeklyScheduleId, ...validatedChanges } = validated.data;
+      return {
+        action,
+        input: {
+          scheduleTitle: schedule.schedule.title,
+          routineTitle: routine.routine.title,
+          ...(trustedTargetWeekday === undefined ? {} : { targetWeekday: trustedTargetWeekday }),
+          ...(trustedTargetStartTime === undefined ? {} : { targetStartTime: trustedTargetStartTime }),
+          ...(trustedTargetEndTime === undefined ? {} : { targetEndTime: trustedTargetEndTime }),
+          ...validatedChanges,
+          ...(typeof categoryName === "string" ? { categoryName } : {})
+        }
+      };
+    }
     case "OPEN_APPLICATION": {
       const alias = isRecord(input) ? input.alias : undefined;
       const result = isRecord(input) && hasOnlyKeys(input, ["alias"])
@@ -421,7 +1217,46 @@ const validateDraft = async (
       const known = reference.knownApplicationAliases?.some(
         (alias) => alias.trim().toLocaleLowerCase() === result.data.toLocaleLowerCase()
       );
-      return known ? { action, input: { alias: result.data } } : draftClarification("La aplicación necesita un alias registrado y confiable.");
+      return known
+        ? { action, input: { alias: result.data } }
+        : draftClarification("Primero debes registrar esa aplicación para poder abrirla.");
+    }
+    case "REGISTER_CATALOG_APPLICATION": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["catalogKey", "alias"]) || !isKnownApplicationCatalogKey(input.catalogKey)) {
+        return draftClarification("Indica una aplicación aprobada que quieras registrar.");
+      }
+      const catalogApplication = getKnownApplication(input.catalogKey);
+      const known = reference.knownCatalogApplications?.some((entry) => entry.key === input.catalogKey);
+      if (!catalogApplication || !known) return draftClarification("Indica una aplicación aprobada que quieras registrar.");
+      if (input.alias === undefined) return { action, input: { catalogKey: catalogApplication.key } };
+      const alias = validateApplicationAlias(input.alias);
+      if (!alias.ok || isUnsafeAssistantDraftText(input.alias)) {
+        return draftClarification("Indica un alias válido para la aplicación.");
+      }
+      return { action, input: { catalogKey: catalogApplication.key, alias: alias.data } };
+    }
+    case "REQUEST_CUSTOM_APPLICATION_REGISTRATION": {
+      // The model may only carry an optional friendly name; the executable is chosen in a native picker.
+      const requested = input === undefined ? {} : input;
+      if (!isRecord(requested) || !hasOnlyKeys(requested, ["displayName"])) return null;
+      if (requested.displayName === undefined) return { action, input: {} };
+      const displayName = validateCustomApplicationDisplayName(requested.displayName);
+      if (!displayName.ok || isUnsafeAssistantDraftText(requested.displayName)) {
+        return draftClarification("Indica un nombre válido para la aplicación.");
+      }
+      return { action, input: { displayName: displayName.data } };
+    }
+    case "OPEN_APPROVED_PAGE":
+    case "SEARCH_APPROVED_SITE": {
+      const validated = validateApprovedWebActionInput(action, input);
+      if (!validated) {
+        return draftClarification(
+          action === "OPEN_APPROVED_PAGE"
+            ? "Solo puedo abrir Google, YouTube o Spotify."
+            : "Indica una búsqueda válida para Google, YouTube o Spotify."
+        );
+      }
+      return validated;
     }
     case "OPEN_WEB_PAGE": {
       if (!isRecord(input) || !hasOnlyKeys(input, ["destination", "browser"])) return null;
@@ -441,18 +1276,142 @@ const validateDraft = async (
       }
       return { action, input: { destination: "YOUTUBE", browser: "CHROME" } };
     }
+    case "CONNECT_SPOTIFY":
+    case "DISCONNECT_SPOTIFY":
+    case "GET_SPOTIFY_STATUS":
+    case "PAUSE_SPOTIFY":
+    case "RESUME_SPOTIFY":
+    case "NEXT_SPOTIFY_TRACK":
+    case "PREVIOUS_SPOTIFY_TRACK":
+    case "WHAT_IS_PLAYING":
+      return isRecord(input) && hasOnlyKeys(input, []) ? { action, input: {} } : null;
+    case "PLAY_SPOTIFY_MUSIC": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["query", "kind"])) return null;
+      const query = validateSpotifySearchQuery(input.query);
+      if (!query) return draftClarification(SPOTIFY_QUERY_QUESTION);
+      if (input.kind !== undefined && !(SPOTIFY_SEARCH_KINDS as readonly unknown[]).includes(input.kind)) return null;
+      if (!normalizeApplicationAlias(instruction).includes(normalizeApplicationAlias(query))) {
+        return draftClarification(SPOTIFY_QUERY_QUESTION);
+      }
+      return {
+        action,
+        input: {
+          query,
+          ...(input.kind === undefined || input.kind === "ANY" ? {} : { kind: input.kind as (typeof SPOTIFY_SEARCH_KINDS)[number] })
+        }
+      };
+    }
+    case "SET_SPOTIFY_VOLUME": {
+      if (!isRecord(input) || Object.keys(input).length !== 1) return draftClarification(VOLUME_QUESTION);
+      if (typeof input.level === "number" && Number.isInteger(input.level) && input.level >= 0 && input.level <= 100) {
+        return { action, input: { level: input.level } };
+      }
+      if (input.change === "UP" || input.change === "DOWN") return { action, input: { change: input.change } };
+      return draftClarification(VOLUME_QUESTION);
+    }
+    case "SEARCH_SPOTIFY_APP": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["query", "kind", "playRequested"])) return null;
+      const query = validateSpotifySearchQuery(input.query);
+      if (!query) return draftClarification(SPOTIFY_QUERY_QUESTION);
+      if (input.kind !== undefined && !(SPOTIFY_SEARCH_KINDS as readonly unknown[]).includes(input.kind)) return null;
+      if (input.playRequested !== undefined && typeof input.playRequested !== "boolean") return null;
+      // The query must come from what the person said, not from the model.
+      if (!normalizeApplicationAlias(instruction).includes(normalizeApplicationAlias(query))) {
+        return draftClarification(SPOTIFY_QUERY_QUESTION);
+      }
+      return {
+        action,
+        input: {
+          query,
+          ...(input.kind === undefined || input.kind === "ANY" ? {} : { kind: input.kind as (typeof SPOTIFY_SEARCH_KINDS)[number] }),
+          ...(input.playRequested === true ? { playRequested: true } : {})
+        }
+      };
+    }
     case "SEARCH_FILES": {
-      const result = validateFileSearchInput(input);
-      if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      if (!fileReferencesAreKnown(action, input, reference.knownFileReferences)) return null;
-      return { action, input: result.data };
+      // Only a short name fragment plus closed enums; the model never supplies a path or root location.
+      if (!isRecord(input) || !hasOnlyKeys(input, ["query", "root", "kind"])) return null;
+      const query = validateSearchQuery(input.query);
+      if (!query || isUnsafeAssistantDraftText(query)) {
+        return draftClarification("Indica qué nombre de archivo o carpeta quieres buscar.");
+      }
+      if (input.root !== undefined && !isSupervisedFileRoot(input.root)) return null;
+      if (input.kind !== undefined && !isFileSearchKind(input.kind)) return null;
+      return {
+        action,
+        input: {
+          query,
+          ...(input.root === undefined ? {} : { root: input.root }),
+          ...(input.kind === undefined ? {} : { kind: input.kind })
+        }
+      };
+    }
+    case "REVEAL_FOUND_FILE":
+    case "OPEN_FOUND_FILE": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinal"]) || !isFoundOrdinal(input.ordinal)) {
+        return draftClarification("Indica el número del resultado, por ejemplo el primero o el segundo.");
+      }
+      return { action, input: { ordinal: input.ordinal } };
+    }
+    case "RENAME_FOUND_ITEM": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinal", "newName"]) || !isFoundOrdinal(input.ordinal)) {
+        return draftClarification("Indica el número del resultado que quieres renombrar, por ejemplo el primero.");
+      }
+      const newName = validateFolderName(input.newName);
+      if (!newName || isUnsafeAssistantDraftText(newName)) return draftClarification(INVALID_ITEM_NAME);
+      return { action, input: { ordinal: input.ordinal, newName } };
+    }
+    case "DELETE_FOUND_ITEM": {
+      // Exactly one explicit ordinal: a name, a batch, or any extra field is never turned into a deletion.
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinal"]) || !isFoundOrdinal(input.ordinal)) {
+        return draftClarification(DELETE_NEEDS_ORDINAL);
+      }
+      return { action, input: { ordinal: input.ordinal } };
+    }
+    case "MOVE_FOUND_ITEMS": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinals", "all", "destinationRoot", "destinationOrdinal"])) return null;
+      const selection = parseSelection(input);
+      if (!selection) return draftClarification(SELECTION_QUESTION);
+      if (input.destinationRoot !== undefined && !isSupervisedFileRoot(input.destinationRoot)) return null;
+      if (input.destinationOrdinal !== undefined && !isFoundOrdinal(input.destinationOrdinal)) return null;
+      if (input.destinationRoot === undefined && input.destinationOrdinal === undefined) return draftClarification(DESTINATION_QUESTION);
+      return {
+        action,
+        input: {
+          ...selection,
+          ...(input.destinationRoot === undefined ? {} : { destinationRoot: input.destinationRoot }),
+          ...(input.destinationOrdinal === undefined ? {} : { destinationOrdinal: input.destinationOrdinal })
+        }
+      };
+    }
+    case "ORGANIZE_FOUND_ITEMS": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["ordinals", "all", "folderName", "root"])) return null;
+      const selection = parseSelection(input);
+      if (!selection) return draftClarification(SELECTION_QUESTION);
+      const folderName = validateFolderName(input.folderName);
+      if (!folderName || isUnsafeAssistantDraftText(folderName)) return draftClarification(INVALID_ITEM_NAME);
+      if (!isSupervisedFileRoot(input.root)) return draftClarification(DESTINATION_QUESTION);
+      return { action, input: { ...selection, folderName, root: input.root } };
     }
     case "CREATE_FOLDER": {
-      const result = validateCreateFolderInput(input);
-      if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return tokenResolution.usedToken || fileReferencesAreKnown(action, input, reference.knownFileReferences)
-        ? { action, input: result.data }
-        : null;
+      if (!isRecord(input) || !hasOnlyKeys(input, ["folderName", "root", "parentOrdinal"])) return null;
+      const folderName = validateFolderName(input.folderName);
+      if (!folderName || isUnsafeAssistantDraftText(folderName)) {
+        return draftClarification("Indica un nombre válido para la carpeta.");
+      }
+      if (input.root !== undefined && !isSupervisedFileRoot(input.root)) return null;
+      if (input.parentOrdinal !== undefined && !isFoundOrdinal(input.parentOrdinal)) return null;
+      if (input.root === undefined && input.parentOrdinal === undefined) {
+        return draftClarification("¿En qué ubicación quieres crear la carpeta? Puedo usar Escritorio, Documentos, Descargas, Imágenes, Música o Videos.");
+      }
+      return {
+        action,
+        input: {
+          folderName,
+          ...(input.root === undefined ? {} : { root: input.root }),
+          ...(input.parentOrdinal === undefined ? {} : { parentOrdinal: input.parentOrdinal })
+        }
+      };
     }
     case "RENAME_FILE": {
       const result = validateRenameFileInput(input);
@@ -518,6 +1477,95 @@ const parseDraftInput = (value: unknown): unknown => {
   }
 };
 
+const SUPERVISED_FILE_DRAFT_ACTIONS = [
+  "SEARCH_FILES",
+  "REVEAL_FOUND_FILE",
+  "OPEN_FOUND_FILE",
+  "CREATE_FOLDER",
+  "RENAME_FOUND_ITEM",
+  "MOVE_FOUND_ITEMS",
+  "ORGANIZE_FOUND_ITEMS",
+  "DELETE_FOUND_ITEM"
+];
+
+const parseCandidateInput = (candidate: UnknownRecord): unknown => {
+  if (SUPERVISED_FILE_DRAFT_ACTIONS.includes(candidate.action as string)) {
+    if (candidate.input !== null || !isRecord(candidate.filesAction)) return undefined;
+    // A null or false optional is "not given"; the closed validators then see only what was really supplied.
+    return Object.fromEntries(Object.entries(candidate.filesAction).filter(([key, value]) => value !== null && !(key === "all" && value === false)));
+  }
+  if (candidate.action === "SET_SPOTIFY_VOLUME") {
+    if (candidate.input !== null || !isRecord(candidate.spotifyControl)) return undefined;
+    return Object.fromEntries(Object.entries(candidate.spotifyControl).filter(([, value]) => value !== null));
+  }
+  if (candidate.action === "SEARCH_SPOTIFY_APP" || candidate.action === "PLAY_SPOTIFY_MUSIC") {
+    if (candidate.input !== null || !isRecord(candidate.spotifySearch)) return undefined;
+    return Object.fromEntries(Object.entries(candidate.spotifySearch).filter(([, value]) => value !== null));
+  }
+  if (candidate.action === "REGISTER_CATALOG_APPLICATION") {
+    if (candidate.input !== null || !isRecord(candidate.catalogApplication)) return undefined;
+    const { catalogKey, alias } = candidate.catalogApplication;
+    return { catalogKey, ...(alias === null ? {} : { alias }) };
+  }
+  if (candidate.action === "CREATE_WEEKLY_ROUTINE") {
+    if (candidate.input !== null || !isRecord(candidate.weeklyRoutine)) return undefined;
+    const { location, categoryName, ...weeklyRoutine } = candidate.weeklyRoutine;
+    return {
+      ...weeklyRoutine,
+      ...(location == null ? {} : { location }),
+      ...(categoryName == null ? {} : { categoryName })
+    };
+  }
+
+  if (["GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"].includes(candidate.action as string)) {
+    if (candidate.input !== null || !isRecord(candidate.habitAction)) return undefined;
+    const { habitTitle, title, description, frequency, targetCount, categoryName, icon, scope } = candidate.habitAction;
+    if (candidate.action === "GET_HABIT_PROGRESS") {
+      return { ...(scope === null ? {} : { scope }), ...(habitTitle === null ? {} : { habitTitle }) };
+    }
+    if (candidate.action === "CREATE_HABIT") {
+      return {
+        ...(title === null ? {} : { title }),
+        ...(description === null ? {} : { description }),
+        ...(frequency === null ? {} : { frequency }),
+        ...(targetCount === null ? {} : { targetCount }),
+        ...(categoryName === null ? {} : { categoryName }),
+        ...(icon === null ? {} : { icon })
+      };
+    }
+    if (candidate.action === "UPDATE_HABIT") {
+      return {
+        ...(habitTitle === null ? {} : { habitTitle }),
+        ...(title === null ? {} : { title }),
+        ...(description === null ? {} : { description }),
+        ...(frequency === null ? {} : { frequency }),
+        ...(targetCount === null ? {} : { targetCount }),
+        ...(categoryName === null ? {} : { categoryName }),
+        ...(icon === null ? {} : { icon })
+      };
+    }
+    return { ...(habitTitle === null ? {} : { habitTitle }) };
+  }
+
+  if (["OPEN_APPROVED_PAGE", "SEARCH_APPROVED_SITE"].includes(candidate.action as string)) {
+    if (candidate.input !== null || !isRecord(candidate.approvedWeb)) return undefined;
+    const { site, query } = candidate.approvedWeb;
+    return candidate.action === "OPEN_APPROVED_PAGE" ? { site } : { site, query };
+  }
+
+  if (
+    (candidate.weeklyRoutine !== undefined && candidate.weeklyRoutine !== null) ||
+    (candidate.habitAction !== undefined && candidate.habitAction !== null) ||
+    (candidate.approvedWeb !== undefined && candidate.approvedWeb !== null)
+    || (candidate.catalogApplication !== undefined && candidate.catalogApplication !== null)
+    || (candidate.filesAction !== undefined && candidate.filesAction !== null)
+    || (candidate.messagingAction !== undefined && candidate.messagingAction !== null)
+    || (candidate.spotifySearch !== undefined && candidate.spotifySearch !== null)
+    || (candidate.spotifyControl !== undefined && candidate.spotifyControl !== null)
+  ) return undefined;
+  return parseDraftInput(candidate.input);
+};
+
 const parseProviderOutput = async (
   raw: unknown,
   reference: AssistantInterpretationReference,
@@ -525,8 +1573,14 @@ const parseProviderOutput = async (
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
   resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>,
+  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences,
+  resolveHabitMutationReferences?: HabitMutationReferences,
   instruction = "",
-  resolveTrustedReference?: TrustedAssistantReferenceResolver
+  resolveTrustedReference?: TrustedAssistantReferenceResolver,
+  resolveFoundFileName?: AssistantInterpreterDependencies["resolveFoundFileName"],
+  resolveFoundFolderName?: AssistantInterpreterDependencies["resolveFoundFolderName"],
+  messagingDependencies: MessagingInterpretationDependencies = {},
+  streamingDependencies: StreamingInterpretationDependencies = {}
 ): Promise<AssistantOperationResult<AssistantInterpretation>> => {
   if (typeof raw !== "string") {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
@@ -596,40 +1650,87 @@ const parseProviderOutput = async (
   }
   const drafts: ActionSubmission[] = [];
   for (const [index, candidate] of parsed.drafts.entries()) {
-    if (!isRecord(candidate)) return rejection(ASSISTANT_ERROR_CODES.malformed);
-    const draft = await validateDraft(
-      { ...candidate, input: parseDraftInput(candidate.input) },
+    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "weeklyRoutine", "habitAction", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "spotifySearch", "spotifyControl"])) {
+      return rejection(ASSISTANT_ERROR_CODES.malformed);
+    }
+    let effective: UnknownRecord = candidate;
+    if (
+      candidate.action === "MOVE_FOUND_ITEMS" &&
+      isRecord(candidate.filesAction) &&
+      typeof candidate.filesAction.destinationName === "string"
+    ) {
+      const folderName = candidate.filesAction.destinationName;
+      if (isUnsafeAssistantDraftText(folderName)) return rejection(ASSISTANT_ERROR_CODES.rejected);
+      const folder = resolveFoundFolderName?.(folderName) ?? { state: "NONE" as const };
+      if (folder.state === "AMBIGUOUS") return clarification(`El borrador ${index + 1}: ${FOLDER_AMBIGUOUS}`);
+      if (folder.state !== "RESOLVED") return clarification(`El borrador ${index + 1}: ${FOLDER_UNMATCHED}`);
+      const { destinationName: _resolved, ...rest } = candidate.filesAction;
+      effective = { ...candidate, filesAction: { ...rest, destinationOrdinal: folder.ordinal } };
+    }
+    if (
+      (candidate.action === "OPEN_FOUND_FILE" || candidate.action === "REVEAL_FOUND_FILE") &&
+      isRecord(candidate.filesAction) &&
+      hasOnlyKeys(candidate.filesAction, ["fileName"]) &&
+      typeof candidate.filesAction.fileName === "string"
+    ) {
+      const fileName = candidate.filesAction.fileName;
+      if (isUnsafeAssistantDraftText(fileName)) return rejection(ASSISTANT_ERROR_CODES.rejected);
+      const resolution = resolveFoundFileName?.(fileName) ?? { state: "NONE" as const };
+      if (resolution.state === "AMBIGUOUS") return clarification(`El borrador ${index + 1}: ${FOUND_FILE_AMBIGUOUS}`);
+      if (resolution.state !== "RESOLVED") return clarification(`El borrador ${index + 1}: ${FOUND_FILE_UNMATCHED}`);
+      effective = { ...candidate, filesAction: { ordinal: resolution.ordinal } };
+    }
+    const messagingDraft = isMessagingDraftAction(effective.action)
+      ? await validateMessagingProviderDraft(effective, instruction, messagingDependencies)
+      : undefined;
+    const draft = messagingDraft !== undefined ? messagingDraft : await validateDraft(
+      { action: effective.action, input: parseCandidateInput(effective) },
       trustedReference,
       temporalResolver,
       trustedContext,
       resolveEventDeletion,
       resolveWeeklyScheduleTitle,
+      resolveWeeklyScheduleMutationReferences,
+      resolveHabitMutationReferences,
       instruction
     );
     if (isDraftClarification(draft)) return clarification(`El borrador ${index + 1}: ${draft.question}`);
     if (!draft) return rejection(ASSISTANT_ERROR_CODES.rejected);
-    drafts.push(draft);
+    for (const providerDraft of Array.isArray(draft) ? draft : [draft]) {
+      const reconciled = await reconcileSpotifyRouting(providerDraft, streamingDependencies);
+      if ("clarification" in reconciled) return clarification(`El borrador ${index + 1}: ${reconciled.clarification}`);
+      const expandedDraft = reconciled;
+      if (!drafts.some((existing) => existing.action === expandedDraft.action && JSON.stringify(existing.input) === JSON.stringify(expandedDraft.input))) {
+        drafts.push(expandedDraft);
+      }
+    }
+    if (drafts.length > MAX_DRAFTS) return rejection(ASSISTANT_ERROR_CODES.malformed);
   }
   return success({ state: "READY", summary: drafts.some((draft) => draft.action === "DELETE_EVENT")
     ? "Preparé la eliminación del evento. Revisa la propuesta: requiere confirmación explícita y no se puede deshacer."
     : READY_SUMMARY, drafts, clarifications: [] });
 };
 
-const isRateLimited = (error: unknown): boolean =>
-  isRecord(error) && error.status === 429;
-
 const getProviderFailureCode = (
-  error: unknown
+  diagnostic: AssistantProviderFailureDiagnostic
 ): (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT_ERROR_CODES] => {
-  const category = getAssistantProviderFailureCategory(error);
+  const { category } = diagnostic;
   if (category === "TIMEOUT") return ASSISTANT_ERROR_CODES.timeout;
-  if (category === "MODEL_ACCESS" || category === "MODEL_REQUEST_INCOMPATIBLE") return ASSISTANT_ERROR_CODES.modelAccess;
-  if (!isRecord(error)) return ASSISTANT_ERROR_CODES.provider;
-  if (error.status === 401) return ASSISTANT_ERROR_CODES.authentication;
-  if (error.status === 403 || error.status === 404) return ASSISTANT_ERROR_CODES.modelAccess;
-  if (isRateLimited(error)) return ASSISTANT_ERROR_CODES.rateLimited;
+  if (category === "NETWORK") return ASSISTANT_ERROR_CODES.network;
+  if (category === "AUTHENTICATION") return ASSISTANT_ERROR_CODES.authentication;
+  if (category === "AUTHORIZATION") return ASSISTANT_ERROR_CODES.authorization;
+  if (category === "MODEL_UNAVAILABLE" || category === "MODEL_REQUEST_INCOMPATIBLE") {
+    return ASSISTANT_ERROR_CODES.modelAccess;
+  }
+  if (category === "QUOTA") return ASSISTANT_ERROR_CODES.quota;
+  if (category === "RATE_LIMIT") return ASSISTANT_ERROR_CODES.rateLimited;
   return ASSISTANT_ERROR_CODES.provider;
 };
+
+const formatProviderFailureDiagnostic = (diagnostic: AssistantProviderFailureDiagnostic): string =>
+  `Assistant provider failure category [${diagnostic.category}] status [${diagnostic.status ?? "NONE"}] retryable [${diagnostic.retryable}].`;
+
+const isDevelopmentDiagnosticEnabled = (): boolean => process.env.NODE_ENV !== "production";
 
 /** Main-only interpreter. It validates drafts but never calls an action service or executor. */
 export const createAssistantInterpreter = (dependencies: AssistantInterpreterDependencies = {}) => {
@@ -664,6 +1765,37 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
       if (isUnsafeAssistantInstruction(normalizedInput.instruction)) {
         return rejection(ASSISTANT_ERROR_CODES.rejected);
       }
+      const aliasOnlyQuestion = getAliasOnlyClarification(
+        normalizedInput.instruction,
+        referenceOverrides?.knownApplicationAliases
+      );
+      if (aliasOnlyQuestion) return clarification(aliasOnlyQuestion);
+      const messagingResult = await resolveMessagingCommand(normalizedInput.instruction, {
+        resolveMessagingContact: dependencies.resolveMessagingContact,
+        hasActiveMessageDraft: dependencies.hasActiveMessageDraft
+      });
+      if (messagingResult) return messagingResult;
+      const spotifyControlResult = resolveSpotifyControlCommand(normalizedInput.instruction);
+      if (spotifyControlResult) return spotifyControlResult;
+      const mutationResult = resolveFileMutationCommand(
+        normalizedInput.instruction,
+        referenceOverrides?.activeFileSearch ?? dependencies.getActiveFileSearch?.(),
+        dependencies.resolveFoundFolderName
+      );
+      if (mutationResult) return mutationResult;
+      const foundFileResult = resolveFoundFileCommand(
+        normalizedInput.instruction,
+        referenceOverrides?.activeFileSearch ?? dependencies.getActiveFileSearch?.(),
+        referenceOverrides?.knownApplicationAliases ?? [],
+        dependencies.resolveFoundFileName
+      );
+      if (foundFileResult) return foundFileResult;
+      const streamingResult = await resolveStreamingCommand(
+        normalizedInput.instruction,
+        referenceOverrides?.knownApplicationAliases ?? [],
+        { isSpotifyAppRegistered: dependencies.isSpotifyAppRegistered, isSpotifyConnected: dependencies.isSpotifyConnected }
+      );
+      if (streamingResult) return streamingResult;
       let provider: StructuredInterpretationProvider;
       try {
         provider = createProvider(getConfiguration());
@@ -696,8 +1828,9 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
         });
       } catch (error) {
         if (timedOut) return reportUnavailable(ASSISTANT_ERROR_CODES.timeout);
-        logError(`Assistant provider failure category [${getAssistantProviderFailureCategory(error)}].`);
-        return reportUnavailable(getProviderFailureCode(error));
+        const diagnostic = getAssistantProviderFailureDiagnostic(error);
+        if (isDevelopmentDiagnosticEnabled()) logError(formatProviderFailureDiagnostic(diagnostic));
+        return reportUnavailable(getProviderFailureCode(diagnostic));
       } finally {
         clearTimeout(timeout);
       }
@@ -714,8 +1847,17 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           currentContext,
           dependencies.resolveEventDeletion,
           dependencies.resolveWeeklyScheduleTitle,
+          dependencies.resolveWeeklyScheduleMutationReferences,
+          dependencies.resolveHabitMutationReferences,
           normalizedInput.instruction,
-          resolveTrustedReference
+          resolveTrustedReference,
+          dependencies.resolveFoundFileName,
+          dependencies.resolveFoundFolderName,
+          {
+            resolveMessagingContact: dependencies.resolveMessagingContact,
+            hasActiveMessageDraft: dependencies.hasActiveMessageDraft
+          },
+          { isSpotifyAppRegistered: dependencies.isSpotifyAppRegistered, isSpotifyConnected: dependencies.isSpotifyConnected }
         );
         if (result.ok && result.data.errorCode === ASSISTANT_ERROR_CODES.malformed) {
           logError(`Assistant interpretation failed [${ASSISTANT_ERROR_CODES.malformed}].`);

@@ -1,0 +1,2 @@
+ALTER TABLE "habits" ADD COLUMN "icon" varchar(16) DEFAULT 'SPARK' NOT NULL;--> statement-breakpoint
+ALTER TABLE "habits" ADD CONSTRAINT "habits_icon_check" CHECK ("habits"."icon" in ('SPARK', 'BOOK', 'DUMBBELL', 'HOME', 'HEART', 'WATER', 'RUNNING', 'BRAIN', 'LEAF'));

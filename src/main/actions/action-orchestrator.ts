@@ -7,18 +7,37 @@ import {
   type ActionOutcome,
   type ActionPolicy,
   type ActionSubmission,
+  type ApprovedWebActionProposal,
   type AwaitingActionConfirmation,
   type ExecutableActionProposal,
   type FileActionProposal,
   type FileActionData,
+  type HabitActionProposal,
+  type LegacyFileActionProposal,
+  type MessagingActionProposal,
   type OpenWebPageActionProposal,
   type PlannerActionProposal,
+  type RegisterCatalogApplicationActionProposal,
+  type RequestCustomApplicationRegistrationActionProposal,
   type SafeHistoryMetadata,
+  type SearchSpotifyAppActionProposal,
+  type SearchSpotifyAppInput,
+  type SpotifyMusicActionProposal,
+  type SupervisedFilesActionProposal,
+  type SupervisedFilesActionSubmission,
   type WeatherActionProposal
 } from "../../shared/action-contracts";
 import { createActionHistoryService, type ActionHistoryService } from "./action-history-service";
 import { evaluateActionProposal, getActionPolicy } from "./action-policy";
 import { createActionExecutor, type ActionExecutor } from "./action-executor";
+import { isFoundOrdinal, isFileSearchKind, isSupervisedFileRoot, parseSelection } from "../files/supervised-file-validation";
+import type { SupervisedFileMutationData, SupervisedFileSearchData } from "../../shared/supervised-file-contracts";
+import { validateSpotifySearchQuery } from "../applications/spotify-search";
+import { isKnownApplicationCatalogKey } from "../applications/known-application-catalog";
+import { catalogRegistrationFailure } from "../applications/catalog-registration-failures";
+
+import { MESSAGING_EXECUTION_FAILURE_CODES } from "../messaging/messaging-failures";
+import { MAX_CONTACT_ALIASES, MAX_CONTACT_NAME_LENGTH, MAX_MESSAGE_BODY_LENGTH } from "../../shared/messaging-contracts";
 
 const PENDING_PROPOSAL_LIFETIME_MS = 5 * 60 * 1000;
 
@@ -85,10 +104,17 @@ const isPlannerAction = (action: ActionSubmission["action"]): action is PlannerA
     "GET_WEEKLY_SCHEDULE_DETAILS",
     "ANALYZE_WEEKLY_SCHEDULE",
     "GET_TODAY_AVAILABILITY",
+    "CREATE_WEEKLY_SCHEDULE",
+    "UPDATE_WEEKLY_SCHEDULE",
+    "CREATE_WEEKLY_ROUTINE",
+    "UPDATE_WEEKLY_ROUTINE",
     "GET_CURRENT_DATE_TIME",
     "DELETE_EVENT",
     "DELETE_TASK"
   ].includes(action as PlannerActionProposal["action"]);
+
+const isHabitAction = (action: ActionSubmission["action"]): action is HabitActionProposal["action"] =>
+  ["GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"].includes(action as HabitActionProposal["action"]);
 
 const isOpenApplicationSubmission = (
   submission: Record<string, unknown>
@@ -100,6 +126,84 @@ const isOpenApplicationSubmission = (
   Object.keys(submission.input).length === 1 &&
     typeof (submission.input as { alias?: unknown }).alias === "string";
 
+const SPOTIFY_SEARCH_KIND_VALUES = ["TRACK", "ARTIST", "ALBUM", "PLAYLIST", "ANY"];
+
+/** Strict closed shape: a plain query, a closed kind and a boolean; never a URI, a path or a Main reference. */
+const isSearchSpotifyAppSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: "SEARCH_SPOTIFY_APP"; input: SearchSpotifyAppInput } =>
+  submission.action === "SEARCH_SPOTIFY_APP" &&
+  isRecord(submission.input) &&
+  Object.keys(submission.input).every((key) => key === "query" || key === "kind" || key === "playRequested") &&
+  validateSpotifySearchQuery(submission.input.query) !== undefined &&
+  (submission.input.kind === undefined || SPOTIFY_SEARCH_KIND_VALUES.includes(submission.input.kind as string)) &&
+  (submission.input.playRequested === undefined || typeof submission.input.playRequested === "boolean");
+
+/** History keeps only the outcome category for the Spotify app search; the query never reaches it. */
+const safeSpotifySearchHistorySummary = (outcome: ActionOutcome): string =>
+  outcome.status === "SUCCEEDED" ? "La búsqueda en Spotify se completó." : "La búsqueda en Spotify no se completó.";
+
+const SPOTIFY_MUSIC_ACTIONS = [
+  "CONNECT_SPOTIFY",
+  "DISCONNECT_SPOTIFY",
+  "GET_SPOTIFY_STATUS",
+  "PLAY_SPOTIFY_MUSIC",
+  "PAUSE_SPOTIFY",
+  "RESUME_SPOTIFY",
+  "NEXT_SPOTIFY_TRACK",
+  "PREVIOUS_SPOTIFY_TRACK",
+  "SET_SPOTIFY_VOLUME",
+  "WHAT_IS_PLAYING"
+] as const;
+
+const isSpotifyMusicAction = (action: ActionSubmission["action"]): boolean =>
+  (SPOTIFY_MUSIC_ACTIONS as readonly string[]).includes(action);
+
+/**
+ * Strict closed shapes: most actions take no input, playing takes a plain query and a closed kind, and the
+ * volume takes exactly one of an integer level or a direction. No identifier, URI or URL is a valid field.
+ */
+const isSpotifyMusicSubmission = (submission: Record<string, unknown>): boolean => {
+  if (!isSpotifyMusicAction(submission.action as ActionSubmission["action"]) || !isRecord(submission.input)) return false;
+  const input = submission.input;
+  if (submission.action === "PLAY_SPOTIFY_MUSIC") {
+    return Object.keys(input).every((key) => key === "query" || key === "kind") &&
+      validateSpotifySearchQuery(input.query) !== undefined &&
+      (input.kind === undefined || SPOTIFY_SEARCH_KIND_VALUES.includes(input.kind as string));
+  }
+  if (submission.action === "SET_SPOTIFY_VOLUME") {
+    const keys = Object.keys(input);
+    if (keys.length !== 1) return false;
+    return keys[0] === "level"
+      ? typeof input.level === "number" && Number.isInteger(input.level) && input.level >= 0 && input.level <= 100
+      : keys[0] === "change" && (input.change === "UP" || input.change === "DOWN");
+  }
+  return Object.keys(input).length === 0;
+};
+
+/** History keeps only the outcome category for the Spotify actions; titles, artists and queries never reach it. */
+const safeSpotifyMusicHistorySummary = (outcome: ActionOutcome): string =>
+  outcome.status === "SUCCEEDED"
+    ? "La acción de música se completó."
+    : outcome.status === "CANCELLED" ? "La acción de música fue cancelada." : "La acción de música no se completó.";
+
+const isRegisterCatalogApplicationSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: "REGISTER_CATALOG_APPLICATION"; input: { catalogKey: string; alias?: string } } =>
+  submission.action === "REGISTER_CATALOG_APPLICATION" &&
+  isRecord(submission.input) &&
+  Object.keys(submission.input).every((key) => key === "catalogKey" || key === "alias") &&
+  isKnownApplicationCatalogKey(submission.input.catalogKey) &&
+  (submission.input.alias === undefined || typeof submission.input.alias === "string");
+
+const isRequestCustomApplicationRegistrationSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: "REQUEST_CUSTOM_APPLICATION_REGISTRATION"; input: { displayName?: string } } =>
+  submission.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION" &&
+  isRecord(submission.input) &&
+  Object.keys(submission.input).every((key) => key === "displayName") &&
+  (submission.input.displayName === undefined || typeof submission.input.displayName === "string");
+
 const isOpenWebPageSubmission = (
   submission: Record<string, unknown>
 ): submission is { action: "OPEN_WEB_PAGE"; input: { destination: "YOUTUBE"; browser: "CHROME" } } =>
@@ -109,8 +213,28 @@ const isOpenWebPageSubmission = (
   submission.input.destination === "YOUTUBE" &&
   submission.input.browser === "CHROME";
 
+const isApprovedWebActionSubmission = (
+  submission: Record<string, unknown>
+): submission is
+  | { action: "OPEN_APPROVED_PAGE"; input: { site: "GOOGLE" | "YOUTUBE" | "SPOTIFY" } }
+  | { action: "SEARCH_APPROVED_SITE"; input: { site: "GOOGLE" | "YOUTUBE" | "SPOTIFY"; query: string } } => {
+  if (!isRecord(submission.input)) return false;
+  if (submission.action === "OPEN_APPROVED_PAGE") {
+    return Object.keys(submission.input).length === 1 && ["GOOGLE", "YOUTUBE", "SPOTIFY"].includes(submission.input.site as string);
+  }
+  if (submission.action === "SEARCH_APPROVED_SITE") {
+    return Object.keys(submission.input).length === 2 &&
+      ["GOOGLE", "YOUTUBE", "SPOTIFY"].includes(submission.input.site as string) &&
+      typeof submission.input.query === "string";
+  }
+  return false;
+};
+
 const isApplicationAction = (action: ActionSubmission["action"]): boolean =>
-  action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE";
+  action === "OPEN_APPLICATION" || action === "SEARCH_SPOTIFY_APP" || action === "OPEN_WEB_PAGE" || action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
+
+const isApprovedWebAction = (action: ActionSubmission["action"]): boolean =>
+  action === "OPEN_APPROVED_PAGE" || action === "SEARCH_APPROVED_SITE";
 
 const isWeatherAction = (action: ActionSubmission["action"]): action is WeatherActionProposal["action"] =>
   action === "GET_WEATHER";
@@ -135,6 +259,89 @@ const isWeeklyScheduleSubmission = (submission: Record<string, unknown>): boolea
   return false;
 };
 
+const isLocalTime = (value: unknown): value is string =>
+  typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+
+const isWeeklyMutationText = (value: unknown, maximumLength: number): value is string =>
+  typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximumLength;
+
+const isWeekday = (value: unknown): boolean =>
+  ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"].includes(value as string);
+
+const isWeeklyMutationSubmission = (submission: Record<string, unknown>): boolean => {
+  if (!isRecord(submission.input)) return false;
+  const input = submission.input;
+  if (submission.action === "CREATE_WEEKLY_SCHEDULE") {
+    return Object.keys(input).every((key) => ["title", "description", "color"].includes(key)) &&
+      isWeeklyMutationText(input.title, 240) &&
+      (input.description === undefined || isWeeklyMutationText(input.description, 4000)) &&
+      (input.color === undefined || (typeof input.color === "string" && /^#[0-9a-f]{6}$/iu.test(input.color)));
+  }
+  if (submission.action === "UPDATE_WEEKLY_SCHEDULE") {
+    const changes = [input.title, input.description, input.color].filter((value) => value !== undefined);
+    return Object.keys(input).every((key) => ["scheduleTitle", "title", "description", "color"].includes(key)) &&
+      isWeeklyMutationText(input.scheduleTitle, 240) && changes.length > 0 &&
+      (input.title === undefined || isWeeklyMutationText(input.title, 240)) &&
+      (input.description === undefined || input.description === null || isWeeklyMutationText(input.description, 4000)) &&
+      (input.color === undefined || input.color === null || (typeof input.color === "string" && /^#[0-9a-f]{6}$/iu.test(input.color)));
+  }
+  if (submission.action === "CREATE_WEEKLY_ROUTINE") {
+    return Object.keys(input).every((key) => ["scheduleTitle", "title", "weekday", "startTime", "endTime", "location", "categoryName"].includes(key)) &&
+      isWeeklyMutationText(input.scheduleTitle, 240) && isWeeklyMutationText(input.title, 240) && isWeekday(input.weekday) &&
+      isLocalTime(input.startTime) && isLocalTime(input.endTime) && input.endTime > input.startTime &&
+      (input.location === undefined || input.location === null || isWeeklyMutationText(input.location, 500)) &&
+      (input.categoryName === undefined || isWeeklyMutationText(input.categoryName, 160));
+  }
+  if (submission.action === "UPDATE_WEEKLY_ROUTINE") {
+    const changes = [input.title, input.weekday, input.startTime, input.endTime, input.location, input.categoryName].filter((value) => value !== undefined);
+    return Object.keys(input).every((key) => ["scheduleTitle", "routineTitle", "targetWeekday", "targetStartTime", "targetEndTime", "title", "weekday", "startTime", "endTime", "location", "categoryName"].includes(key)) &&
+      isWeeklyMutationText(input.scheduleTitle, 240) && isWeeklyMutationText(input.routineTitle, 240) && changes.length > 0 &&
+      (input.targetWeekday === undefined || isWeekday(input.targetWeekday)) &&
+      (input.targetStartTime === undefined || isLocalTime(input.targetStartTime)) &&
+      (input.targetEndTime === undefined || isLocalTime(input.targetEndTime)) &&
+      (input.title === undefined || isWeeklyMutationText(input.title, 240)) &&
+      (input.weekday === undefined || isWeekday(input.weekday)) &&
+      (input.startTime === undefined || isLocalTime(input.startTime)) &&
+      (input.endTime === undefined || isLocalTime(input.endTime)) &&
+      (input.location === undefined || isWeeklyMutationText(input.location, 500)) &&
+      (input.categoryName === undefined || isWeeklyMutationText(input.categoryName, 160));
+  }
+  return false;
+};
+
+const isHabitText = (value: unknown, maximumLength: number): value is string =>
+  typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximumLength;
+
+const isHabitActionSubmission = (submission: Record<string, unknown>): boolean => {
+  if (!isRecord(submission.input)) return false;
+  const input = submission.input;
+  if (submission.action === "GET_HABIT_PROGRESS") {
+    return Object.keys(input).every((key) => key === "scope" || key === "habitTitle") &&
+      (input.scope === "TODAY" || input.scope === "WEEK") &&
+      (input.habitTitle === undefined || isHabitText(input.habitTitle, 240));
+  }
+  if (submission.action === "CREATE_HABIT") {
+    return Object.keys(input).every((key) => ["title", "description", "frequency", "targetCount", "categoryName", "icon"].includes(key)) &&
+      isHabitText(input.title, 240) && ["DAILY", "WEEKLY"].includes(input.frequency as string) &&
+      typeof input.targetCount === "number" && Number.isInteger(input.targetCount) && input.targetCount >= 1 && input.targetCount <= 7 &&
+      (input.description === undefined || isHabitText(input.description, 4000)) &&
+      (input.categoryName === undefined || isHabitText(input.categoryName, 160)) &&
+      (input.icon === undefined || ["SPARK", "BOOK", "DUMBBELL", "HOME", "HEART", "WATER", "RUNNING", "BRAIN", "LEAF"].includes(input.icon as string));
+  }
+  if (submission.action === "UPDATE_HABIT") {
+    const changes = [input.title, input.description, input.frequency, input.targetCount, input.categoryName, input.icon].filter((value) => value !== undefined);
+    return Object.keys(input).every((key) => ["habitTitle", "title", "description", "frequency", "targetCount", "categoryName", "icon"].includes(key)) &&
+      isHabitText(input.habitTitle, 240) && changes.length > 0 &&
+      (input.title === undefined || isHabitText(input.title, 240)) &&
+      (input.description === undefined || input.description === null || isHabitText(input.description, 4000)) &&
+      (input.frequency === undefined || input.frequency === "DAILY" || input.frequency === "WEEKLY") &&
+      (input.targetCount === undefined || (typeof input.targetCount === "number" && Number.isInteger(input.targetCount) && input.targetCount >= 1 && input.targetCount <= 7)) &&
+      (input.categoryName === undefined || input.categoryName === null || isHabitText(input.categoryName, 160)) &&
+      (input.icon === undefined || ["SPARK", "BOOK", "DUMBBELL", "HOME", "HEART", "WATER", "RUNNING", "BRAIN", "LEAF"].includes(input.icon as string));
+  }
+  return submission.action === "COMPLETE_HABIT" && Object.keys(input).length === 1 && isHabitText(input.habitTitle, 240);
+};
+
 const isFileAction = (action: ActionSubmission["action"]): action is FileActionProposal["action"] =>
   ["SEARCH_FILES", "CREATE_FOLDER", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES"].includes(
     action as FileActionProposal["action"]
@@ -144,7 +351,125 @@ const isFileActionSubmission = (
   submission: Record<string, unknown>
 ): submission is { action: FileActionProposal["action"]; input: Record<string, unknown> } =>
   isFileAction(submission.action as ActionSubmission["action"]) &&
+  !isSupervisedFilesAction(submission.action as ActionSubmission["action"]) &&
   isRecord(submission.input);
+
+const SUPERVISED_FILES_ACTIONS = [
+  "SEARCH_FILES",
+  "REVEAL_FOUND_FILE",
+  "OPEN_FOUND_FILE",
+  "CREATE_FOLDER",
+  "RENAME_FOUND_ITEM",
+  "MOVE_FOUND_ITEMS",
+  "ORGANIZE_FOUND_ITEMS",
+  "DELETE_FOUND_ITEM"
+] as const;
+
+const isSupervisedFilesAction = (action: ActionSubmission["action"]): action is SupervisedFilesActionProposal["action"] =>
+  (SUPERVISED_FILES_ACTIONS as readonly string[]).includes(action);
+
+/** Strict, closed shapes: ordinals and enum values only, and never a Main-issued preparation reference. */
+const isSupervisedFilesSubmission = (
+  submission: Record<string, unknown>
+): submission is SupervisedFilesActionSubmission => {
+  if (!isRecord(submission.input)) return false;
+  const input = submission.input;
+  const keysAre = (allowed: readonly string[]): boolean => Object.keys(input).every((key) => allowed.includes(key));
+  if (submission.action === "SEARCH_FILES") {
+    return keysAre(["query", "root", "kind"]) && typeof input.query === "string" &&
+      (input.root === undefined || isSupervisedFileRoot(input.root)) &&
+      (input.kind === undefined || isFileSearchKind(input.kind));
+  }
+  if (submission.action === "REVEAL_FOUND_FILE" || submission.action === "OPEN_FOUND_FILE") {
+    return keysAre(["ordinal"]) && isFoundOrdinal(input.ordinal);
+  }
+  if (submission.action === "CREATE_FOLDER") {
+    return keysAre(["folderName", "root", "parentOrdinal"]) && typeof input.folderName === "string" &&
+      (input.root === undefined || isSupervisedFileRoot(input.root)) &&
+      (input.parentOrdinal === undefined || isFoundOrdinal(input.parentOrdinal));
+  }
+  if (submission.action === "RENAME_FOUND_ITEM") {
+    return keysAre(["ordinal", "newName"]) && isFoundOrdinal(input.ordinal) && typeof input.newName === "string";
+  }
+  if (submission.action === "DELETE_FOUND_ITEM") {
+    return keysAre(["ordinal"]) && isFoundOrdinal(input.ordinal);
+  }
+  if (submission.action === "MOVE_FOUND_ITEMS") {
+    return keysAre(["ordinals", "all", "destinationRoot", "destinationOrdinal"]) &&
+      parseSelection(input) !== undefined &&
+      (input.destinationRoot === undefined || isSupervisedFileRoot(input.destinationRoot)) &&
+      (input.destinationOrdinal === undefined || isFoundOrdinal(input.destinationOrdinal)) &&
+      (input.destinationRoot !== undefined || input.destinationOrdinal !== undefined);
+  }
+  if (submission.action === "ORGANIZE_FOUND_ITEMS") {
+    return keysAre(["ordinals", "all", "folderName", "root"]) &&
+      parseSelection(input) !== undefined &&
+      typeof input.folderName === "string" && isSupervisedFileRoot(input.root);
+  }
+  return false;
+};
+
+const MESSAGING_ACTIONS = [
+  "SAVE_CONTACT",
+  "LIST_CONTACTS",
+  "DELETE_CONTACT",
+  "PREPARE_MESSAGE_DRAFT",
+  "EDIT_MESSAGE_DRAFT",
+  "DISCARD_MESSAGE_DRAFT",
+  "OPEN_WHATSAPP_CHAT_WITH_DRAFT"
+] as const;
+
+const isMessagingAction = (action: ActionSubmission["action"]): action is MessagingActionProposal["action"] =>
+  (MESSAGING_ACTIONS as readonly string[]).includes(action);
+
+const isBoundedText = (value: unknown, maximumLength: number): value is string =>
+  typeof value === "string" && value.length > 0 && value.length <= maximumLength;
+
+/**
+ * Strict, closed shapes. A phone number, a contact identifier or a Main-issued reference is never a
+ * valid field here: the only way a number reaches Main is the dedicated contact form channel.
+ */
+const isMessagingSubmission = (submission: Record<string, unknown>): boolean => {
+  if (!isRecord(submission.input) || !isMessagingAction(submission.action as ActionSubmission["action"])) return false;
+  const input = submission.input;
+  const keysAre = (allowed: readonly string[]): boolean => Object.keys(input).every((key) => allowed.includes(key));
+  switch (submission.action) {
+    case "SAVE_CONTACT":
+      return keysAre(["contactName", "aliases"]) && isBoundedText(input.contactName, MAX_CONTACT_NAME_LENGTH * 2) &&
+        (input.aliases === undefined || (Array.isArray(input.aliases) && input.aliases.length <= MAX_CONTACT_ALIASES &&
+          input.aliases.every((alias) => isBoundedText(alias, MAX_CONTACT_NAME_LENGTH * 2))));
+    case "DELETE_CONTACT":
+      return keysAre(["contactName"]) && isBoundedText(input.contactName, MAX_CONTACT_NAME_LENGTH * 2);
+    case "LIST_CONTACTS":
+    case "DISCARD_MESSAGE_DRAFT":
+    case "OPEN_WHATSAPP_CHAT_WITH_DRAFT":
+      return Object.keys(input).length === 0;
+    case "PREPARE_MESSAGE_DRAFT":
+      return Object.keys(input).length === 3 && keysAre(["recipient", "body", "channel"]) &&
+        isBoundedText(input.recipient, MAX_CONTACT_NAME_LENGTH * 2) &&
+        isBoundedText(input.body, MAX_MESSAGE_BODY_LENGTH * 2) && input.channel === "WHATSAPP";
+    case "EDIT_MESSAGE_DRAFT":
+      return Object.keys(input).length === 1 && keysAre(["body"]) && isBoundedText(input.body, MAX_MESSAGE_BODY_LENGTH * 2);
+    default:
+      return false;
+  }
+};
+
+/** History keeps only the outcome category for MESSAGING actions; names, numbers and texts never reach it. */
+const safeMessagingHistorySummary = (outcome: ActionOutcome): string =>
+  outcome.status === "SUCCEEDED"
+    ? "La acción de mensajería se completó."
+    : outcome.status === "CANCELLED"
+      ? "La acción de mensajería fue cancelada."
+      : "La acción de mensajería no se completó.";
+
+/** History keeps only the outcome category for FILES actions; names, queries and results never reach it. */
+const safeFilesHistorySummary = (outcome: ActionOutcome): string =>
+  outcome.status === "SUCCEEDED"
+    ? "La acción de archivos se completó."
+    : outcome.status === "CANCELLED"
+      ? "La acción de archivos fue cancelada."
+      : "La acción de archivos no se completó.";
 
 const isOpaqueIdentifier = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
@@ -181,9 +506,17 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
     scopeKind:
       isApplicationAction(outcome.action)
         ? "APPLICATION"
+        : isSpotifyMusicAction(outcome.action)
+          ? "MUSIC"
+        : isApprovedWebAction(outcome.action)
+          ? "WEB"
         : isWeatherAction(outcome.action)
           ? "WEATHER"
-        : isFileAction(outcome.action)
+          : isHabitAction(outcome.action)
+            ? "HABIT"
+          : isMessagingAction(outcome.action)
+          ? "MESSAGING"
+          : isFileAction(outcome.action) || isSupervisedFilesAction(outcome.action)
           ? "FILES"
           : "PLANNER",
     resultKind: outcome.status
@@ -197,11 +530,29 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
   ) {
     metadata.applicationDisplayName = outcome.data.applicationName;
   }
-  if (isFileAction(outcome.action) && outcome.status === "SUCCEEDED" && outcome.data !== undefined) {
+  if (isMessagingAction(outcome.action)) {
+    // A count only: no contact name, number, alias or message text is ever written to history.
+    if (outcome.status === "SUCCEEDED" && outcome.data !== undefined && "contactCount" in outcome.data && typeof outcome.data.contactCount === "number") {
+      metadata.itemCount = outcome.data.contactCount;
+    }
+  } else if (isSupervisedFilesAction(outcome.action)) {
+    // Counts only: item names, queries and paths never reach history.
+    if (outcome.status === "SUCCEEDED" && outcome.data !== undefined && "resultCount" in outcome.data && typeof outcome.data.resultCount === "number") {
+      const search = outcome.data as SupervisedFileSearchData;
+      metadata.itemCount = search.resultCount;
+      metadata.partial = search.partial;
+    }
+    if (outcome.data !== undefined && "movedCount" in outcome.data && typeof outcome.data.movedCount === "number") {
+      const mutation = outcome.data as SupervisedFileMutationData;
+      metadata.movedCount = mutation.movedCount;
+      metadata.failedCount = mutation.failedCount;
+    }
+  } else if (isFileAction(outcome.action) && outcome.status === "SUCCEEDED" && outcome.data !== undefined) {
     if ("items" in outcome.data && Array.isArray(outcome.data.items)) {
       metadata.itemCount = outcome.data.items.length;
-      metadata.skippedCount = outcome.data.skippedEntryCount;
-      metadata.partial = outcome.data.truncated;
+      const legacySearch = outcome.data as { skippedEntryCount: number; truncated: boolean };
+      metadata.skippedCount = legacySearch.skippedEntryCount;
+      metadata.partial = legacySearch.truncated;
     } else if ("operation" in outcome.data) {
       metadata.itemCount = 1;
     } else if ("plannedCount" in outcome.data) {
@@ -245,7 +596,15 @@ export const createActionOrchestrator = (
         action: outcome.action,
         riskLevel: outcome.riskLevel,
         status: outcome.status,
-        userSummary: outcome.userSummary,
+        userSummary: isSupervisedFilesAction(outcome.action)
+          ? safeFilesHistorySummary(outcome)
+          : isMessagingAction(outcome.action)
+            ? safeMessagingHistorySummary(outcome)
+            : outcome.action === "SEARCH_SPOTIFY_APP"
+              ? safeSpotifySearchHistorySummary(outcome)
+              : isSpotifyMusicAction(outcome.action)
+                ? safeSpotifyMusicHistorySummary(outcome)
+                : outcome.userSummary,
         ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
         metadata: getHistoryMetadata(outcome),
         startedAt: startedAt.toISOString(),
@@ -296,6 +655,7 @@ export const createActionOrchestrator = (
   };
 
   const recordExpiredProposal = async (pending: PendingProposal): Promise<void> => {
+    dependencies.executor.releasePrepared?.(pending.proposal);
     await recordTerminalOutcome(
       {
         actionId: pending.proposal.actionId,
@@ -316,16 +676,25 @@ export const createActionOrchestrator = (
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
       }
 
-      const policy = getActionPolicy(submission.action);
+      let policy = getActionPolicy(submission.action);
       if ((submission.action === "DELETE_EVENT" || submission.action === "DELETE_TASK") && policy.approval !== "REINFORCED_CONFIRMATION_REQUIRED") {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
       }
       if (
         !isPlannerAction(submission.action) &&
+        !isHabitActionSubmission(submission) &&
         !isOpenApplicationSubmission(submission) &&
+        !isSearchSpotifyAppSubmission(submission) &&
+        !isSpotifyMusicSubmission(submission) &&
+        !isRegisterCatalogApplicationSubmission(submission) &&
+        !isRequestCustomApplicationRegistrationSubmission(submission) &&
+        !isSupervisedFilesSubmission(submission) &&
+        !isMessagingSubmission(submission) &&
+        !isApprovedWebActionSubmission(submission) &&
         !isOpenWebPageSubmission(submission) &&
         !isWeatherActionSubmission(submission) &&
         !isWeeklyScheduleSubmission(submission) &&
+        !isWeeklyMutationSubmission(submission) &&
         !isFileActionSubmission(submission)
       ) {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
@@ -339,6 +708,33 @@ export const createActionOrchestrator = (
 
       let proposal: ExecutableActionProposal = isOpenApplicationSubmission(submission)
         ? { actionId, action: "OPEN_APPLICATION", input: { alias: submission.input.alias } }
+        : isRegisterCatalogApplicationSubmission(submission)
+          ? {
+              actionId,
+              action: "REGISTER_CATALOG_APPLICATION",
+              input: {
+                catalogKey: submission.input.catalogKey,
+                ...(submission.input.alias === undefined ? {} : { alias: submission.input.alias })
+              }
+            } as RegisterCatalogApplicationActionProposal
+        : isRequestCustomApplicationRegistrationSubmission(submission)
+          ? {
+              actionId,
+              action: "REQUEST_CUSTOM_APPLICATION_REGISTRATION",
+              input: submission.input.displayName === undefined ? {} : { displayName: submission.input.displayName }
+            } as RequestCustomApplicationRegistrationActionProposal
+        : isSpotifyMusicSubmission(submission)
+          ? ({ actionId, action: submission.action, input: submission.input } as SpotifyMusicActionProposal)
+        : isSearchSpotifyAppSubmission(submission)
+          ? ({ actionId, action: "SEARCH_SPOTIFY_APP", input: submission.input } as SearchSpotifyAppActionProposal)
+        : isMessagingSubmission(submission)
+          ? ({ actionId, action: submission.action, input: submission.input } as MessagingActionProposal)
+        : isSupervisedFilesSubmission(submission)
+          ? ({ actionId, action: submission.action, input: submission.input } as SupervisedFilesActionProposal)
+        : isApprovedWebActionSubmission(submission)
+          ? submission.action === "OPEN_APPROVED_PAGE"
+            ? { actionId, action: "OPEN_APPROVED_PAGE", input: { site: submission.input.site } } as ApprovedWebActionProposal
+            : { actionId, action: "SEARCH_APPROVED_SITE", input: { site: submission.input.site, query: submission.input.query } } as ApprovedWebActionProposal
         : isOpenWebPageSubmission(submission)
           ? {
               actionId,
@@ -350,19 +746,185 @@ export const createActionOrchestrator = (
               actionId,
               action: submission.action,
               input: submission.input as FileActionProposal["input"]
-            } as FileActionProposal
+            } as LegacyFileActionProposal
           : isWeatherActionSubmission(submission)
             ? {
                 actionId,
                 action: "GET_WEATHER",
                 input: {}
               } as WeatherActionProposal
+          : isHabitAction(submission.action)
+            ? {
+                actionId,
+                action: submission.action,
+                input: submission.input as HabitActionProposal["input"]
+              } as HabitActionProposal
           : {
               actionId,
               action: submission.action as PlannerActionProposal["action"],
               input: submission.input as never
             };
       const startedAt = dependencies.now();
+
+      if (proposal.action === "REGISTER_CATALOG_APPLICATION") {
+        let prepared;
+        try {
+          prepared = dependencies.executor.prepareCatalogRegistration
+            ? await dependencies.executor.prepareCatalogRegistration(proposal)
+            : catalogRegistrationFailure("PREPARATION_FAILED");
+        } catch {
+          dependencies.logError("Catalog application proposal preparation failed.");
+          prepared = catalogRegistrationFailure("PREPARATION_FAILED");
+        }
+        if (!prepared.ok) {
+          return {
+            ok: true,
+            data: await recordTerminalOutcome({
+              actionId: proposal.actionId,
+              action: proposal.action,
+              riskLevel: policy.riskLevel,
+              status: "VALIDATION_FAILED",
+              errorCode: prepared.error.code,
+              userSummary: prepared.error.userMessage
+            }, startedAt)
+          };
+        }
+        proposal = { ...proposal, input: { catalogKey: prepared.data.catalogKey, alias: prepared.data.alias } };
+        policy = {
+          ...policy,
+          confirmation: {
+            ...policy.confirmation,
+            summary: `Se registrará ${prepared.data.applicationName} como “${prepared.data.alias}”.`,
+            scopeSummary: "Aplicación aprobada"
+          }
+        };
+      }
+
+      if (proposal.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION") {
+        // The native picker runs in Main; the validated selection never leaves Main and no path is returned.
+        let prepared;
+        try {
+          prepared = dependencies.executor.prepareCustomRegistration
+            ? await dependencies.executor.prepareCustomRegistration(proposal)
+            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." } };
+        } catch {
+          dependencies.logError("Custom application selection preparation failed.");
+          prepared = {
+            ok: false as const,
+            error: { code: "APPLICATION_CUSTOM_PICKER_UNAVAILABLE", userMessage: "No se pudo abrir el selector de aplicaciones." }
+          };
+        }
+        if (!prepared.ok) {
+          return {
+            ok: true,
+            data: await recordTerminalOutcome({
+              actionId: proposal.actionId,
+              action: proposal.action,
+              riskLevel: policy.riskLevel,
+              status: prepared.error.code === "APPLICATION_CUSTOM_REGISTRATION_CANCELLED" ? "CANCELLED" : "VALIDATION_FAILED",
+              ...(prepared.error.code === "APPLICATION_CUSTOM_REGISTRATION_CANCELLED" ? {} : { errorCode: prepared.error.code }),
+              userSummary: prepared.error.userMessage
+            }, startedAt)
+          };
+        }
+        proposal = { ...proposal, input: { displayName: prepared.data.displayName, selectionId: prepared.data.selectionId } };
+        policy = {
+          ...policy,
+          confirmation: {
+            ...policy.confirmation,
+            summary: `Se registrará «${prepared.data.displayName}» como una aplicación elegida por ti.`,
+            scopeSummary: "Aplicación elegida"
+          }
+        };
+      }
+
+      if (
+        proposal.action === "OPEN_FOUND_FILE" ||
+        proposal.action === "CREATE_FOLDER" ||
+        proposal.action === "RENAME_FOUND_ITEM" ||
+        proposal.action === "MOVE_FOUND_ITEMS" ||
+        proposal.action === "ORGANIZE_FOUND_ITEMS" ||
+        proposal.action === "DELETE_FOUND_ITEM"
+      ) {
+        // Selection and containment are checked now and again at confirm; the held reference stays in Main.
+        let preparedFiles;
+        try {
+          preparedFiles = dependencies.executor.prepareFilesAction
+            ? await dependencies.executor.prepareFilesAction(proposal)
+            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." } };
+        } catch {
+          dependencies.logError("Supervised file proposal preparation failed.");
+          preparedFiles = {
+            ok: false as const,
+            error: { code: "FILES_OPERATION_FAILED", userMessage: "No se pudo completar la operación con archivos." }
+          };
+        }
+        if (!preparedFiles.ok) {
+          return {
+            ok: true,
+            data: await recordTerminalOutcome({
+              actionId: proposal.actionId,
+              action: proposal.action,
+              riskLevel: policy.riskLevel,
+              status: preparedFiles.error.code === "FILES_OPERATION_FAILED" ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
+              errorCode: preparedFiles.error.code,
+              userSummary: preparedFiles.error.userMessage
+            }, startedAt)
+          };
+        }
+        proposal = { ...proposal, input: preparedFiles.data.input } as SupervisedFilesActionProposal;
+        policy = {
+          ...policy,
+          confirmation: {
+            ...policy.confirmation,
+            summary: preparedFiles.data.confirmationSummary,
+            scopeSummary: preparedFiles.data.scopeSummary
+          }
+        };
+      }
+
+      if (proposal.action === "SAVE_CONTACT" || proposal.action === "DELETE_CONTACT" || proposal.action === "OPEN_WHATSAPP_CHAT_WITH_DRAFT") {
+        // The contact form (for a new contact) or the contact lookup (for a deletion) runs in Main now; the
+        // number stays in Main and only a masked label reaches the review text.
+        let preparedMessaging;
+        try {
+          preparedMessaging = dependencies.executor.prepareMessagingAction
+            ? await dependencies.executor.prepareMessagingAction(proposal)
+            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." } };
+        } catch {
+          dependencies.logError("Messaging proposal preparation failed.");
+          preparedMessaging = {
+            ok: false as const,
+            error: { code: "MESSAGING_OPERATION_FAILED", userMessage: "No se pudo completar la operación con contactos." }
+          };
+        }
+        if (!preparedMessaging.ok) {
+          return {
+            ok: true,
+            data: await recordTerminalOutcome({
+              actionId: proposal.actionId,
+              action: proposal.action,
+              riskLevel: policy.riskLevel,
+              status: preparedMessaging.error.code === "MESSAGING_FORM_CANCELLED"
+                ? "CANCELLED"
+                : MESSAGING_EXECUTION_FAILURE_CODES.includes(preparedMessaging.error.code)
+                  ? "EXECUTION_FAILED"
+                  : "VALIDATION_FAILED",
+              errorCode: preparedMessaging.error.code,
+              userSummary: preparedMessaging.error.userMessage
+            }, startedAt)
+          };
+        }
+        proposal = { ...proposal, input: preparedMessaging.data.input } as MessagingActionProposal;
+        policy = {
+          ...policy,
+          confirmation: {
+            ...policy.confirmation,
+            summary: preparedMessaging.data.confirmationSummary,
+            scopeSummary: preparedMessaging.data.scopeSummary
+          }
+        };
+      }
 
       if (proposal.action === "ORGANIZE_FILES") {
         let planResult;
@@ -459,6 +1021,7 @@ export const createActionOrchestrator = (
       }
 
       pendingProposals.delete(confirmationId);
+      dependencies.executor.releasePrepared?.(pending.proposal);
       const outcome: ActionOutcome = {
         actionId: pending.proposal.actionId,
         action: pending.proposal.action,

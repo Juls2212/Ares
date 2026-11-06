@@ -44,12 +44,14 @@ export type AresApi = {
   system: SystemApi;
   dashboard: DashboardApi;
   planner: PlannerApi;
+  habits: import("./habit-contracts").HabitsApi;
   actions: ActionApi;
   applications: ApplicationsApi;
   assistant: AssistantApi;
   voice: VoiceApi;
   speech: import("./speech-contracts").SpeechApi;
   settings: SettingsApi;
+  messaging: import("./messaging-contracts").MessagingApi;
 };
 
 export const IPC_CHANNELS = {
@@ -101,6 +103,14 @@ export const IPC_CHANNELS = {
       getWeek: "planner:schedule:get-week"
     }
   },
+  habits: {
+    create: "habits:create",
+    list: "habits:list",
+    update: "habits:update",
+    complete: "habits:complete",
+    getDailyProgress: "habits:get-daily-progress",
+    getWeeklyProgress: "habits:get-weekly-progress"
+  },
   actions: {
     propose: "actions:propose",
     confirm: "actions:confirm",
@@ -130,6 +140,11 @@ export const IPC_CHANNELS = {
     globalShortcutActivated: "voice:global-shortcut-activated"
   },
   speech: { speak: "speech:speak" },
+  messaging: {
+    contactFormRequested: "messaging:contact-form-requested",
+    submitContactForm: "messaging:contact-form:submit",
+    cancelContactForm: "messaging:contact-form:cancel"
+  },
   settings: {
     voice: {
       get: "settings:voice:get",

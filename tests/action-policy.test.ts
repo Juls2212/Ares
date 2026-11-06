@@ -15,12 +15,40 @@ import {
 
 const expectedRiskLevels: Record<ActionKind, ActionRiskLevel> = {
   OPEN_APPLICATION: 1,
+  SEARCH_SPOTIFY_APP: 1,
+  CONNECT_SPOTIFY: 2,
+  DISCONNECT_SPOTIFY: 2,
+  GET_SPOTIFY_STATUS: 1,
+  PLAY_SPOTIFY_MUSIC: 1,
+  PAUSE_SPOTIFY: 1,
+  RESUME_SPOTIFY: 1,
+  NEXT_SPOTIFY_TRACK: 1,
+  PREVIOUS_SPOTIFY_TRACK: 1,
+  SET_SPOTIFY_VOLUME: 1,
+  WHAT_IS_PLAYING: 1,
+  REGISTER_CATALOG_APPLICATION: 2,
+  REQUEST_CUSTOM_APPLICATION_REGISTRATION: 2,
+  OPEN_APPROVED_PAGE: 1,
+  SEARCH_APPROVED_SITE: 1,
   OPEN_WEB_PAGE: 1,
-  CREATE_FOLDER: 1,
+  CREATE_FOLDER: 2,
   RENAME_FILE: 2,
   RENAME_FOLDER: 2,
   MOVE_FILE: 2,
   SEARCH_FILES: 1,
+  REVEAL_FOUND_FILE: 1,
+  OPEN_FOUND_FILE: 2,
+  RENAME_FOUND_ITEM: 2,
+  MOVE_FOUND_ITEMS: 2,
+  ORGANIZE_FOUND_ITEMS: 2,
+  DELETE_FOUND_ITEM: 3,
+  SAVE_CONTACT: 2,
+  LIST_CONTACTS: 1,
+  DELETE_CONTACT: 3,
+  PREPARE_MESSAGE_DRAFT: 1,
+  EDIT_MESSAGE_DRAFT: 1,
+  DISCARD_MESSAGE_DRAFT: 1,
+  OPEN_WHATSAPP_CHAT_WITH_DRAFT: 2,
   ORGANIZE_FILES: 2,
   CREATE_TASK: 1,
   UPDATE_TASK: 1,
@@ -33,8 +61,16 @@ const expectedRiskLevels: Record<ActionKind, ActionRiskLevel> = {
   GET_WEEKLY_SCHEDULE_DETAILS: 1,
   ANALYZE_WEEKLY_SCHEDULE: 1,
   GET_TODAY_AVAILABILITY: 1,
+  CREATE_WEEKLY_SCHEDULE: 2,
+  UPDATE_WEEKLY_SCHEDULE: 2,
+  CREATE_WEEKLY_ROUTINE: 2,
+  UPDATE_WEEKLY_ROUTINE: 2,
   GET_CURRENT_DATE_TIME: 1,
   GET_WEATHER: 1,
+  GET_HABIT_PROGRESS: 1,
+  CREATE_HABIT: 2,
+  UPDATE_HABIT: 2,
+  COMPLETE_HABIT: 2,
   OPEN_REGISTERED_APPLICATION: 1,
   OPEN_REGISTERED_PAGE: 1,
   MOVE_FOLDER: 2,
@@ -56,12 +92,22 @@ describe("action policy", () => {
   it("contains the complete approved MVP action catalog", () => {
     expect(ACTION_KINDS).toEqual([
       "OPEN_APPLICATION",
+      "REGISTER_CATALOG_APPLICATION",
+      "REQUEST_CUSTOM_APPLICATION_REGISTRATION",
+      "OPEN_APPROVED_PAGE",
+      "SEARCH_APPROVED_SITE",
       "OPEN_WEB_PAGE",
       "CREATE_FOLDER",
       "RENAME_FILE",
       "RENAME_FOLDER",
       "MOVE_FILE",
       "SEARCH_FILES",
+      "REVEAL_FOUND_FILE",
+      "OPEN_FOUND_FILE",
+      "RENAME_FOUND_ITEM",
+      "MOVE_FOUND_ITEMS",
+      "ORGANIZE_FOUND_ITEMS",
+      "DELETE_FOUND_ITEM",
       "ORGANIZE_FILES",
       "CREATE_TASK",
       "UPDATE_TASK",
@@ -74,10 +120,36 @@ describe("action policy", () => {
       "GET_WEEKLY_SCHEDULE_DETAILS",
       "ANALYZE_WEEKLY_SCHEDULE",
       "GET_TODAY_AVAILABILITY",
+      "CREATE_WEEKLY_SCHEDULE",
+      "UPDATE_WEEKLY_SCHEDULE",
+      "CREATE_WEEKLY_ROUTINE",
+      "UPDATE_WEEKLY_ROUTINE",
       "GET_CURRENT_DATE_TIME",
       "GET_WEATHER",
+      "GET_HABIT_PROGRESS",
+      "CREATE_HABIT",
+      "UPDATE_HABIT",
+      "COMPLETE_HABIT",
       "DELETE_EVENT",
       "DELETE_TASK",
+      "SAVE_CONTACT",
+      "LIST_CONTACTS",
+      "DELETE_CONTACT",
+      "PREPARE_MESSAGE_DRAFT",
+      "EDIT_MESSAGE_DRAFT",
+      "DISCARD_MESSAGE_DRAFT",
+      "OPEN_WHATSAPP_CHAT_WITH_DRAFT",
+      "SEARCH_SPOTIFY_APP",
+      "CONNECT_SPOTIFY",
+      "DISCONNECT_SPOTIFY",
+      "GET_SPOTIFY_STATUS",
+      "PLAY_SPOTIFY_MUSIC",
+      "PAUSE_SPOTIFY",
+      "RESUME_SPOTIFY",
+      "NEXT_SPOTIFY_TRACK",
+      "PREVIOUS_SPOTIFY_TRACK",
+      "SET_SPOTIFY_VOLUME",
+      "WHAT_IS_PLAYING",
       "OPEN_REGISTERED_APPLICATION",
       "OPEN_REGISTERED_PAGE",
       "MOVE_FOLDER",
@@ -100,20 +172,27 @@ describe("action policy", () => {
     }
   });
 
-  it("marks implemented planner, application, and approved file actions as available", () => {
+  it("keeps existing internal-memory and application classifications available through the policy", () => {
     expect(getActionPolicy("CREATE_TASK").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("GET_WEEK_SCHEDULE").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("GET_WEEKLY_SCHEDULE_DETAILS").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("ANALYZE_WEEKLY_SCHEDULE").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("GET_TODAY_AVAILABILITY").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("OPEN_APPLICATION").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("OPEN_WEB_PAGE").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("REGISTER_CATALOG_APPLICATION")).toMatchObject({ availability: "IMPLEMENTED", approval: "CONFIRMATION_REQUIRED" });
+    expect(getActionPolicy("OPEN_APPROVED_PAGE").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("SEARCH_APPROVED_SITE").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("OPEN_WEB_PAGE").availability).toBe("DEFERRED");
     expect(getActionPolicy("SEARCH_FILES").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("CREATE_FOLDER").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("RENAME_FILE").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("RENAME_FOLDER").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("MOVE_FILE").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("ORGANIZE_FILES").availability).toBe("IMPLEMENTED");
+    expect(getActionPolicy("RENAME_FILE").availability).toBe("DEFERRED");
+    expect(evaluateActionProposal({ action: "OPEN_WEB_PAGE" })).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_UNSUPPORTED" }
+    });
+    expect(evaluateActionProposal({ action: "SEARCH_FILES" })).toMatchObject({ ok: true });
+    for (const action of ["RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES", "DELETE_FILE", "DELETE_FOLDER"]) {
+      expect(evaluateActionProposal({ action })).toMatchObject({ ok: false, error: { code: "ACTION_UNSUPPORTED" } });
+    }
   });
 
   it("rejects unknown proposals without executing them", () => {
@@ -130,7 +209,7 @@ describe("action policy", () => {
     expect(lookupActionPolicy("RUN_SHELL")).toEqual(unknown);
     expect(evaluateActionProposal({ action: "DELETE_FILE" })).toMatchObject({
       ok: false,
-      error: { code: "ACTION_DEFERRED" }
+      error: { code: "ACTION_UNSUPPORTED" }
     });
   });
 
@@ -163,22 +242,26 @@ describe("action policy", () => {
     });
   });
 
-  it("keeps searches and folder creation direct while file changes require confirmation", () => {
+  it("preserves legacy risk classifications without making file actions dispatchable", () => {
     expect(requiresActionConfirmation({
       actionId: "proposal-4",
       action: "SEARCH_FILES",
-      input: { rootId: "DOCUMENTS", query: "report" }
+      input: { query: "report" }
     })).toBe(false);
     expect(requiresActionConfirmation({
       actionId: "proposal-5",
       action: "CREATE_FOLDER",
-      input: { parentDirectory: { rootId: "DOCUMENTS", relativePath: "Work" }, name: "Archive" }
-    })).toBe(false);
+      input: { folderName: "Archive", root: "DOCUMENTS" }
+    })).toBe(true);
     expect(requiresActionConfirmation({
       actionId: "proposal-6",
       action: "ORGANIZE_FILES",
       input: { folder: { rootId: "DOCUMENTS", relativePath: "Inbox" } }
     })).toBe(true);
+    expect(evaluateActionProposal({ action: "ORGANIZE_FILES" })).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_UNSUPPORTED" }
+    });
   });
 
   it("never classifies destructive actions as direct", () => {

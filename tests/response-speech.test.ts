@@ -141,6 +141,42 @@ describe("trusted response speech", () => {
     expect(provider).toHaveBeenCalledWith("Listo, abrí Google Chrome.", expect.any(AbortSignal));
     expect(composeFinalResponse({ ...outcome, data: { applicationName: "C:\\private\\chrome.exe" } })).toBeUndefined();
   });
+  it("keeps a successful Spotify catalog launch response free of its private protocol target", () => {
+    const text = composeFinalResponse({
+      action: "OPEN_APPLICATION",
+      status: "SUCCEEDED",
+      data: { applicationName: "Spotify" }
+    } as ActionOutcome);
+    expect(text).toBe("Listo, abrí Spotify.");
+    expect(text).not.toContain("spotify:");
+  });
+  it("composes catalog registration acknowledgement only from the trusted Main display name", () => {
+    const outcome = {
+      action: "REGISTER_CATALOG_APPLICATION",
+      status: "SUCCEEDED",
+      data: { applicationName: "Spotify" }
+    } as ActionOutcome;
+    expect(composeFinalResponse(outcome)).toBe("Listo, registré Spotify. Ya puedes pedirme que lo abra.");
+    expect(composeFinalResponse({ ...outcome, status: "EXECUTION_FAILED" })).toBeUndefined();
+    expect(composeFinalResponse({ ...outcome, data: { applicationName: "C:\\private\\spotify.exe" } })).toBeUndefined();
+  });
+  it("composes approved web acknowledgements from the fixed site enum without exposing a query or URL", () => {
+    const search = composeFinalResponse({
+      action: "SEARCH_APPROVED_SITE",
+      status: "SUCCEEDED",
+      data: { site: "SPOTIFY", mode: "SEARCH" }
+    } as ActionOutcome);
+    const home = composeFinalResponse({
+      action: "OPEN_APPROVED_PAGE",
+      status: "SUCCEEDED",
+      data: { site: "YOUTUBE", mode: "HOME" }
+    } as ActionOutcome);
+
+    expect(search).toBe("Busqué en Spotify en la web. Pulsa reproducir cuando quieras. Si registras la app de Spotify, el resultado es mejor.");
+    expect(home).toBe("Listo, abrí YouTube.");
+    expect(JSON.stringify({ search, home })).not.toContain("http");
+    expect(composeFinalResponse({ action: "SEARCH_APPROVED_SITE", status: "EXECUTION_FAILED", data: { site: "SPOTIFY", mode: "SEARCH" } } as ActionOutcome)).toBeUndefined();
+  });
   it("does not turn failed or malformed application outcomes into a success acknowledgement", () => {
     const outcome = {
       action: "OPEN_APPLICATION",
@@ -177,7 +213,10 @@ describe("trusted response speech", () => {
     for (const label of ["Escuchar respuesta", "Detener voz"]) expect(controls).toContain(label);
     for (const removedLabel of ["La voz de Ares es generada por IA.", "Leer respuestas automáticamente"]) expect(controls).not.toContain(removedLabel);
     for (const label of ["Generando voz…", "Reproduciendo voz…", "Voz finalizada", "No se pudo iniciar o continuar la voz."]) expect(controls).toContain(label);
-    for (const lifecycle of ["Escape", "visibilitychange", "pagehide", "controller.stop()", "blocked"]) expect(controls).toContain(lifecycle);
+    for (const lifecycle of ["Escape", "pagehide", "controller.stop()", "blocked"]) expect(controls).toContain(lifecycle);
+    // Minimizing or hiding the window must not stop or suppress spoken responses.
+    expect(controls).not.toContain("visibilitychange");
+    expect(controls).not.toContain("document.hidden");
     expect(source("src/preload/preload.ts")).toContain("IPC_CHANNELS.speech.speak, input");
     const provider = source("src/main/voice/openai-speech-provider.ts");
     expect(provider).toContain('OPENAI_SPEECH_MODEL = "gpt-4o-mini-tts"');

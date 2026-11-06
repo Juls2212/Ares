@@ -4,6 +4,8 @@ import type {
   CreateEventInput,
   CreateReminderInput,
   CreateTaskInput,
+  CreateWeeklyRoutineInput,
+  CreateWeeklyScheduleInput,
   GetTodayScheduleInput,
   GetWeekScheduleInput,
   DeleteEventInput,
@@ -15,6 +17,8 @@ import type {
   TodayScheduleData,
   UpdateEventInput,
   UpdateTaskInput,
+  UpdateWeeklyRoutineInput,
+  UpdateWeeklyScheduleInput,
   WeekScheduleData,
   EventRecord
 } from "./planner-contracts";
@@ -30,15 +34,55 @@ import type {
   RenameFolderInput,
   SafeFileMutationRecord
 } from "./file-contracts";
+import type {
+  CreateHabitInput,
+  UpdateHabitInput
+} from "./habit-contracts";
+import type { ApplicationCatalogKey } from "./application-contracts";
+import type {
+  DeleteContactInput,
+  DiscardMessageDraftInput,
+  EditMessageDraftInput,
+  ListContactsInput,
+  MessagingActionData,
+  OpenWhatsAppChatWithDraftInput,
+  PrepareMessageDraftInput,
+  PreparedDeleteContactInput,
+  PreparedOpenWhatsAppChatInput,
+  PreparedSaveContactInput,
+  SaveContactInput
+} from "./messaging-contracts";
+import type {
+  CreateSupervisedFolderInput,
+  DeleteFoundItemInput,
+  MoveFoundItemsInput,
+  OpenFoundFileInput,
+  OrganizeFoundItemsInput,
+  RenameFoundItemInput,
+  RevealFoundFileInput,
+  SearchFilesInput,
+  SupervisedFileMutationData,
+  SupervisedFileSearchData
+} from "./supervised-file-contracts";
 
 export const ACTION_NAMES = [
   "OPEN_APPLICATION",
+  "REGISTER_CATALOG_APPLICATION",
+  "REQUEST_CUSTOM_APPLICATION_REGISTRATION",
+  "OPEN_APPROVED_PAGE",
+  "SEARCH_APPROVED_SITE",
   "OPEN_WEB_PAGE",
   "CREATE_FOLDER",
   "RENAME_FILE",
   "RENAME_FOLDER",
   "MOVE_FILE",
   "SEARCH_FILES",
+  "REVEAL_FOUND_FILE",
+  "OPEN_FOUND_FILE",
+  "RENAME_FOUND_ITEM",
+  "MOVE_FOUND_ITEMS",
+  "ORGANIZE_FOUND_ITEMS",
+  "DELETE_FOUND_ITEM",
   "ORGANIZE_FILES",
   "CREATE_TASK",
   "UPDATE_TASK",
@@ -51,10 +95,36 @@ export const ACTION_NAMES = [
   "GET_WEEKLY_SCHEDULE_DETAILS",
   "ANALYZE_WEEKLY_SCHEDULE",
   "GET_TODAY_AVAILABILITY",
+  "CREATE_WEEKLY_SCHEDULE",
+  "UPDATE_WEEKLY_SCHEDULE",
+  "CREATE_WEEKLY_ROUTINE",
+  "UPDATE_WEEKLY_ROUTINE",
   "GET_CURRENT_DATE_TIME",
   "GET_WEATHER",
+  "GET_HABIT_PROGRESS",
+  "CREATE_HABIT",
+  "UPDATE_HABIT",
+  "COMPLETE_HABIT",
   "DELETE_EVENT",
-  "DELETE_TASK"
+  "DELETE_TASK",
+  "SAVE_CONTACT",
+  "LIST_CONTACTS",
+  "DELETE_CONTACT",
+  "PREPARE_MESSAGE_DRAFT",
+  "EDIT_MESSAGE_DRAFT",
+  "DISCARD_MESSAGE_DRAFT",
+  "OPEN_WHATSAPP_CHAT_WITH_DRAFT",
+  "SEARCH_SPOTIFY_APP",
+  "CONNECT_SPOTIFY",
+  "DISCONNECT_SPOTIFY",
+  "GET_SPOTIFY_STATUS",
+  "PLAY_SPOTIFY_MUSIC",
+  "PAUSE_SPOTIFY",
+  "RESUME_SPOTIFY",
+  "NEXT_SPOTIFY_TRACK",
+  "PREVIOUS_SPOTIFY_TRACK",
+  "SET_SPOTIFY_VOLUME",
+  "WHAT_IS_PLAYING"
 ] as const;
 
 /** Policy-only kinds are not executable submissions until a typed Main adapter exists. */
@@ -108,6 +178,15 @@ export type CurrentDateTimeData = Record<string, never>;
 /** The initial weather action is fixed to the Main-owned Pasto configuration. */
 export type GetWeatherInput = Record<string, never>;
 
+/** Human-readable habit references are resolved by Main immediately before use. */
+export type GetHabitProgressInput = { scope: "TODAY" | "WEEK"; habitTitle?: string };
+export type CreateHabitActionInput = Omit<CreateHabitInput, "categoryId"> & { categoryName?: string };
+export type UpdateHabitActionInput = Omit<UpdateHabitInput, "habitId" | "categoryId"> & {
+  habitTitle: string;
+  categoryName?: string | null;
+};
+export type CompleteHabitActionInput = { habitTitle: string };
+
 export type WeeklyScheduleReferenceInput =
   | { scheduleTitle: string }
   | { allSchedules: true };
@@ -118,6 +197,24 @@ export type WeeklyScheduleAnalysisKind = (typeof WEEKLY_SCHEDULE_ANALYSIS_KINDS)
 export type GetWeeklyScheduleDetailsInput = WeeklyScheduleReferenceInput;
 export type AnalyzeWeeklyScheduleInput = WeeklyScheduleReferenceInput & { analysis: WeeklyScheduleAnalysisKind };
 export type GetTodayAvailabilityInput = { afterTime?: string };
+
+/** Human-readable references remain in drafts; Main resolves identifiers only at dispatch. */
+export type CreateWeeklyScheduleActionInput = CreateWeeklyScheduleInput;
+export type UpdateWeeklyScheduleActionInput = Omit<UpdateWeeklyScheduleInput, "weeklyScheduleId"> & {
+  scheduleTitle: string;
+};
+export type CreateWeeklyRoutineActionInput = Omit<CreateWeeklyRoutineInput, "weeklyScheduleId" | "categoryId"> & {
+  scheduleTitle: string;
+  categoryName?: string;
+};
+export type UpdateWeeklyRoutineActionInput = Omit<UpdateWeeklyRoutineInput, "routineId" | "weeklyScheduleId" | "categoryId"> & {
+  scheduleTitle: string;
+  routineTitle: string;
+  targetWeekday?: import("./planner-contracts").Weekday;
+  targetStartTime?: string;
+  targetEndTime?: string;
+  categoryName?: string;
+};
 
 type ActionProposalBase = {
   actionId: string;
@@ -136,12 +233,77 @@ export type PlannerActionProposal =
   | (ActionProposalBase & { action: "GET_WEEKLY_SCHEDULE_DETAILS"; input: GetWeeklyScheduleDetailsInput })
   | (ActionProposalBase & { action: "ANALYZE_WEEKLY_SCHEDULE"; input: AnalyzeWeeklyScheduleInput })
   | (ActionProposalBase & { action: "GET_TODAY_AVAILABILITY"; input: GetTodayAvailabilityInput })
+  | (ActionProposalBase & { action: "CREATE_WEEKLY_SCHEDULE"; input: CreateWeeklyScheduleActionInput })
+  | (ActionProposalBase & { action: "UPDATE_WEEKLY_SCHEDULE"; input: UpdateWeeklyScheduleActionInput })
+  | (ActionProposalBase & { action: "CREATE_WEEKLY_ROUTINE"; input: CreateWeeklyRoutineActionInput })
+  | (ActionProposalBase & { action: "UPDATE_WEEKLY_ROUTINE"; input: UpdateWeeklyRoutineActionInput })
   | (ActionProposalBase & { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput })
   | (ActionProposalBase & { action: "DELETE_EVENT"; input: DeleteEventInput })
   | (ActionProposalBase & { action: "DELETE_TASK"; input: DeleteTaskInput });
 
+export type HabitActionProposal =
+  | (ActionProposalBase & { action: "GET_HABIT_PROGRESS"; input: GetHabitProgressInput })
+  | (ActionProposalBase & { action: "CREATE_HABIT"; input: CreateHabitActionInput })
+  | (ActionProposalBase & { action: "UPDATE_HABIT"; input: UpdateHabitActionInput })
+  | (ActionProposalBase & { action: "COMPLETE_HABIT"; input: CompleteHabitActionInput });
+
+/** Closed refinement of a Spotify app search; it only shapes the spoken text, never the launch target. */
+export const SPOTIFY_SEARCH_KINDS = ["TRACK", "ARTIST", "ALBUM", "PLAYLIST", "ANY"] as const;
+export type SpotifySearchKind = (typeof SPOTIFY_SEARCH_KINDS)[number];
+
+/** A plain-text query only; Main composes the fixed Spotify search target and never accepts a URI. */
+export type SearchSpotifyAppInput = {
+  query: string;
+  kind?: SpotifySearchKind;
+  /** True when the person asked to play; it only adds the hint that direct playback is not available yet. */
+  playRequested?: boolean;
+};
+
+/** Spotify Web API playback: a plain query and a closed kind, or a bounded volume; never an id, URI or URL. */
+export type PlaySpotifyMusicInput = { query: string; kind?: SpotifySearchKind };
+export type SetSpotifyVolumeInput = { level: number } | { change: "UP" | "DOWN" };
+export type SpotifyEmptyInputAction =
+  | "CONNECT_SPOTIFY"
+  | "DISCONNECT_SPOTIFY"
+  | "GET_SPOTIFY_STATUS"
+  | "PAUSE_SPOTIFY"
+  | "RESUME_SPOTIFY"
+  | "NEXT_SPOTIFY_TRACK"
+  | "PREVIOUS_SPOTIFY_TRACK"
+  | "WHAT_IS_PLAYING";
+
 export type OpenApplicationInput = {
   alias: string;
+};
+
+/** A closed catalog key and optional validated public alias; no launch target is caller supplied. */
+export type RegisterCatalogApplicationInput = {
+  catalogKey: ApplicationCatalogKey;
+  alias?: string;
+};
+
+/** Only an optional friendly name; the executable is always chosen in a Main-owned native picker. */
+export type RequestCustomApplicationRegistrationInput = {
+  displayName?: string;
+};
+
+/** Main-only shape after the picker ran: the opaque selection reference never comes from a caller. */
+export type PreparedCustomApplicationRegistrationInput = {
+  displayName: string;
+  selectionId: string;
+};
+
+/** A closed Main-owned site identifier; callers never provide a URL or domain. */
+export const APPROVED_SITES = ["GOOGLE", "YOUTUBE", "SPOTIFY"] as const;
+export type ApprovedSite = (typeof APPROVED_SITES)[number];
+
+export type OpenApprovedPageInput = {
+  site: ApprovedSite;
+};
+
+export type SearchApprovedSiteInput = {
+  site: ApprovedSite;
+  query: string;
 };
 
 export type WeatherActionProposal = ActionProposalBase & {
@@ -165,6 +327,30 @@ export type OpenApplicationActionProposal = ActionProposalBase & {
   input: OpenApplicationInput;
 };
 
+export type SearchSpotifyAppActionProposal = ActionProposalBase & {
+  action: "SEARCH_SPOTIFY_APP";
+  input: SearchSpotifyAppInput;
+};
+
+export type SpotifyMusicActionProposal =
+  | (ActionProposalBase & { action: SpotifyEmptyInputAction; input: Record<string, never> })
+  | (ActionProposalBase & { action: "PLAY_SPOTIFY_MUSIC"; input: PlaySpotifyMusicInput })
+  | (ActionProposalBase & { action: "SET_SPOTIFY_VOLUME"; input: SetSpotifyVolumeInput });
+
+export type RegisterCatalogApplicationActionProposal = ActionProposalBase & {
+  action: "REGISTER_CATALOG_APPLICATION";
+  input: RegisterCatalogApplicationInput;
+};
+
+export type RequestCustomApplicationRegistrationActionProposal = ActionProposalBase & {
+  action: "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
+  input: RequestCustomApplicationRegistrationInput | PreparedCustomApplicationRegistrationInput;
+};
+
+export type ApprovedWebActionProposal =
+  | (ActionProposalBase & { action: "OPEN_APPROVED_PAGE"; input: OpenApprovedPageInput })
+  | (ActionProposalBase & { action: "SEARCH_APPROVED_SITE"; input: SearchApprovedSiteInput });
+
 export type OpenWebPageActionProposal = ActionProposalBase & {
   action: "OPEN_WEB_PAGE";
   input: OpenWebPageInput;
@@ -183,12 +369,50 @@ export type FileActionProposal =
       plan?: FileOrganizationPlan;
     });
 
+/** The supervised FILES domain: ordinals and enum values only, never a caller-supplied path. */
+export type SupervisedFilesActionProposal =
+  | (ActionProposalBase & { action: "SEARCH_FILES"; input: SearchFilesInput })
+  | (ActionProposalBase & { action: "REVEAL_FOUND_FILE"; input: RevealFoundFileInput })
+  | (ActionProposalBase & { action: "OPEN_FOUND_FILE"; input: OpenFoundFileInput })
+  | (ActionProposalBase & { action: "CREATE_FOLDER"; input: CreateSupervisedFolderInput })
+  | (ActionProposalBase & { action: "RENAME_FOUND_ITEM"; input: RenameFoundItemInput })
+  | (ActionProposalBase & { action: "MOVE_FOUND_ITEMS"; input: MoveFoundItemsInput })
+  | (ActionProposalBase & { action: "ORGANIZE_FOUND_ITEMS"; input: OrganizeFoundItemsInput })
+  | (ActionProposalBase & { action: "DELETE_FOUND_ITEM"; input: DeleteFoundItemInput });
+
+/**
+ * The MESSAGING domain: contacts and local drafts only. The phone number is never part of any
+ * proposal; Main holds it in a pending contact and the proposal carries only an opaque reference.
+ */
+export type MessagingActionProposal =
+  | (ActionProposalBase & { action: "SAVE_CONTACT"; input: SaveContactInput | PreparedSaveContactInput })
+  | (ActionProposalBase & { action: "LIST_CONTACTS"; input: ListContactsInput })
+  | (ActionProposalBase & { action: "DELETE_CONTACT"; input: DeleteContactInput | PreparedDeleteContactInput })
+  | (ActionProposalBase & { action: "PREPARE_MESSAGE_DRAFT"; input: PrepareMessageDraftInput })
+  | (ActionProposalBase & { action: "EDIT_MESSAGE_DRAFT"; input: EditMessageDraftInput })
+  | (ActionProposalBase & { action: "DISCARD_MESSAGE_DRAFT"; input: DiscardMessageDraftInput })
+  | (ActionProposalBase & {
+      action: "OPEN_WHATSAPP_CHAT_WITH_DRAFT";
+      input: OpenWhatsAppChatWithDraftInput | PreparedOpenWhatsAppChatInput;
+    });
+
+/** Legacy file shapes that stay unregistered; SEARCH_FILES and CREATE_FOLDER now use the supervised shapes. */
+export type LegacyFileActionProposal = Exclude<FileActionProposal, { action: "SEARCH_FILES" | "CREATE_FOLDER" }>;
+
 export type ExecutableActionProposal =
   | PlannerActionProposal
+  | HabitActionProposal
   | WeatherActionProposal
   | OpenApplicationActionProposal
+  | SearchSpotifyAppActionProposal
+  | SpotifyMusicActionProposal
+  | RegisterCatalogApplicationActionProposal
+  | RequestCustomApplicationRegistrationActionProposal
+  | ApprovedWebActionProposal
   | OpenWebPageActionProposal
-  | FileActionProposal;
+  | LegacyFileActionProposal
+  | SupervisedFilesActionProposal
+  | MessagingActionProposal;
 
 export type DeferredActionName = Exclude<ActionName, ExecutableActionProposal["action"]>;
 
@@ -211,9 +435,19 @@ export type PlannerActionSubmission =
   | { action: "GET_WEEKLY_SCHEDULE_DETAILS"; input: GetWeeklyScheduleDetailsInput }
   | { action: "ANALYZE_WEEKLY_SCHEDULE"; input: AnalyzeWeeklyScheduleInput }
   | { action: "GET_TODAY_AVAILABILITY"; input: GetTodayAvailabilityInput }
+  | { action: "CREATE_WEEKLY_SCHEDULE"; input: CreateWeeklyScheduleActionInput }
+  | { action: "UPDATE_WEEKLY_SCHEDULE"; input: UpdateWeeklyScheduleActionInput }
+  | { action: "CREATE_WEEKLY_ROUTINE"; input: CreateWeeklyRoutineActionInput }
+  | { action: "UPDATE_WEEKLY_ROUTINE"; input: UpdateWeeklyRoutineActionInput }
   | { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput }
   | { action: "DELETE_EVENT"; input: DeleteEventInput }
   | { action: "DELETE_TASK"; input: DeleteTaskInput };
+
+export type HabitActionSubmission =
+  | { action: "GET_HABIT_PROGRESS"; input: GetHabitProgressInput }
+  | { action: "CREATE_HABIT"; input: CreateHabitActionInput }
+  | { action: "UPDATE_HABIT"; input: UpdateHabitActionInput }
+  | { action: "COMPLETE_HABIT"; input: CompleteHabitActionInput };
 
 export type WeatherActionSubmission = {
   action: "GET_WEATHER";
@@ -224,6 +458,30 @@ export type OpenApplicationActionSubmission = {
   action: "OPEN_APPLICATION";
   input: OpenApplicationInput;
 };
+
+export type SearchSpotifyAppActionSubmission = {
+  action: "SEARCH_SPOTIFY_APP";
+  input: SearchSpotifyAppInput;
+};
+
+export type SpotifyMusicActionSubmission =
+  | { action: SpotifyEmptyInputAction; input: Record<string, never> }
+  | { action: "PLAY_SPOTIFY_MUSIC"; input: PlaySpotifyMusicInput }
+  | { action: "SET_SPOTIFY_VOLUME"; input: SetSpotifyVolumeInput };
+
+export type RegisterCatalogApplicationActionSubmission = {
+  action: "REGISTER_CATALOG_APPLICATION";
+  input: RegisterCatalogApplicationInput;
+};
+
+export type RequestCustomApplicationRegistrationActionSubmission = {
+  action: "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
+  input: RequestCustomApplicationRegistrationInput;
+};
+
+export type ApprovedWebActionSubmission =
+  | { action: "OPEN_APPROVED_PAGE"; input: OpenApprovedPageInput }
+  | { action: "SEARCH_APPROVED_SITE"; input: SearchApprovedSiteInput };
 
 export type OpenWebPageActionSubmission = {
   action: "OPEN_WEB_PAGE";
@@ -238,6 +496,27 @@ export type FileActionSubmission =
   | { action: "MOVE_FILE"; input: MoveFileInput }
   | { action: "ORGANIZE_FILES"; input: OrganizeFilesInput };
 
+export type SupervisedFilesActionSubmission =
+  | { action: "SEARCH_FILES"; input: SearchFilesInput }
+  | { action: "REVEAL_FOUND_FILE"; input: RevealFoundFileInput }
+  | { action: "OPEN_FOUND_FILE"; input: Omit<OpenFoundFileInput, "preparedId"> }
+  | { action: "CREATE_FOLDER"; input: Omit<CreateSupervisedFolderInput, "preparedId"> }
+  | { action: "RENAME_FOUND_ITEM"; input: Omit<RenameFoundItemInput, "preparedId"> }
+  | { action: "MOVE_FOUND_ITEMS"; input: Omit<MoveFoundItemsInput, "preparedId"> }
+  | { action: "ORGANIZE_FOUND_ITEMS"; input: Omit<OrganizeFoundItemsInput, "preparedId"> }
+  | { action: "DELETE_FOUND_ITEM"; input: Omit<DeleteFoundItemInput, "preparedId"> };
+
+export type MessagingActionSubmission =
+  | { action: "SAVE_CONTACT"; input: SaveContactInput }
+  | { action: "LIST_CONTACTS"; input: ListContactsInput }
+  | { action: "DELETE_CONTACT"; input: DeleteContactInput }
+  | { action: "PREPARE_MESSAGE_DRAFT"; input: PrepareMessageDraftInput }
+  | { action: "EDIT_MESSAGE_DRAFT"; input: EditMessageDraftInput }
+  | { action: "DISCARD_MESSAGE_DRAFT"; input: DiscardMessageDraftInput }
+  | { action: "OPEN_WHATSAPP_CHAT_WITH_DRAFT"; input: OpenWhatsAppChatWithDraftInput };
+
+export type LegacyFileActionSubmission = Exclude<FileActionSubmission, { action: "SEARCH_FILES" | "CREATE_FOLDER" }>;
+
 export type DeferredActionSubmission = {
   action: DeferredActionName;
 };
@@ -245,10 +524,18 @@ export type DeferredActionSubmission = {
 /** External submissions never include the Main-generated action identifier. */
 export type ActionSubmission =
   | PlannerActionSubmission
+  | HabitActionSubmission
   | WeatherActionSubmission
   | OpenApplicationActionSubmission
+  | SearchSpotifyAppActionSubmission
+  | SpotifyMusicActionSubmission
+  | RegisterCatalogApplicationActionSubmission
+  | RequestCustomApplicationRegistrationActionSubmission
+  | ApprovedWebActionSubmission
   | OpenWebPageActionSubmission
-  | FileActionSubmission
+  | LegacyFileActionSubmission
+  | SupervisedFilesActionSubmission
+  | MessagingActionSubmission
   | DeferredActionSubmission;
 
 export type ActionConfirmationRequirement = {
@@ -299,6 +586,12 @@ export type OpenApplicationActionData = {
   applicationName: string;
 };
 
+/** Safe terminal data deliberately excludes both the query and generated URL. */
+export type ApprovedWebActionData = {
+  site: ApprovedSite;
+  mode: "HOME" | "SEARCH";
+};
+
 export type OpenWebPageActionData = {
   applicationName: string;
   destination: WebDestination;
@@ -309,7 +602,15 @@ export type FileActionData =
   | SafeFileMutationRecord
   | FileOrganizationExecutionData;
 
-export type ActionData = PlannerActionData | OpenApplicationActionData | OpenWebPageActionData | FileActionData;
+export type ActionData =
+  | PlannerActionData
+  | OpenApplicationActionData
+  | ApprovedWebActionData
+  | OpenWebPageActionData
+  | SupervisedFileSearchData
+  | SupervisedFileMutationData
+  | MessagingActionData
+  | FileActionData;
 
 export type ActionOutcome = {
   spokenResponse?: import("./speech-contracts").SpokenResponse;

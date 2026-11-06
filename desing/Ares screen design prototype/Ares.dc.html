@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#ECE7E2;font-family:Figtree,system-ui,sans-serif;color:#2B1D22;-webkit-font-smoothing:antialiased}
+a{color:#A3264A}a:hover{color:#2B1D22}
+@keyframes ares-spin{to{transform:rotate(360deg)}}
+@keyframes ares-swirl{to{transform:rotate(360deg)}}
+@keyframes ares-morph{0%,100%{transform:translate(0,0) scale(1,1)}33%{transform:translate(7%,-5%) scale(1.16,.88)}66%{transform:translate(-6%,6%) scale(.9,1.12)}}
+@keyframes ares-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+@keyframes ares-contract{0%,100%{transform:scale(.97)}50%{transform:scale(.93)}}
+@keyframes ares-fade{0%,100%{opacity:.84}50%{opacity:1}}
+</style>
+</helmet>
+<div style="padding:56px 64px 96px; display:flex; flex-direction:column; gap:72px; min-width:1200px">
+
+<header style="display:flex; flex-direction:column; gap:14px; max-width:880px">
+  <div style="font-size:13px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:#6E5A62">Proyecto de diseño de interfaz · Windows 11 · 440 × 440</div>
+  <h1 style="margin:0; font-size:44px; font-weight:700; letter-spacing:-0.02em">Ares — pantalla principal</h1>
+  <p style="margin:0; font-size:17px; line-height:1.55; color:#4A3840; text-wrap:pretty">Una sola pantalla, un solo control: el orbe. Cristal cálido flotando sobre el escritorio, paleta coral · magenta · ámbar · violeta, tipografía Figtree. Abajo: prototipo vivo, todos los estados en claro y oscuro, pruebas de robustez y la especificación para implementar en Electron.</p>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px">
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 12px 6px 6px; background:#F7F3F0; border-radius:999px; font-size:13px"><span style="width:22px; height:22px; border-radius:50%; background:#FF6B57"></span>Coral #FF6B57</div>
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 12px 6px 6px; background:#F7F3F0; border-radius:999px; font-size:13px"><span style="width:22px; height:22px; border-radius:50%; background:#E2468F"></span>Magenta #E2468F</div>
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 12px 6px 6px; background:#F7F3F0; border-radius:999px; font-size:13px"><span style="width:22px; height:22px; border-radius:50%; background:#FFB547"></span>Ámbar #FFB547</div>
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 12px 6px 6px; background:#F7F3F0; border-radius:999px; font-size:13px"><span style="width:22px; height:22px; border-radius:50%; background:#8E5BEF"></span>Violeta #8E5BEF</div>
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 12px 6px 6px; background:#F7F3F0; border-radius:999px; font-size:13px"><span style="width:22px; height:22px; border-radius:50%; background:#FF8FA8"></span>Rosa #FF8FA8</div>
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 12px 6px 6px; background:#F7F3F0; border-radius:999px; font-size:13px"><span style="width:22px; height:22px; border-radius:50%; background:#A3264A"></span>Vino #A3264A</div>
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 12px 6px 6px; background:#F7F3F0; border-radius:999px; font-size:13px"><span style="width:22px; height:22px; border-radius:50%; background:#A8999F"></span>Malva apagado #A8999F</div>
+  </div>
+</header>
+
+<sc-for list="{{ sections }}" as="sec" hint-placeholder-count="4">
+<section style="display:flex; flex-direction:column; gap:24px">
+  <div style="display:flex; flex-direction:column; gap:6px; max-width:900px">
+    <h2 style="margin:0; font-size:26px; font-weight:700; letter-spacing:-0.01em">{{ sec.title }}</h2>
+    <p style="margin:0; font-size:15px; line-height:1.5; color:#4A3840; text-wrap:pretty">{{ sec.desc }}</p>
+  </div>
+  <div style="display:flex; flex-wrap:wrap; gap:36px 32px; align-items:flex-start">
+    <sc-for list="{{ sec.frames }}" as="f" hint-placeholder-count="3">
+    <div id="{{ f.id }}" style="display:flex; flex-direction:column; gap:12px; width:{{ f.tile }}">
+      <div style="display:flex; align-items:baseline; gap:10px">
+        <span style="font-size:11px; font-weight:700; letter-spacing:.04em; padding:3px 7px; border-radius:6px; background:#2B1D22; color:#FBF3F1">{{ f.id }}</span>
+        <span style="font-size:15px; font-weight:600">{{ f.name }}</span>
+      </div>
+      <div style="position:relative; width:{{ f.tile }}; height:{{ f.tile }}; border-radius:14px; overflow:hidden; background:{{ f.wp.base }}">
+        <sc-for list="{{ f.wp.shapes }}" as="s" hint-placeholder-count="0">
+          <div style="position:absolute; left:{{ s.l }}; top:{{ s.t }}; width:{{ s.w }}; height:{{ s.h }}; background:{{ s.c }}; border-radius:{{ s.r }}"></div>
+        </sc-for>
+        <div data-screen-label="{{ f.id }} {{ f.name }}" onKeyDown="{{ f.onKey }}" style="position:absolute; left:32px; top:32px; width:{{ f.px }}; height:{{ f.px }}; container-type:size; border-radius:8px; overflow:hidden; background:{{ f.glassBg }}; backdrop-filter:{{ f.backdrop }}; border:{{ f.t.edge }}; box-shadow:{{ f.t.shadow }}; box-sizing:border-box; font-family:Figtree,system-ui,sans-serif">
+          <div style="position:absolute; left:50%; top:{{ f.orbTop }}; width:95cqw; height:95cqw; transform:translate(-50%,-50%); border-radius:50%; background-color:{{ f.glow }}; opacity:{{ f.glowOp }}; filter:blur(60px); transition:background-color 600ms cubic-bezier(.4,0,.2,1), opacity 600ms cubic-bezier(.4,0,.2,1), top 420ms cubic-bezier(.2,.8,.2,1); pointer-events:none"></div>
+          <div style="position:absolute; inset:0; background-image:{{ f.t.noise }}; opacity:{{ f.t.noiseOp }}; mix-blend-mode:{{ f.t.noiseBlend }}; pointer-events:none"></div>
+          <div style="position:absolute; inset:0; background:{{ f.t.sheen }}; pointer-events:none"></div>
+
+          <button aria-label="{{ f.aria }}" onClick="{{ f.onTap }}" onFocus="{{ f.onFocus }}" onBlur="{{ f.onBlur }}" style="position:absolute; left:50%; top:{{ f.orbTop }}; width:{{ f.orbSize }}; height:{{ f.orbSize }}; transform:translate(-50%,-50%); padding:0; border:0; margin:0; background:transparent; border-radius:50%; cursor:pointer; outline:none; transition:top 420ms cubic-bezier(.2,.8,.2,1), width 420ms cubic-bezier(.2,.8,.2,1), height 420ms cubic-bezier(.2,.8,.2,1)">
+            {{ f.orb }}
+            <span style="position:absolute; inset:-11%; border-radius:50%; border:2px solid {{ f.t.ring }}; box-shadow:{{ f.t.ringGlow }}; opacity:{{ f.ringOp }}; transition:opacity 160ms ease-out; pointer-events:none"></span>
+          </button>
+
+          <div aria-live="polite" style="position:absolute; left:8cqw; right:8cqw; top:{{ f.textTop }}; opacity:{{ f.textOp }}; display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; transition:opacity 240ms ease-out">
+            <sc-if value="{{ f.hasLabel }}" hint-placeholder-val="{{ true }}">
+              <div style="font-size:15px; line-height:20px; font-weight:{{ f.labelWeight }}; color:{{ f.labelColor }}; letter-spacing:-0.005em; text-wrap:balance">{{ f.label }}</div>
+            </sc-if>
+            <sc-if value="{{ f.hasSub }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13px; line-height:18px; color:{{ f.t.ink2 }}; text-wrap:pretty">{{ f.sub }}</div>
+            </sc-if>
+            <sc-if value="{{ f.hasResponse }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:15px; line-height:22px; color:{{ f.t.ink }}; max-width:310px; text-wrap:pretty">{{ f.respShown }}<span style="color:transparent">{{ f.respRest }}</span></div>
+            </sc-if>
+          </div>
+
+          <div style="position:absolute; left:0; right:0; bottom:5cqw; display:flex; justify-content:center; align-items:center; gap:5px; font-size:12px; font-weight:500; color:{{ f.t.ink2 }}; opacity:{{ f.hintOp }}; transition:opacity 400ms ease-out">
+            <span>Atajo:</span>
+            <span style="padding:1px 6px; border-radius:5px; background:{{ f.t.kbdBg }}; border:{{ f.t.kbdBorder }}; font-size:11px; font-weight:600">Ctrl</span><span>+</span>
+            <span style="padding:1px 6px; border-radius:5px; background:{{ f.t.kbdBg }}; border:{{ f.t.kbdBorder }}; font-size:11px; font-weight:600">Alt</span><span>+</span>
+            <span style="padding:1px 6px; border-radius:5px; background:{{ f.t.kbdBg }}; border:{{ f.t.kbdBorder }}; font-size:11px; font-weight:600">Space</span>
+          </div>
+
+          <div role="dialog" aria-label="¿Confirmas?" style="position:absolute; left:4cqw; right:4cqw; bottom:4cqw; padding:16px 16px 14px; border-radius:18px; background:{{ f.cardBg }}; border:{{ f.cardBorder }}; box-shadow:{{ f.t.cardShadow }}; backdrop-filter:blur(24px) saturate(160%); display:flex; flex-direction:column; gap:12px; opacity:{{ f.cardOp }}; transform:translateY({{ f.cardY }}); pointer-events:{{ f.cardPe }}; transition:opacity 320ms cubic-bezier(.2,.8,.2,1), transform 320ms cubic-bezier(.2,.8,.2,1)">
+            <div style="display:flex; align-items:center; gap:7px; font-size:12px; font-weight:600; letter-spacing:.02em; color:{{ f.eyebrowColor }}">
+              <sc-if value="{{ f.danger }}" hint-placeholder-val="{{ false }}">
+                <span style="width:7px; height:7px; transform:rotate(45deg); border-radius:1.5px; background:{{ f.t.dangerInk }}"></span>
+                <span>Acción irreversible ·</span>
+              </sc-if>
+              <span>¿Confirmas?</span>
+            </div>
+            <div style="font-size:15px; line-height:21px; font-weight:500; color:{{ f.t.ink }}; text-wrap:pretty">{{ f.summary }}</div>
+            <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px">
+              <button tabIndex="{{ f.cardTab }}" onClick="{{ f.onCancel }}" style="height:40px; border-radius:12px; border:{{ f.t.sBorder }}; background:{{ f.t.sBg }}; color:{{ f.t.sInk }}; font-family:Figtree,system-ui,sans-serif; font-size:14px; font-weight:600; cursor:pointer; outline-offset:2px">Cancelar</button>
+              <button tabIndex="{{ f.cardTab }}" onClick="{{ f.onConfirm }}" style="height:40px; border-radius:12px; border:0; background:{{ f.pBg }}; color:{{ f.pInk }}; font-family:Figtree,system-ui,sans-serif; font-size:14px; font-weight:600; cursor:pointer; outline-offset:2px">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:13px; line-height:1.45; color:#4A3840; text-wrap:pretty">{{ f.note }}</div>
+    </div>
+    </sc-for>
+
+    <sc-if value="{{ sec.isLive }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex; flex-direction:column; gap:20px; width:300px; padding-top:34px">
+        <div style="display:flex; flex-direction:column; gap:8px">
+          <div style="font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#6E5A62">Escenario</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px">
+            <sc-for list="{{ scenarios }}" as="sc" hint-placeholder-count="4">
+              <button onClick="{{ sc.onClick }}" style="height:36px; border-radius:10px; border:1px solid rgba(43,29,34,.14); background:{{ sc.bg }}; color:{{ sc.ink }}; font-family:Figtree,system-ui,sans-serif; font-size:13px; font-weight:600; cursor:pointer">{{ sc.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px">
+          <div style="font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#6E5A62">Tema</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px">
+            <sc-for list="{{ themeBtns }}" as="tb" hint-placeholder-count="2">
+              <button onClick="{{ tb.onClick }}" style="height:36px; border-radius:10px; border:1px solid rgba(43,29,34,.14); background:{{ tb.bg }}; color:{{ tb.ink }}; font-family:Figtree,system-ui,sans-serif; font-size:13px; font-weight:600; cursor:pointer">{{ tb.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px; padding:14px 16px; border-radius:12px; background:#F7F3F0">
+          <div style="font-size:12px; color:#6E5A62">Estado actual</div>
+          <div style="font-size:17px; font-weight:600">{{ liveStateName }}</div>
+        </div>
+        <p style="margin:0; font-size:13px; line-height:1.5; color:#4A3840">Toca el orbe o enfócalo con Tab y pulsa Enter / Espacio. Tocar mientras escucha termina de escuchar; tocar mientras habla cancela. Esc cancela la confirmación. El nivel de micrófono está simulado.</p>
+      </div>
+    </sc-if>
+  </div>
+</section>
+</sc-for>
+
+<section style="display:flex; flex-direction:column; gap:28px">
+  <h2 style="margin:0; font-size:26px; font-weight:700; letter-spacing:-0.01em">Especificación</h2>
+  <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:24px; max-width:1500px">
+
+    <div style="display:flex; flex-direction:column; gap:14px; padding:24px 26px; background:#F7F3F0; border-radius:16px">
+      <h3 style="margin:0; font-size:18px; font-weight:700">Tokens · color</h3>
+      <div style="display:grid; grid-template-columns:150px minmax(0,1fr) minmax(0,1fr); gap:8px 14px; font-size:13px; line-height:1.4">
+        <div style="font-weight:600; color:#6E5A62">Token</div><div style="font-weight:600; color:#6E5A62">Claro</div><div style="font-weight:600; color:#6E5A62">Oscuro</div>
+        <div>ink</div><div style="font-family:ui-monospace,Consolas,monospace">#2B1D22</div><div style="font-family:ui-monospace,Consolas,monospace">#FBF3F1</div>
+        <div>ink-2 (secundario, atajo)</div><div style="font-family:ui-monospace,Consolas,monospace">#4A3840</div><div style="font-family:ui-monospace,Consolas,monospace">#D2C0C7</div>
+        <div>glass.tint</div><div style="font-family:ui-monospace,Consolas,monospace">rgba(251,247,244,.74)</div><div style="font-family:ui-monospace,Consolas,monospace">rgba(30,22,28,.80)</div>
+        <div>glass.edge</div><div style="font-family:ui-monospace,Consolas,monospace">1px rgba(255,255,255,.78)</div><div style="font-family:ui-monospace,Consolas,monospace">1px rgba(255,255,255,.14)</div>
+        <div>glass.highlight</div><div style="font-family:ui-monospace,Consolas,monospace">inset 0 1px 0 #FFFFFF F2</div><div style="font-family:ui-monospace,Consolas,monospace">inset 0 1px 0 #FFFFFF 24</div>
+        <div>glass.sheen</div><div style="font-family:ui-monospace,Consolas,monospace">linear 180° #FFF 55% → 0 @38%</div><div style="font-family:ui-monospace,Consolas,monospace">linear 180° #FFF 7% → 0 @40%</div>
+        <div>glass.noise</div><div style="font-family:ui-monospace,Consolas,monospace">6% multiply</div><div style="font-family:ui-monospace,Consolas,monospace">8% soft-light</div>
+        <div>glass.glow</div><div style="font-family:ui-monospace,Consolas,monospace">color del estado, α .30</div><div style="font-family:ui-monospace,Consolas,monospace">color del estado, α .40</div>
+        <div>card.tint</div><div style="font-family:ui-monospace,Consolas,monospace">rgba(255,251,249,.78)</div><div style="font-family:ui-monospace,Consolas,monospace">rgba(46,34,42,.82)</div>
+        <div>card.danger</div><div style="font-family:ui-monospace,Consolas,monospace">rgba(255,241,243,.86) · borde #A3264A 42%</div><div style="font-family:ui-monospace,Consolas,monospace">rgba(62,28,40,.86) · borde #F06A86 45%</div>
+        <div>btn.primary</div><div style="font-family:ui-monospace,Consolas,monospace">#2B1D22 / #FFF7F4</div><div style="font-family:ui-monospace,Consolas,monospace">#FBF3F1 / #2B1D22</div>
+        <div>btn.primary (reforzado)</div><div style="font-family:ui-monospace,Consolas,monospace">#A3264A / #FFFFFF</div><div style="font-family:ui-monospace,Consolas,monospace">#F06A86 / #2A0E16</div>
+        <div>btn.secondary</div><div style="font-family:ui-monospace,Consolas,monospace">#2B1D22 7% · borde 12%</div><div style="font-family:ui-monospace,Consolas,monospace">#FFFFFF 7% · borde 12%</div>
+        <div>focus.ring</div><div style="font-family:ui-monospace,Consolas,monospace">2px #2B1D22 + halo #E2468F 18%</div><div style="font-family:ui-monospace,Consolas,monospace">2px #FBF3F1 + halo #FF6B57 22%</div>
+        <div>fallback opaco</div><div style="font-family:ui-monospace,Consolas,monospace">#F3EDE9</div><div style="font-family:ui-monospace,Consolas,monospace">#211A1F</div>
+      </div>
+      <p style="margin:0; font-size:13px; line-height:1.5; color:#4A3840">Contraste en el peor caso (tinte sobre fondo negro puro en claro, blanco puro en oscuro): ink ≈ 8:1, ink-2 ≈ 5:1 en ambos temas. Botones: primario ≥ 14:1, reforzado 7,2:1 (claro) y 6,1:1 (oscuro). No se usa texto con opacidad reducida.</p>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:14px; padding:24px 26px; background:#F7F3F0; border-radius:16px">
+      <h3 style="margin:0; font-size:18px; font-weight:700">Tokens · forma, espacio y tipo</h3>
+      <div style="display:grid; grid-template-columns:150px minmax(0,1fr); gap:8px 14px; font-size:13px; line-height:1.4">
+        <div>blur cristal (CSS)</div><div style="font-family:ui-monospace,Consolas,monospace">blur(30px) saturate(160%) — solo en el fallback web; en Windows lo aporta Acrylic</div>
+        <div>blur tarjeta</div><div style="font-family:ui-monospace,Consolas,monospace">blur(24px) saturate(160%)</div>
+        <div>radios</div><div style="font-family:ui-monospace,Consolas,monospace">ventana 8 (sistema) · tarjeta 18 · botón 12 · tecla 5 · orbe 50%</div>
+        <div>sombra ventana</div><div style="font-family:ui-monospace,Consolas,monospace">0 30 70 −24 rgba(70,30,45,.38), 0 2 8 rgba(70,30,45,.08) — oscuro: 0 30 70 −20 rgba(0,0,0,.6)</div>
+        <div>sombra tarjeta</div><div style="font-family:ui-monospace,Consolas,monospace">0 12 30 −12 rgba(70,30,45,.30) + inset 0 1 0 #FFF E6</div>
+        <div>espaciado</div><div style="font-family:ui-monospace,Consolas,monospace">base 4 · margen 4% del lado (18 px @440, 14 px @360) · gaps 6 / 8 / 12 · padding tarjeta 16</div>
+        <div>orbe</div><div style="font-family:ui-monospace,Consolas,monospace">40% del lado (176 / 144 px), centro a 41% · con tarjeta 27%, centro a 27%</div>
+        <div>halo</div><div style="font-family:ui-monospace,Consolas,monospace">orbe + 34% por lado, blur 28 px</div>
+      </div>
+      <div style="font-size:13px; font-weight:600; color:#6E5A62; margin-top:4px">Figtree — humanista geométrica, aperturas amplias, buena a 12 px</div>
+      <div style="display:grid; grid-template-columns:150px minmax(0,1fr) 130px; gap:8px 14px; font-size:13px; line-height:1.4; align-items:baseline">
+        <div>Estado</div><div style="font-size:15px; font-weight:600">Escuchando…</div><div style="font-family:ui-monospace,Consolas,monospace">15/20 · 600</div>
+        <div>Respuesta</div><div style="font-size:15px">Mañana en Madrid: 18 °C.</div><div style="font-family:ui-monospace,Consolas,monospace">15/22 · 400</div>
+        <div>Resumen acción</div><div style="font-size:15px; font-weight:500">Enviar un mensaje a Lucía</div><div style="font-family:ui-monospace,Consolas,monospace">15/21 · 500</div>
+        <div>Botón</div><div style="font-size:14px; font-weight:600">Confirmar</div><div style="font-family:ui-monospace,Consolas,monospace">14/20 · 600</div>
+        <div>Secundario</div><div style="font-size:13px">Toca el orbe para reintentar</div><div style="font-family:ui-monospace,Consolas,monospace">13/18 · 400</div>
+        <div>Etiqueta / atajo</div><div style="font-size:12px; font-weight:600">¿Confirmas?</div><div style="font-family:ui-monospace,Consolas,monospace">12/16 · 500–600</div>
+      </div>
+      <p style="margin:0; font-size:13px; line-height:1.5; color:#4A3840">El texto no escala con la ventana; solo escalan orbe, márgenes y halo (unidades de contenedor), así 360 y 440 mantienen la misma legibilidad.</p>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:14px; padding:24px 26px; background:#F7F3F0; border-radius:16px">
+      <h3 style="margin:0; font-size:18px; font-weight:700">Transiciones entre estados</h3>
+      <div style="display:grid; grid-template-columns:190px 90px minmax(0,1fr); gap:8px 14px; font-size:13px; line-height:1.4">
+        <div style="font-weight:600; color:#6E5A62">Cambio</div><div style="font-weight:600; color:#6E5A62">Duración</div><div style="font-weight:600; color:#6E5A62">Qué se mueve</div>
+        <div>Reposo → Escuchando</div><div style="font-family:ui-monospace,Consolas,monospace">240 ms</div><div>Escala 1 → 1,06, halo .50 → .78, color 600 ms. Atajo se desvanece 400 ms.</div>
+        <div>Escuchando → Pensando</div><div style="font-family:ui-monospace,Consolas,monospace">360 ms</div><div>Escala → 0,86, capa de remolino entra en opacidad, velocidad × 3,6.</div>
+        <div>Pensando → Hablando</div><div style="font-family:ui-monospace,Consolas,monospace">420 ms</div><div>Escala → 0,98; texto aparece a ~30 caracteres/s, sin reflujo (el resto reserva espacio).</div>
+        <div>→ Confirmación</div><div style="font-family:ui-monospace,Consolas,monospace">420 ms</div><div>Orbe sube y encoge; tarjeta sube 16 px + opacidad 320 ms, 80 ms después.</div>
+        <div>Confirmación → salida</div><div style="font-family:ui-monospace,Consolas,monospace">200 ms</div><div>Tarjeta baja y se desvanece (ease-in); orbe vuelve a su sitio 420 ms.</div>
+        <div>→ Error</div><div style="font-family:ui-monospace,Consolas,monospace">600 ms</div><div>Desaturación por color, halo .16, movimiento casi detenido.</div>
+        <div>→ Cancelado → Reposo</div><div style="font-family:ui-monospace,Consolas,monospace">1,2 s + 800 ms</div><div>«Cancelado» 1,2 s; luego fundido al texto de reposo.</div>
+        <div>Fin de respuesta → Reposo</div><div style="font-family:ui-monospace,Consolas,monospace">1,8 s + 800 ms</div><div>Pausa de lectura tras el último carácter, luego vuelta a reposo.</div>
+      </div>
+      <div style="display:grid; grid-template-columns:190px minmax(0,1fr); gap:8px 14px; font-size:13px; line-height:1.4">
+        <div>ease-out (entradas)</div><div style="font-family:ui-monospace,Consolas,monospace">cubic-bezier(.2, .8, .2, 1)</div>
+        <div>standard (cambios)</div><div style="font-family:ui-monospace,Consolas,monospace">cubic-bezier(.4, 0, .2, 1)</div>
+        <div>ease-in (salidas)</div><div style="font-family:ui-monospace,Consolas,monospace">cubic-bezier(.4, 0, 1, 1)</div>
+        <div>Movimiento reducido</div><div>Sin rotación ni deformación. Reposo: opacidad .84 ↔ 1 en 6 s. Escuchando: escala ±3% y halo según voz. Pensando: opacidad 1,6 s. Texto completo de una vez. Todas las transiciones ≤ 200 ms, solo opacidad y escala.</div>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:14px; padding:24px 26px; background:#F7F3F0; border-radius:16px">
+      <h3 style="margin:0; font-size:18px; font-weight:700">Construcción del orbe (React + CSS)</h3>
+      <ol style="margin:0; padding-left:20px; display:flex; flex-direction:column; gap:6px; font-size:13px; line-height:1.5">
+        <li><b>Halo</b> — 2 círculos de color (color 1 y 2 del estado) a −34% del orbe, blur 28 px, opacidad = halo + amp × 0,3.</li>
+        <li><b>Respiración</b> — capa con keyframe de escala (reposo 6 s, pensando 1,8 s).</li>
+        <li><b>Escala de estado</b> — transform 420 ms; dentro, <b>capa de amplitud</b>: scale(1 + amp × 0,14), transición 90 ms lineal.</li>
+        <li><b>Esfera</b> — border-radius 50%, overflow hidden, isolation: isolate, color base del estado.</li>
+        <li><b>4 manchas</b> — div 78% con background-color sólido + blur(14px); cada una dentro de un rotador (17 / 23 / 19 / 29 s, dos en sentido inverso) y con keyframe de deformación (7–11 s). Los colores cambian con transition de background-color, así los estados se funden sin reiniciar animaciones.</li>
+        <li><b>Remolino</b> — conic-gradient blanco, blur 10 px, mix-blend screen, rotación 2,4 s; opacidad 0 en reposo, .75 al pensar.</li>
+        <li><b>Núcleo</b> — radial claro al 48% central, blur 6 px, screen, opacidad .3–.9 + amp × 0,2.</li>
+        <li><b>Brillo y borde</b> — reflejo radial arriba a la izquierda + box-shadow inset (1 px blanco 35%, sombra inferior vino 25%).</li>
+      </ol>
+      <div style="font-size:13px; font-weight:600; color:#6E5A62">Micrófono → movimiento</div>
+      <ul style="margin:0; padding-left:20px; display:flex; flex-direction:column; gap:6px; font-size:13px; line-height:1.5">
+        <li>AnalyserNode, fftSize 512, RMS a 30 Hz. amp = clamp((rms − suelo) / 0,25, 0, 1), suelo de ruido medido los primeros 300 ms.</li>
+        <li>Suavizado asimétrico: ataque 60 ms, caída 220 ms.</li>
+        <li>amp se escribe como variable CSS <span style="font-family:ui-monospace,Consolas,monospace">--amp</span> en el contenedor (sin re-render de React).</li>
+        <li>Velocidad de manchas: <span style="font-family:ui-monospace,Consolas,monospace">animation.playbackRate = velocidadEstado × (1 + amp × 1,2)</span> vía getAnimations(); cambia sin saltos.</li>
+        <li>Hablando: mismo mapeo sobre la salida TTS, atenuado × 0,55, para un pulso más suave.</li>
+      </ul>
+      <p style="margin:0; font-size:13px; line-height:1.5; color:#4A3840">Coste acotado: ~14 nodos, solo transform / opacity / background-color animados; los blur son estáticos (se rasterizan una vez por capa). Pausar todas las animaciones con document.hidden o cuando la ventana se minimiza. Alternativa si hiciera falta: un canvas 2D de 256 px a 30 fps con los mismos parámetros.</p>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:14px; padding:24px 26px; background:#F7F3F0; border-radius:16px; grid-column:1 / -1">
+      <h3 style="margin:0; font-size:18px; font-weight:700">Cristal en Electron (Windows 11) y fallback</h3>
+      <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:24px; font-size:13px; line-height:1.55">
+        <div style="display:flex; flex-direction:column; gap:8px">
+          <div style="font-weight:600">Ventana</div>
+          <div style="font-family:ui-monospace,Consolas,monospace; font-size:12px; line-height:1.6; background:#EFE9E5; padding:12px 14px; border-radius:10px; white-space:pre-wrap">new BrowserWindow({
+  width: 440, height: 440,
+  minWidth: 360, minHeight: 360,
+  maxWidth: 440, maxHeight: 440,
+  frame: true,
+  backgroundMaterial: 'acrylic',
+  backgroundColor: '#00000000',
+})
+win.setAspectRatio(1)</div>
+          <div>html y body con background transparente. El blur del escritorio lo pone Acrylic; backdrop-filter en CSS no ve el escritorio, solo se usa dentro de la ventana (tarjeta).</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px">
+          <div style="font-weight:600">Capas en el DOM</div>
+          <div>Sobre Acrylic se pintan: tinte (.74 claro / .80 oscuro, garantiza AA sobre cualquier fondo), resplandor del estado, grano, brillo superior y borde luminoso inset. El tema sigue a nativeTheme.shouldUseDarkColors y se actualiza con el evento «updated».</div>
+          <div>Con alto contraste (shouldUseHighContrastColors) se desactiva el cristal y se usan colores del sistema.</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px">
+          <div style="font-weight:600">Fallback sin transparencia</div>
+          <div>Windows 10, «Efectos de transparencia» desactivado (HKCU\…\Themes\Personalize\EnableTransparency = 0) o ahorro de batería: backgroundMaterial 'none' y fondo opaco #F3EDE9 / #211A1F con el mismo grano, brillo y resplandor. Se ve como cerámica mate cálida; el orbe y la tipografía no cambian (ver R3 y R4).</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;reducedMotion&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Accesibilidad&quot;},&quot;transparency&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Sistema&quot;}}">
+const C = { coral:'#FF6B57', magenta:'#E2468F', amber:'#FFB547', violet:'#8E5BEF', rose:'#FF8FA8' };
+const NOISE = 'url("data:image/svg+xml;utf8,' + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .9 0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>") + '")';
+
+const WP = {
+  light: { base:'#E6DFD8', shapes:[
+    {l:'-12%',t:'-18%',w:'62%',h:'62%',c:'#EDBFA9',r:'50%'},
+    {l:'52%',t:'46%',w:'70%',h:'70%',c:'#CDC3E4',r:'50%'},
+    {l:'6%',t:'64%',w:'38%',h:'38%',c:'#F4D9A8',r:'50%'},
+    {l:'58%',t:'9%',w:'38%',h:'24%',c:'#FFFFFF',r:'6px'},
+    {l:'62%',t:'14%',w:'22%',h:'2.5%',c:'#3B2D33',r:'2px'},
+    {l:'62%',t:'20%',w:'28%',h:'2.5%',c:'#8D7D84',r:'2px'}]},
+  dark: { base:'#17121A', shapes:[
+    {l:'-12%',t:'-18%',w:'62%',h:'62%',c:'#5A2335',r:'50%'},
+    {l:'52%',t:'46%',w:'70%',h:'70%',c:'#2B2348',r:'50%'},
+    {l:'6%',t:'64%',w:'38%',h:'38%',c:'#4A321C',r:'50%'},
+    {l:'58%',t:'9%',w:'38%',h:'24%',c:'#2B2430',r:'6px'},
+    {l:'62%',t:'14%',w:'22%',h:'2.5%',c:'#E9DDE0',r:'2px'},
+    {l:'62%',t:'20%',w:'28%',h:'2.5%',c:'#7E6D75',r:'2px'}]}
+};
+
+const T = {
+  light: { key:'light', tint:'rgba(251,247,244,0.74)', opaque:'#F3EDE9', edge:'1px solid rgba(255,255,255,0.78)',
+    shadow:'0 30px 70px -24px rgba(70,30,45,0.38), 0 2px 8px rgba(70,30,45,0.08), inset 0 1px 0 rgba(255,255,255,0.95), inset 0 0 0 1px rgba(255,255,255,0.35)',
+    sheen:'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 38%)', noise:NOISE, noiseOp:0.06, noiseBlend:'multiply', glowOp:0.30,
+    ink:'#2B1D22', ink2:'#4A3840', card:'rgba(255,251,249,0.78)', cardBorder:'1px solid rgba(255,255,255,0.85)',
+    cardShadow:'0 12px 30px -12px rgba(70,30,45,0.30), inset 0 1px 0 rgba(255,255,255,0.9)',
+    dangerTint:'rgba(255,241,243,0.86)', dangerBorder:'1px solid rgba(163,38,74,0.42)', dangerInk:'#8E1F40',
+    pBg:'#2B1D22', pInk:'#FFF7F4', dBg:'#A3264A', dInk:'#FFFFFF', sBg:'rgba(43,29,34,0.07)', sBorder:'1px solid rgba(43,29,34,0.12)', sInk:'#2B1D22',
+    ring:'#2B1D22', ringGlow:'0 0 0 6px rgba(226,70,143,0.18)', kbdBg:'rgba(43,29,34,0.06)', kbdBorder:'1px solid rgba(43,29,34,0.12)' },
+  dark: { key:'dark', tint:'rgba(30,22,28,0.80)', opaque:'#211A1F', edge:'1px solid rgba(255,255,255,0.14)',
+    shadow:'0 30px 70px -20px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.14), inset 0 0 0 1px rgba(255,255,255,0.04)',
+    sheen:'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0) 40%)', noise:NOISE, noiseOp:0.08, noiseBlend:'soft-light', glowOp:0.40,
+    ink:'#FBF3F1', ink2:'#D2C0C7', card:'rgba(46,34,42,0.82)', cardBorder:'1px solid rgba(255,255,255,0.12)',
+    cardShadow:'0 14px 34px -12px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.10)',
+    dangerTint:'rgba(62,28,40,0.86)', dangerBorder:'1px solid rgba(240,106,134,0.45)', dangerInk:'#F7A3B5',
+    pBg:'#FBF3F1', pInk:'#2B1D22', dBg:'#F06A86', dInk:'#2A0E16', sBg:'rgba(255,255,255,0.07)', sBorder:'1px solid rgba(255,255,255,0.12)', sInk:'#FBF3F1',
+    ring:'#FBF3F1', ringGlow:'0 0 0 6px rgba(255,107,87,0.22)', kbdBg:'rgba(255,255,255,0.07)', kbdBorder:'1px solid rgba(255,255,255,0.12)' }
+};
+
+const IDLE = { cols:[C.coral,C.magenta,C.amber,C.violet], base:'#F0705E', speed:1, scale:1, halo:.5, core:.55, flow:0, anim:'ares-breathe 6s ease-in-out infinite', rmAnim:'ares-fade 6s ease-in-out infinite', glow:C.coral };
+const S = {
+  idle: IDLE,
+  listening: { cols:['#FF5A43','#EC3488','#FFA92E','#9A55FF'], base:'#F25A55', speed:2.2, scale:1.06, halo:.78, core:.85, flow:.3, amp:'mic', glow:C.magenta },
+  processing: { cols:[C.violet,C.magenta,C.coral,'#C25BE8'], base:'#B2509E', speed:3.6, scale:.86, halo:.45, core:.9, flow:.75, anim:'ares-contract 1.8s ease-in-out infinite', rmAnim:'ares-fade 1.6s ease-in-out infinite', glow:C.violet },
+  speaking: { cols:[C.coral,C.amber,C.magenta,C.rose], base:'#F47A5E', speed:1.4, scale:.98, halo:.6, core:.7, flow:.1, amp:'tts', glow:C.amber },
+  confirm: { ...IDLE, speed:.8, halo:.45 },
+  danger: { cols:['#E0476E','#B0305C',C.coral,C.violet], base:'#C23E62', speed:.6, scale:1, halo:.5, core:.5, flow:0, anim:'ares-breathe 7s ease-in-out infinite', rmAnim:'ares-fade 7s ease-in-out infinite', glow:'#E0476E' },
+  error: { cols:['#BBAAB0','#988993','#D6C9C2','#A597A9'], base:'#A8999F', speed:.3, scale:.88, halo:.16, core:.28, flow:0, anim:'ares-breathe 9s ease-in-out infinite', rmAnim:'', glow:'#A8999F' },
+  cancelled: { ...IDLE, scale:.95, halo:.4 }
+};
+S.focus = IDLE;
+
+const NAMES = { idle:'Reposo', focus:'Reposo · foco', listening:'Escuchando', processing:'Pensando', speaking:'Hablando', confirm:'Confirmación', danger:'Confirmación reforzada', error:'Error', cancelled:'Cancelado' };
+const SC = {
+  consulta: { label:'Consulta', ask:'«¿Qué tiempo hará mañana en Madrid?»', result:'speaking', resp:'Mañana en Madrid: 18 °C y cielo despejado. Por la tarde refresca; lleva una chaqueta ligera.' },
+  accion: { label:'Acción', ask:'«Dile a Lucía que llego diez minutos tarde»', result:'confirm', summary:'Enviar un mensaje a Lucía García: «Llego 10 minutos tarde».', done:'Hecho. Mensaje enviado a Lucía.' },
+  destructiva: { label:'Destructiva', ask:'«Vacía la papelera de reciclaje»', result:'danger', summary:'Vaciar la papelera de reciclaje: 24 elementos, 1,3 GB. No se puede deshacer.', done:'Papelera vaciada.' },
+  error: { label:'Error', ask:'«Abre mi calendario de mañana»', result:'error' }
+};
+const RESP = SC.consulta.resp;
+const noop = () => {};
+const E = 'cubic-bezier(.2,.8,.2,1)', STD = 'cubic-bezier(.4,0,.2,1)';
+
+function makeOrb(key, rm, dark) {
+  const s = S[key] || IDLE, h = React.createElement;
+  const tBg = `background-color 600ms ${STD}`;
+  const blobs = [ {d:17,x:'-10%',y:'-8%',m:7}, {d:23,x:'34%',y:'2%',m:9,rev:1}, {d:19,x:'6%',y:'36%',m:8}, {d:29,x:'30%',y:'30%',m:11,rev:1} ];
+  const abs = { position:'absolute', inset:0 };
+  const haloK = dark ? 1 : .8;
+  return h('span', { 'data-orb':'', 'data-speed': rm ? 0 : s.speed, 'data-amp': s.amp || '', 'data-rm': rm ? '1' : '', style:{ ...abs, display:'block' } },
+    h('span', { style:{ position:'absolute', inset:'-34%', borderRadius:'50%', backgroundColor:s.cols[1], filter:'blur(28px)', opacity:`calc(${s.halo*haloK*.8} + var(--amp, 0) * 0.3)`, transition:`${tBg}, opacity 400ms ${STD}` } }),
+    h('span', { style:{ position:'absolute', inset:'-20%', left:'-30%', borderRadius:'50%', backgroundColor:s.cols[0], filter:'blur(28px)', opacity:`calc(${s.halo*haloK*.6} + var(--amp, 0) * 0.2)`, transition:`${tBg}, opacity 400ms ${STD}` } }),
+    h('span', { style:{ ...abs, display:'block', animation: rm ? (s.rmAnim || 'none') : (s.anim || 'none') } },
+      h('span', { style:{ ...abs, display:'block', transform:`scale(${s.scale})`, transition:`transform 420ms ${E}` } },
+        h('span', { style:{ ...abs, display:'block', transform:`scale(calc(1 + var(--amp, 0) * ${rm ? 0.03 : 0.14}))`, transition:'transform 90ms linear' } },
+          h('span', { style:{ ...abs, display:'block', borderRadius:'50%', overflow:'hidden', isolation:'isolate', backgroundColor:s.base, transition:tBg, transform:'translateZ(0)' } },
+            ...blobs.map((b, i) => h('span', { key:i, style:{ ...abs, display:'block', animation: rm ? 'none' : `ares-spin ${b.d}s linear infinite${b.rev ? ' reverse' : ''}` } },
+              h('span', { style:{ position:'absolute', left:b.x, top:b.y, width:'78%', height:'78%', borderRadius:'50%', backgroundColor:s.cols[i], filter:'blur(14px)', opacity:.92, transition:tBg, animation: rm ? 'none' : `ares-morph ${b.m}s ease-in-out infinite` } }))),
+            h('span', { style:{ position:'absolute', inset:'-10%', display:'block', background:'conic-gradient(from 0deg, rgba(255,255,255,0) 0deg, rgba(255,255,255,.7) 50deg, rgba(255,255,255,0) 120deg, rgba(255,255,255,0) 200deg, rgba(255,255,255,.45) 250deg, rgba(255,255,255,0) 320deg)', filter:'blur(10px)', mixBlendMode:'screen', opacity: rm ? s.flow * .5 : s.flow, transition:`opacity 400ms ${STD}`, animation: rm ? 'none' : 'ares-swirl 2.4s linear infinite' } }),
+            h('span', { style:{ position:'absolute', inset:'26%', display:'block', borderRadius:'50%', background:'radial-gradient(circle, rgba(255,250,245,1) 0%, rgba(255,240,230,.6) 38%, rgba(255,240,230,0) 70%)', filter:'blur(6px)', mixBlendMode:'screen', opacity:`calc(${s.core} + var(--amp, 0) * 0.2)`, transition:`opacity 400ms ${STD}` } }),
+            h('span', { style:{ position:'absolute', left:'16%', top:'7%', width:'50%', height:'32%', display:'block', borderRadius:'50%', background:'radial-gradient(ellipse at 50% 50%, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 70%)', filter:'blur(3px)' } }),
+            h('span', { style:{ ...abs, display:'block', borderRadius:'50%', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.35), inset 0 -12px 26px rgba(90,10,40,.25), inset 0 10px 20px rgba(255,255,255,.22)' } })
+          )))));
+}
+
+class Component extends DCLogic {
+  state = { tick:0, mediaRM:false, live:{ st:'idle', at:0, sc:'consulta', theme:'light', resp:'', focus:false } };
+
+  componentDidMount() {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this.setState({ mediaRM: mq.matches });
+    this.mq = mq; this.onMQ = e => this.setState({ mediaRM: e.matches }); mq.addEventListener('change', this.onMQ);
+    this.iv = setInterval(this.onTick, 40);
+    this.mic = 0; this.tts = 0; this.fr = 0;
+    const loop = now => { this.ampLoop(now); this.raf = requestAnimationFrame(loop); };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() { clearInterval(this.iv); cancelAnimationFrame(this.raf); this.mq && this.mq.removeEventListener('change', this.onMQ); }
+
+  ampLoop(now) {
+    const t = now / 1000;
+    const phrase = Math.sin(t * 0.8) > -0.55 ? 1 : 0.12;
+    const mic = Math.min(1, (0.6 * Math.abs(Math.sin(t * 5.1)) * (0.6 + 0.4 * Math.sin(t * 1.7)) + 0.32 * Math.abs(Math.sin(t * 11.3 + 1.3))) * phrase);
+    this.mic += (mic - this.mic) * (mic > this.mic ? 0.35 : 0.12);
+    const tts = 0.3 + 0.7 * Math.pow(Math.abs(Math.sin(t * 3.4)), 3);
+    this.tts += (tts - this.tts) * 0.25;
+    const doRate = (this.fr++ % 3) === 0;
+    document.querySelectorAll('[data-orb]').forEach(el => {
+      const k = el.dataset.amp;
+      const a = k === 'mic' ? this.mic : k === 'tts' ? this.tts * 0.55 : 0;
+      el.style.setProperty('--amp', a.toFixed(3));
+      if (doRate && !el.dataset.rm && el.getAnimations) {
+        const rate = (parseFloat(el.dataset.speed) || 1) * (1 + a * 1.2);
+        el.getAnimations({ subtree:true }).forEach(an => { if (an.animationName === 'ares-spin' || an.animationName === 'ares-morph') an.playbackRate = rate; });
+      }
+    });
+  }
+
+  onTick = () => this.setState(s => {
+    const tick = s.tick + 1; let L = s.live; const el = tick - L.at; const sc = SC[L.sc];
+    if (L.st === 'listening' && el > sc.ask.length / 1.2 + 18) L = { ...L, st:'processing', at:tick };
+    else if (L.st === 'processing' && el > 40) L = { ...L, st:sc.result, at:tick, resp:sc.resp || '' };
+    else if (L.st === 'speaking' && el > L.resp.length / 1.2 + 45) L = { ...L, st:'idle', at:tick };
+    else if (L.st === 'cancelled' && el > 30) L = { ...L, st:'idle', at:tick };
+    return { tick, live:L };
+  });
+
+  go(st, extra = {}) { this.setState(s => ({ live:{ ...s.live, st, at:s.tick, ...extra } })); }
+
+  rm() { return !!(this.props.reducedMotion ?? false) || this.state.mediaRM; }
+
+  frame({ id, name, note, theme, st, px = 440, wp, fallback, focus, typed, subText, live }) {
+    const t = T[theme], s = S[st] || IDLE, rm = this.rm();
+    const card = st === 'confirm' || st === 'danger', danger = st === 'danger';
+    const noTransp = fallback || this.props.transparency === false;
+    let label = '', lc = t.ink2, lw = 500, sub = '', resp = '', shown = '';
+    if (st === 'idle' || st === 'focus') label = 'Toca el orbe para hablar';
+    if (st === 'listening') { label = 'Escuchando…'; lc = t.ink; lw = 600; sub = subText ?? '«¿Qué tiempo hará mañana en…»'; }
+    if (st === 'processing') { label = 'Pensando…'; lc = t.ink; lw = 600; }
+    if (st === 'error') { label = 'No pude completar eso. Inténtalo de nuevo.'; lc = t.ink; sub = 'Toca el orbe para reintentar'; }
+    if (st === 'cancelled') label = 'Cancelado';
+    if (st === 'speaking') { resp = live ? live.resp : RESP; const n = rm ? resp.length : Math.min(resp.length, typed); shown = resp.slice(0, n); }
+    const sum = live ? (SC[live.sc].summary || '') : danger ? SC.destructiva.summary : SC.accion.summary;
+    const L = live;
+    return {
+      id, name, note, t, px: px + 'px', tile: (px + 64) + 'px', wp: WP[wp || theme],
+      glassBg: noTransp ? t.opaque : t.tint, backdrop: noTransp ? 'none' : 'blur(30px) saturate(160%)',
+      glow: s.glow, glowOp: t.glowOp * (st === 'error' ? .5 : 1) * (st === 'listening' ? 1.3 : 1),
+      orb: makeOrb(st, rm, theme === 'dark'),
+      orbTop: card ? '27%' : '41%', orbSize: card ? '27cqw' : '40cqw', ringOp: focus ? 1 : 0,
+      textTop: '66%', textOp: card ? 0 : 1,
+      hasLabel: !!label, label, labelColor: lc, labelWeight: lw, hasSub: !!sub, sub,
+      hasResponse: !!resp, respShown: shown, respRest: resp.slice(shown.length),
+      hintOp: (st === 'idle' || st === 'focus' || st === 'cancelled') ? 1 : 0,
+      cardOp: card ? 1 : 0, cardY: card ? '0px' : '16px', cardPe: card ? 'auto' : 'none', cardTab: card ? 0 : -1,
+      cardBg: danger ? t.dangerTint : t.card, cardBorder: danger ? t.dangerBorder : t.cardBorder,
+      eyebrowColor: danger ? t.dangerInk : t.ink2, danger, summary: sum,
+      pBg: danger ? t.dBg : t.pBg, pInk: danger ? t.dInk : t.pInk,
+      aria: 'Ares · ' + (NAMES[st] || '') + '. Pulsa para hablar',
+      onTap: L ? this.tap : noop, onFocus: L ? this.onFocus : noop, onBlur: L ? this.onBlur : noop,
+      onKey: L ? this.onKey : noop, onConfirm: L ? this.confirm : noop, onCancel: L ? this.cancel : noop
+    };
+  }
+
+  tap = () => { const st = this.state.live.st;
+    if (['idle','cancelled','error'].includes(st)) this.go('listening');
+    else if (st === 'listening') this.go('processing');
+    else if (st === 'speaking') this.go('cancelled'); };
+  confirm = () => { const sc = SC[this.state.live.sc]; this.go('speaking', { resp: sc.done || '' }); };
+  cancel = () => this.go('cancelled');
+  onKey = e => { if (e.key === 'Escape' && ['confirm','danger','listening','speaking'].includes(this.state.live.st)) this.go('cancelled'); };
+  onFocus = e => { const fv = e.target.matches && e.target.matches(':focus-visible'); this.setState(s => ({ live:{ ...s.live, focus: fv } })); };
+  onBlur = () => this.setState(s => ({ live:{ ...s.live, focus:false } }));
+
+  renderVals() {
+    const { tick, live } = this.state;
+    const per = Math.round(RESP.length / 1.2 + 40);
+    const typed = Math.floor((tick % per) * 1.2);
+    const liveEl = tick - live.at;
+    const liveSc = SC[live.sc];
+    const liveFrame = this.frame({ id:'P', name:'Prototipo', theme:live.theme, st:live.st, focus:live.focus, live,
+      typed: Math.floor(liveEl * 1.2),
+      subText: live.st === 'listening' ? liveSc.ask.slice(0, Math.floor(liveEl * 1.2)) || ' ' : undefined,
+      note:'Interactivo. Mismo componente que las variantes de abajo.' });
+
+    const notes = {
+      idle:'Respiración lenta (6 s, ±3,5%). Colores cálidos templados. Atajo discreto abajo.',
+      focus:'Foco por teclado: anillo de 2 px con halo suave, a 11% del orbe. Solo con :focus-visible.',
+      listening:'Más saturado y abierto (escala 1,06). Escala, halo y velocidad siguen la voz. Transcripción en vivo.',
+      processing:'Se contrae a 0,86 y aparece el remolino interno. Sin spinner.',
+      speaking:'Pulso suave guiado por la voz de Ares. El texto aparece progresivamente, máx. 3 líneas.',
+      confirm:'El orbe sube y encoge; la tarjeta ocupa la parte baja. Enter confirma, Esc cancela.',
+      danger:'Misma estructura: borde y tinte vino, marca ◆ «Acción irreversible», botón vino. Foco inicial en «Cancelar».',
+      error:'Orbe gris malva, más pequeño y casi quieto. Mensaje breve + cómo reintentar.',
+      cancelled:'«Cancelado» durante 1,2 s, luego fundido a reposo (800 ms).'
+    };
+    const order = ['idle','focus','listening','processing','speaking','confirm','danger','error','cancelled'];
+    const row = (theme, p) => order.map((st, i) => this.frame({ id: p + (i + 1), name: NAMES[st], theme, st: st === 'focus' ? 'idle' : st, focus: st === 'focus', typed, note: notes[st] }));
+
+    const sections = [
+      { title:'Prototipo', desc:'Recorre el flujo completo: escuchar, pensar, responder, confirmar, error y cancelar. Elige escenario y tema a la derecha.', frames:[liveFrame], isLive:true },
+      { title:'Estados · tema claro', desc:'Sobre un fondo de escritorio claro. Cada estado combina color, forma/escala, movimiento y una etiqueta de texto.', frames: row('light','L') },
+      { title:'Estados · tema oscuro', desc:'Mismos estados y medidas; tinte más denso, halo más presente y texto claro.', frames: row('dark','D') },
+      { title:'Robustez y escala', desc:'Cristal sobre el fondo contrario, fallback sin transparencia y la ventana a su tamaño mínimo de 360 px.', frames:[
+        this.frame({ id:'R1', name:'Claro sobre fondo oscuro', theme:'light', wp:'dark', st:'idle', typed, note:'El tinte .74 mantiene el texto en AA aunque el escritorio sea negro.' }),
+        this.frame({ id:'R2', name:'Oscuro sobre fondo claro', theme:'dark', wp:'light', st:'speaking', typed, note:'Tinte .80: el texto claro conserva ≥ 5:1 sobre un fondo blanco.' }),
+        this.frame({ id:'R3', name:'Fallback opaco · claro', theme:'light', st:'idle', fallback:true, typed, note:'Sin transparencia: superficie mate #F3EDE9 con grano y resplandor.' }),
+        this.frame({ id:'R4', name:'Fallback opaco · oscuro', theme:'dark', st:'listening', fallback:true, typed, note:'Superficie #211A1F. El orbe aporta toda la luz.' }),
+        this.frame({ id:'R5', name:'360 px · confirmación', theme:'light', st:'confirm', px:360, typed, note:'Orbe y márgenes escalan con la ventana; el texto mantiene su tamaño.' }),
+        this.frame({ id:'R6', name:'360 px · hablando', theme:'dark', st:'speaking', px:360, typed, note:'Tres líneas caben con holgura sobre el atajo.' })
+      ]}
+    ];
+
+    const on = { bg:'#2B1D22', ink:'#FBF3F1' }, off = { bg:'#F7F3F0', ink:'#2B1D22' };
+    const scenarios = Object.keys(SC).map(k => ({ label: SC[k].label, ...(live.sc === k ? on : off),
+      onClick: () => this.setState(s => ({ live:{ ...s.live, sc:k, st:'idle', at:s.tick } })) }));
+    const themeBtns = [['light','Claro'],['dark','Oscuro']].map(([k, l]) => ({ label:l, ...(live.theme === k ? on : off),
+      onClick: () => this.setState(s => ({ live:{ ...s.live, theme:k } })) }));
+
+    return { sections, scenarios, themeBtns, liveStateName: NAMES[live.st] };
+  }
+}
+</script>
+</body>
+</html>

@@ -27,12 +27,16 @@ type VoiceShortcutDependencies = {
   };
   getMainWindow: () => VoiceShortcutWindow | undefined;
   logError: (message: string) => void;
+  /** Called after every apply or stop so dependent UI (the tray) can refresh. It must not throw. */
+  onChange?: () => void;
 };
 
 export type GlobalVoiceShortcutLifecycle = {
   apply: (preferences: VoicePreferences) => VoiceShortcutApplicationResult;
   stop: () => void;
   getEffectiveStatus: () => VoiceShortcutEffectiveStatus;
+  /** The accelerator currently registered, or undefined when none is active. */
+  getActiveShortcut: () => VoiceShortcut | undefined;
 };
 
 export type VoiceShortcutApplicationResult =
@@ -63,7 +67,7 @@ export const createGlobalVoiceShortcutLifecycle = (
     }
   };
 
-  return {
+  const lifecycle: GlobalVoiceShortcutLifecycle = {
     apply: (preferences): VoiceShortcutApplicationResult => {
       if (!preferences.enabled) {
         if (!activeShortcut) {
@@ -129,6 +133,29 @@ export const createGlobalVoiceShortcutLifecycle = (
         effectiveStatus = "DISABLED";
       }
     },
-    getEffectiveStatus: (): VoiceShortcutEffectiveStatus => effectiveStatus
+    getEffectiveStatus: (): VoiceShortcutEffectiveStatus => effectiveStatus,
+    getActiveShortcut: (): VoiceShortcut | undefined => activeShortcut
+  };
+
+  const notify = (): void => {
+    try {
+      dependencies.onChange?.();
+    } catch {
+      dependencies.logError("Voice global shortcut change notification failed.");
+    }
+  };
+
+  return {
+    apply: (preferences) => {
+      const result = lifecycle.apply(preferences);
+      notify();
+      return result;
+    },
+    stop: () => {
+      lifecycle.stop();
+      notify();
+    },
+    getEffectiveStatus: lifecycle.getEffectiveStatus,
+    getActiveShortcut: lifecycle.getActiveShortcut
   };
 };

@@ -10,6 +10,8 @@ describe("application repository mapping", () => {
         name: "Private path test",
         executablePath,
         platform: "WINDOWS",
+        launchMode: "WINDOWS_EXECUTABLE",
+        catalogKey: null,
         isFavorite: false,
         isEnabled: true,
         lastLaunchedAt: null,

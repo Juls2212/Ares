@@ -16,6 +16,8 @@ const application: ApplicationRecord = {
   id: applicationId,
   name: "Microsoft Word",
   platform: "WINDOWS",
+  launchMode: "WINDOWS_EXECUTABLE",
+  catalogKey: null,
   isFavorite: false,
   isEnabled: true,
   lastLaunchedAt: null,
@@ -35,6 +37,8 @@ const resolvedTarget: ResolvedApplicationTarget = {
   id: applicationId,
   name: application.name,
   platform: "WINDOWS",
+  launchMode: "WINDOWS_EXECUTABLE",
+  catalogKey: null,
   executablePath,
   isEnabled: true
 };
@@ -44,6 +48,7 @@ const createRepositories = (): ApplicationRepositories => ({
   listApplications: vi.fn(async () => [application]),
   updateApplication: vi.fn(async () => application),
   findApplicationIdByNormalizedName: vi.fn(async () => undefined),
+  findApplicationLaunchModeById: vi.fn(async () => "WINDOWS_EXECUTABLE" as const),
   resolveApplicationByAlias: vi.fn(async () => resolvedTarget)
 });
 
@@ -125,5 +130,19 @@ describe("application service", () => {
       "APPLICATION_TEXT_INVALID"
     );
     expect(repositories.resolveApplicationByAlias).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects executable-path updates for catalog-managed records before persistence", async () => {
+    const repositories = createRepositories();
+    const service = createApplicationService({ repositories, logError: vi.fn() });
+    vi.mocked(repositories.findApplicationLaunchModeById).mockResolvedValueOnce(
+      "CATALOG_APPLICATION"
+    );
+
+    expectFailureCode(
+      await service.updateApplication({ applicationId, executablePath }),
+      "APPLICATION_EXECUTABLE_PATH_INVALID"
+    );
+    expect(repositories.updateApplication).not.toHaveBeenCalled();
   });
 });

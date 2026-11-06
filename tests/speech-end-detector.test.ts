@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createSpeechEndDetector,
+  normalizeVoiceLevel,
   SPEECH_END_SILENCE_MS
 } from "../src/renderer/features/voice/speech-end-detector";
 
@@ -63,5 +64,34 @@ describe("renderer speech-end detection", () => {
     expect(detector.start({} as MediaStream)).toBe(false);
     expect(detector.hasDetectedSpeech()).toBe(false);
     expect(() => detector.dispose()).not.toThrow();
+  });
+
+  it("publishes only bounded smoothed levels and immediately resets them on disposal", () => {
+    const frame = frameHarness();
+    const levels: number[] = [];
+    const detector = createSpeechEndDetector({
+      createAudioContext: () => contextFor([128, 132, 160]),
+      now: frame.now,
+      requestFrame: frame.requestFrame,
+      cancelFrame: vi.fn(),
+      onLevel: (level) => levels.push(level),
+      onSpeechEnded: vi.fn()
+    });
+
+    expect(detector.start({} as MediaStream)).toBe(true);
+    frame.advance(0);
+    frame.advance(16);
+    frame.advance(32);
+    expect(levels.every((level) => level >= 0 && level <= 1)).toBe(true);
+    expect(levels.at(-1)).toBeGreaterThan(levels[0]);
+
+    detector.dispose();
+    expect(levels.at(-1)).toBe(0);
+  });
+
+  it("normalizes invalid, silent, and loud samples without exposing audio data", () => {
+    expect(normalizeVoiceLevel(Number.NaN)).toBe(0);
+    expect(normalizeVoiceLevel(0)).toBe(0);
+    expect(normalizeVoiceLevel(1)).toBe(1);
   });
 });

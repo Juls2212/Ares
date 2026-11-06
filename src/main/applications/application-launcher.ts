@@ -9,6 +9,8 @@ import { getApplicationService } from "./application-composition";
 import type { ApplicationService } from "./application-service";
 import type { ResolvedApplicationTarget } from "./application-repositories";
 import type { TrustedWebDestination } from "./trusted-web-destinations";
+import { createCatalogApplicationAdapter, type CatalogApplicationAdapter } from "./catalog-application-adapter";
+import { CATALOG_LAUNCH_FAILURE } from "./catalog-registration-failures";
 
 type PathStats = {
   isFile: () => boolean;
@@ -24,6 +26,7 @@ type SpawnedProcess = {
 
 type ApplicationLauncherDependencies = {
   applicationService: ApplicationService;
+  catalogAdapter: CatalogApplicationAdapter;
   realpath: (path: string) => Promise<string>;
   stat: (path: string) => Promise<PathStats>;
   spawn: (
@@ -48,6 +51,8 @@ export type ApplicationLauncher = {
   launchResolvedTarget: (
     target: ResolvedApplicationTarget
   ) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
+  /** Opens the registered, enabled Spotify app on a search; the query is validated again by the adapter. */
+  searchSpotifyApp: (query: unknown) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
   launchResolvedBrowserTarget: (
     target: ResolvedApplicationTarget,
     destination: TrustedWebDestination
@@ -60,7 +65,11 @@ const launcherMessages = {
   APPLICATION_EXECUTABLE_NOT_FILE: "El ejecutable registrado no es un archivo válido.",
   APPLICATION_EXECUTABLE_EXTENSION_INVALID: "El archivo registrado no es un ejecutable válido.",
   APPLICATION_LAUNCH_FAILED: "No se pudo abrir la aplicación registrada.",
-  APPLICATION_DISABLED: "La aplicación está deshabilitada."
+  APPLICATION_DISABLED: "La aplicación está deshabilitada.",
+  APPLICATION_CATALOG_UNAVAILABLE: "No encontré esa aplicación disponible en este equipo.",
+  APPLICATION_CATALOG_LAUNCH_FAILED: CATALOG_LAUNCH_FAILURE.userMessage,
+  APPLICATION_SPOTIFY_NOT_REGISTERED: "Primero debes registrar esa aplicación para poder abrirla.",
+  APPLICATION_SPOTIFY_QUERY_INVALID: "Indica qué canción, artista o álbum quieres buscar en Spotify."
 } as const;
 
 type LauncherErrorCode = keyof typeof launcherMessages;
@@ -115,6 +124,7 @@ export const createApplicationLauncher = (
 ): ApplicationLauncher => {
   const dependencies: ApplicationLauncherDependencies = {
     applicationService: overrides.applicationService ?? getApplicationService(),
+    catalogAdapter: overrides.catalogAdapter ?? createCatalogApplicationAdapter(),
     realpath: overrides.realpath ?? resolveRealPath,
     stat: overrides.stat ?? readPathStats,
     spawn: overrides.spawn ?? spawnProcess,
@@ -130,6 +140,24 @@ export const createApplicationLauncher = (
     argumentsList: readonly string[]
   ): Promise<ApplicationOperationResult<ApplicationLaunchData>> => {
     if (!target.isEnabled) return createFailure(APPLICATION_ERROR_CODES.disabled);
+    if (target.launchMode === "CATALOG_APPLICATION") {
+      if (
+        target.executablePath !== null ||
+        target.catalogKey === null ||
+        target.platform !== dependencies.catalogAdapter.getCurrentPlatform()
+      ) return createFailure("APPLICATION_CATALOG_UNAVAILABLE");
+      const catalogResult = await dependencies.catalogAdapter.launch(target.catalogKey);
+      if (catalogResult.ok) return createSuccess(catalogResult.data);
+      return createFailure(
+        catalogResult.error.code === CATALOG_LAUNCH_FAILURE.code
+          ? "APPLICATION_CATALOG_LAUNCH_FAILED"
+          : "APPLICATION_CATALOG_UNAVAILABLE"
+      );
+    }
+
+    if (target.launchMode !== "WINDOWS_EXECUTABLE" || target.executablePath === null || target.catalogKey !== null) {
+      return createFailure("APPLICATION_EXECUTABLE_PATH_INVALID");
+    }
 
     const pathValidation = validateExecutablePath(target.executablePath);
     if (!pathValidation.ok) {
@@ -169,6 +197,27 @@ export const createApplicationLauncher = (
       const resolved = await dependencies.applicationService.resolveEnabledApplicationByAlias(alias);
       if (!resolved.ok) return resolved;
       return launchResolvedTarget(resolved.data, []);
+    },
+    searchSpotifyApp: async (query) => {
+      const listed = await dependencies.applicationService.listApplications({ enabled: true, limit: 100 });
+      if (!listed.ok) return { ok: false, error: listed.error };
+      const registered = listed.data.items.some(
+        (record) =>
+          record.isEnabled &&
+          record.launchMode === "CATALOG_APPLICATION" &&
+          record.catalogKey === "SPOTIFY" &&
+          record.platform === dependencies.catalogAdapter.getCurrentPlatform()
+      );
+      if (!registered) return createFailure("APPLICATION_SPOTIFY_NOT_REGISTERED");
+      const result = await dependencies.catalogAdapter.openSearch("SPOTIFY", query);
+      if (result.ok) return createSuccess(result.data);
+      return createFailure(
+        result.error.code === CATALOG_LAUNCH_FAILURE.code
+          ? "APPLICATION_CATALOG_LAUNCH_FAILED"
+          : result.error.code === "APPLICATION_SPOTIFY_QUERY_INVALID"
+            ? "APPLICATION_SPOTIFY_QUERY_INVALID"
+            : "APPLICATION_CATALOG_UNAVAILABLE"
+      );
     },
     launchResolvedTarget: (target) => launchResolvedTarget(target, []),
     launchResolvedBrowserTarget: (target, destination) => launchResolvedTarget(target, [destination.url])

@@ -28,6 +28,28 @@ export const toLocalDateTimeWithOffset = (date: Date): string => {
 
 export const monthStartFor = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), 1);
 
+export const localDateFromIso = (isoDate: string): Date => {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
+
+export const addLocalCalendarDays = (isoDate: string, amount: number): string => {
+  const date = localDateFromIso(isoDate);
+  date.setDate(date.getDate() + amount);
+  return toLocalCalendarDate(date);
+};
+
+export const mondayForLocalDate = (isoDate: string): string => {
+  const date = localDateFromIso(isoDate);
+  const offset = (date.getDay() + 6) % 7;
+  return addLocalCalendarDays(isoDate, -offset);
+};
+
+export const formatCalendarDateHeading = (isoDate: string): string => {
+  const formatted = new Intl.DateTimeFormat("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(localDateFromIso(isoDate));
+  return formatted.charAt(0).toLocaleUpperCase("es-ES") + formatted.slice(1);
+};
+
 export const nextMonthStartFor = (monthStart: Date): Date =>
   new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
 

@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { getBrowserThemeStorage, initializeThemePreference } from "./features/settings/theme-preference";
-import "./styles/ares.css";
+import "./styles/ares-glass.css";
 
 const rootElement = document.getElementById("root");
 

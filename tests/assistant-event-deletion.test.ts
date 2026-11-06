@@ -27,7 +27,9 @@ const fixture = (events: EventRecord[], input: unknown = { eventTitle: "Reunión
 
 describe("assistant event deletion routing", () => {
   it("allows only structured DELETE_EVENT and resolves one real event before reinforced proposal", async () => {
-    expect(OPENAI_INTERPRETATION_OUTPUT_SCHEMA.properties.drafts.items.properties.action.enum).toContain("DELETE_EVENT");
+    const draftVariants = OPENAI_INTERPRETATION_OUTPUT_SCHEMA.properties.drafts.items.anyOf;
+    const actionNames = draftVariants.flatMap((variant) => variant.properties.action.enum);
+    expect(actionNames).toContain("DELETE_EVENT");
     const { interpreter, provider } = fixture([record()]);
     const result = await interpreter.interpret({ instruction: "Elimina el evento Reunión" });
     expect(result).toMatchObject({ ok: true, data: {

@@ -10,6 +10,7 @@ import {
   type ActionProposal,
   type ActionRiskLevel
 } from "../../shared/action-contracts";
+import { getEnabledAssistantCapability } from "./capability-registry";
 
 type PolicyDefinition = {
   approval: ActionApprovalClass;
@@ -27,6 +28,141 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       scopeSummary: "Aplicación registrada"
     }
   },
+  SEARCH_SPOTIFY_APP: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se abrirá la aplicación de Spotify en una búsqueda.",
+      affectedItemCount: 1,
+      scopeSummary: "Aplicación registrada"
+    }
+  },
+  CONNECT_SPOTIFY: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Ares abrirá la página de autorización de Spotify en tu navegador. Permite el control de la reproducción y vuelve aquí.",
+      affectedItemCount: 1,
+      scopeSummary: "Cuenta de Spotify"
+    }
+  },
+  DISCONNECT_SPOTIFY: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se borrarán las credenciales de Spotify guardadas en este equipo.",
+      affectedItemCount: 1,
+      scopeSummary: "Cuenta de Spotify"
+    }
+  },
+  GET_SPOTIFY_STATUS: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará si Spotify está conectado.",
+      affectedItemCount: null,
+      scopeSummary: "Estado local"
+    }
+  },
+  PLAY_SPOTIFY_MUSIC: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se buscará y reproducirá música en Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  PAUSE_SPOTIFY: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se pausará Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  RESUME_SPOTIFY: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se reanudará Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  NEXT_SPOTIFY_TRACK: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se pasará a la siguiente canción de Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  PREVIOUS_SPOTIFY_TRACK: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se volverá a la canción anterior de Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  SET_SPOTIFY_VOLUME: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se ajustará el volumen de Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  WHAT_IS_PLAYING: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará qué está sonando en Spotify.",
+      affectedItemCount: null,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  REGISTER_CATALOG_APPLICATION: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se registrará una aplicación aprobada.",
+      affectedItemCount: 1,
+      scopeSummary: "Aplicación aprobada"
+    }
+  },
+  REQUEST_CUSTOM_APPLICATION_REGISTRATION: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se registrará una aplicación elegida por ti.",
+      affectedItemCount: 1,
+      scopeSummary: "Aplicación elegida"
+    }
+  },
+  OPEN_APPROVED_PAGE: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se abrirá un sitio aprobado.",
+      affectedItemCount: 1,
+      scopeSummary: "Sitio aprobado"
+    }
+  },
+  SEARCH_APPROVED_SITE: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se realizará una búsqueda en un sitio aprobado.",
+      affectedItemCount: 1,
+      scopeSummary: "Búsqueda aprobada"
+    }
+  },
   OPEN_WEB_PAGE: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
@@ -37,12 +173,66 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
     }
   },
   CREATE_FOLDER: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se creará una carpeta en una ubicación aprobada.",
+      affectedItemCount: 1,
+      scopeSummary: "Ubicación aprobada"
+    }
+  },
+  REVEAL_FOUND_FILE: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
     confirmation: {
-      summary: "Se creará una carpeta autorizada.",
+      summary: "Se mostrará un resultado de la última búsqueda.",
       affectedItemCount: 1,
-      scopeSummary: "Carpeta autorizada"
+      scopeSummary: "Resultado de búsqueda"
+    }
+  },
+  RENAME_FOUND_ITEM: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se cambiará el nombre de un resultado de la última búsqueda.",
+      affectedItemCount: 1,
+      scopeSummary: "Resultado de búsqueda"
+    }
+  },
+  MOVE_FOUND_ITEMS: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se moverán resultados de la última búsqueda.",
+      affectedItemCount: null,
+      scopeSummary: "Resultados de búsqueda"
+    }
+  },
+  ORGANIZE_FOUND_ITEMS: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se organizarán resultados de la última búsqueda en una carpeta.",
+      affectedItemCount: null,
+      scopeSummary: "Resultados de búsqueda"
+    }
+  },
+  DELETE_FOUND_ITEM: {
+    approval: "REINFORCED_CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se enviará un resultado de la última búsqueda a la Papelera.",
+      affectedItemCount: 1,
+      scopeSummary: "Resultado de búsqueda"
+    }
+  },
+  OPEN_FOUND_FILE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se abrirá un resultado de la última búsqueda.",
+      affectedItemCount: 1,
+      scopeSummary: "Resultado de búsqueda"
     }
   },
   RENAME_FILE: {
@@ -177,6 +367,26 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
     availability: "IMPLEMENTED",
     confirmation: { summary: "Se consultará la disponibilidad estimada de hoy.", affectedItemCount: null, scopeSummary: "Agenda local de hoy" }
   },
+  CREATE_WEEKLY_SCHEDULE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se creará un horario semanal.", affectedItemCount: 1, scopeSummary: "Horario semanal nuevo" }
+  },
+  UPDATE_WEEKLY_SCHEDULE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se actualizará un horario semanal.", affectedItemCount: 1, scopeSummary: "Horario semanal existente" }
+  },
+  CREATE_WEEKLY_ROUTINE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se agregará un bloque semanal.", affectedItemCount: 1, scopeSummary: "Bloque semanal nuevo" }
+  },
+  UPDATE_WEEKLY_ROUTINE: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: { summary: "Se actualizará un bloque semanal.", affectedItemCount: 1, scopeSummary: "Bloque semanal existente" }
+  },
   GET_CURRENT_DATE_TIME: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
@@ -193,6 +403,105 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       summary: "Se consultará el clima actual de Pasto.",
       affectedItemCount: null,
       scopeSummary: "Clima actual de Pasto"
+    }
+  },
+  GET_HABIT_PROGRESS: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará el progreso de hábitos.",
+      affectedItemCount: null,
+      scopeSummary: "Progreso de hábitos"
+    }
+  },
+  CREATE_HABIT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se creará un hábito.",
+      affectedItemCount: 1,
+      scopeSummary: "Hábito nuevo"
+    }
+  },
+  UPDATE_HABIT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se actualizará un hábito existente.",
+      affectedItemCount: 1,
+      scopeSummary: "Hábito existente"
+    }
+  },
+  COMPLETE_HABIT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se marcará un hábito como completado hoy.",
+      affectedItemCount: 1,
+      scopeSummary: "Hábito existente"
+    }
+  },
+  SAVE_CONTACT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se guardará un contacto nuevo.",
+      affectedItemCount: 1,
+      scopeSummary: "Contacto nuevo"
+    }
+  },
+  LIST_CONTACTS: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultarán los nombres de tus contactos.",
+      affectedItemCount: null,
+      scopeSummary: "Contactos guardados"
+    }
+  },
+  DELETE_CONTACT: {
+    approval: "REINFORCED_CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se eliminará un contacto guardado.",
+      affectedItemCount: 1,
+      scopeSummary: "Contacto guardado"
+    }
+  },
+  PREPARE_MESSAGE_DRAFT: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se preparará un borrador de mensaje. No se enviará.",
+      affectedItemCount: 1,
+      scopeSummary: "Borrador local"
+    }
+  },
+  EDIT_MESSAGE_DRAFT: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se cambiará el texto del borrador. No se enviará.",
+      affectedItemCount: 1,
+      scopeSummary: "Borrador local"
+    }
+  },
+  DISCARD_MESSAGE_DRAFT: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se descartará el borrador de mensaje.",
+      affectedItemCount: 1,
+      scopeSummary: "Borrador local"
+    }
+  },
+  OPEN_WHATSAPP_CHAT_WITH_DRAFT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se abrirá WhatsApp con el borrador. Tú pulsas enviar; Ares no envía nada.",
+      affectedItemCount: 1,
+      scopeSummary: "Chat de WhatsApp"
     }
   },
   OPEN_REGISTERED_APPLICATION: {
@@ -266,11 +575,12 @@ const createFailure = <T>(
 
 export const getActionPolicy = (action: ActionKind): ActionPolicy => {
   const definition = policyDefinitions[action];
+  const capability = getEnabledAssistantCapability(action);
   return {
     action,
     approval: definition.approval,
     riskLevel: riskLevelByApproval[definition.approval],
-    availability: definition.availability,
+    availability: capability ? definition.availability : "DEFERRED",
     confirmation: {
       ...definition.confirmation,
       required: definition.approval !== "DIRECT"
@@ -294,6 +604,10 @@ export const evaluateActionProposal = (
   const lookup = lookupActionPolicy(action);
   if (!lookup.ok) return lookup;
   const policy = lookup.data;
+  const capability = getEnabledAssistantCapability(action);
+  if (!capability || capability.approval !== policy.approval) {
+    return createFailure(ACTION_ERROR_CODES.unsupported);
+  }
   if (policy.availability === "DEFERRED") {
     return createFailure(ACTION_ERROR_CODES.deferred);
   }

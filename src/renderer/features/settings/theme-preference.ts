@@ -1,15 +1,18 @@
+import { COLOR_SCHEMES, DEFAULT_SCHEME_ID, findScheme, migrateStoredScheme, type ColorScheme } from "./color-schemes";
+
 export const THEME_STORAGE_KEY = "ares-theme-preference";
 
-export type ThemePreference = "light" | "dark";
+/** The id of a color scheme (the stored value is still under the original key). */
+export type ThemePreference = string;
 
 export type ThemeStorage = Pick<Storage, "getItem" | "setItem">;
 
-type ThemeRoot = Pick<Element, "setAttribute">;
+type ThemeRoot = Pick<Element, "setAttribute"> & { style?: Pick<CSSStyleDeclaration, "setProperty" | "removeProperty"> };
 
-export const DEFAULT_THEME_PREFERENCE: ThemePreference = "light";
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = DEFAULT_SCHEME_ID;
 
-export const isThemePreference = (value: unknown): value is ThemePreference =>
-  value === "light" || value === "dark";
+export const isThemePreference = (value: unknown, schemes: readonly ColorScheme[] = COLOR_SCHEMES): value is ThemePreference =>
+  typeof value === "string" && schemes.some((scheme) => scheme.id === value);
 
 export const getBrowserThemeStorage = (): ThemeStorage | undefined => {
   if (typeof window === "undefined") return undefined;
@@ -20,36 +23,48 @@ export const getBrowserThemeStorage = (): ThemeStorage | undefined => {
   }
 };
 
-export const readThemePreference = (storage: ThemeStorage | undefined): ThemePreference => {
+/** Old "light"/"dark" values become the green/blue schemes; unknown, missing or unreadable values are green. */
+export const readThemePreference = (storage: ThemeStorage | undefined, schemes: readonly ColorScheme[] = COLOR_SCHEMES): ThemePreference => {
   try {
-    const storedTheme = storage?.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(storedTheme) ? storedTheme : DEFAULT_THEME_PREFERENCE;
+    return migrateStoredScheme(storage?.getItem(THEME_STORAGE_KEY), schemes);
   } catch {
-    return DEFAULT_THEME_PREFERENCE;
+    return schemes[0]!.id;
   }
 };
 
-export const applyThemePreference = (root: ThemeRoot, theme: ThemePreference): void => {
-  root.setAttribute("data-theme", theme);
+let appliedTokens: string[] = [];
+
+/** Sets the data-theme attribute and any inline tokens of the scheme, removing the previous scheme's tokens. */
+export const applyThemePreference = (root: ThemeRoot, id: ThemePreference, schemes: readonly ColorScheme[] = COLOR_SCHEMES): void => {
+  const scheme = findScheme(id, schemes);
+  root.setAttribute("data-theme", scheme.id);
+  for (const name of appliedTokens) root.style?.removeProperty(name);
+  appliedTokens = [];
+  for (const [name, value] of Object.entries(scheme.tokens ?? {})) {
+    root.style?.setProperty(name, value);
+    appliedTokens.push(name);
+  }
 };
 
 export const initializeThemePreference = (
   root: ThemeRoot,
-  storage: ThemeStorage | undefined
+  storage: ThemeStorage | undefined,
+  schemes: readonly ColorScheme[] = COLOR_SCHEMES
 ): ThemePreference => {
-  const theme = readThemePreference(storage);
-  applyThemePreference(root, theme);
-  return theme;
+  const id = readThemePreference(storage, schemes);
+  applyThemePreference(root, id, schemes);
+  return id;
 };
 
 export const saveThemePreference = (
   root: ThemeRoot,
   storage: ThemeStorage | undefined,
-  theme: ThemePreference
+  id: ThemePreference,
+  schemes: readonly ColorScheme[] = COLOR_SCHEMES
 ): void => {
-  applyThemePreference(root, theme);
+  applyThemePreference(root, id, schemes);
   try {
-    storage?.setItem(THEME_STORAGE_KEY, theme);
+    storage?.setItem(THEME_STORAGE_KEY, findScheme(id, schemes).id);
   } catch {
     // Appearance remains usable when browser storage is unavailable.
   }

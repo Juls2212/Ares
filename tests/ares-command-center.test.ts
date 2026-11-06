@@ -5,9 +5,17 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventRecord, PlannerApi, ReminderRecord, TaskRecord, TodayScheduleData } from "../src/shared/planner-contracts";
 import { AresInformationPanels } from "../src/renderer/features/assistant/ares-information-panels";
 import { loadAresToday, summarizeAresToday } from "../src/renderer/features/assistant/ares-today-summary";
+import { loadAresHabitSummary, summarizeAresHabits } from "../src/renderer/features/assistant/ares-habit-summary";
 import { createLocalClockUpdater, formatLocalClockDate, formatLocalClockTime } from "../src/renderer/features/assistant/local-clock";
 import { VoiceCommandControls } from "../src/renderer/features/voice/voice-command-controls";
 import { AresView } from "../src/renderer/views/ares-view";
+import type { HabitDailyProgressData, HabitsApi } from "../src/shared/habit-contracts";
+
+const dailyHabits: HabitDailyProgressData = {
+  date: "2026-10-02",
+  completed: [{ habit: { id: "habit-complete", title: "Leer", description: null, categoryId: null, icon: "BOOK", frequency: "DAILY", targetCount: 1, active: true, createdAt: "2026-10-01T00:00:00-05:00", updatedAt: "2026-10-01T00:00:00-05:00" }, completed: true, completion: { id: "completion", habitId: "habit-complete", completedOn: "2026-10-02", completedAt: "2026-10-02T09:00:00-05:00" }, currentStreak: 2, longestStreak: 4 }],
+  pending: [{ habit: { id: "habit-pending", title: "Caminar", description: null, categoryId: null, icon: "RUNNING", frequency: "DAILY", targetCount: 1, active: true, createdAt: "2026-10-01T00:00:00-05:00", updatedAt: "2026-10-01T00:00:00-05:00" }, completed: false, completion: null, currentStreak: 0, longestStreak: 2 }]
+};
 
 const task = (status: TaskRecord["status"], priority: TaskRecord["priority"] = "MEDIUM", title: string = status): TaskRecord => ({
   id: status,
@@ -61,31 +69,29 @@ const schedule: TodayScheduleData = {
 };
 
 describe("Ares command-center information", () => {
-  it("renders the narrow panels around the centered command column in document order", () => {
+  it("renders the command core without mounting planner-oriented side panels", () => {
     const markup = renderToStaticMarkup(createElement(AresView, {
       technicalState: "SUCCESS",
       voiceLabel: "Listo para grabar",
       voiceState: "IDLE",
       orbState: "idle",
-      instruction: "",
       isInterpreting: false,
       draftStates: {},
-      onInstructionChange: vi.fn(),
-      onInterpret: vi.fn(),
       onStartRecording: vi.fn(),
       onCancelRecording: vi.fn(),
       onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     }));
-    const left = markup.indexOf("support-panel--left");
-    const core = markup.indexOf("command-core");
-    const right = markup.indexOf("support-panel--right");
+    const core = markup.indexOf("command-orb");
 
-    expect(left).toBeGreaterThan(-1);
-    expect(core).toBeGreaterThan(left);
-    expect(right).toBeGreaterThan(core);
-    expect(markup).toContain("¿En qué trabajamos hoy, Juli?");
-    expect(markup).toContain('aria-label="Iniciar grabación por voz"');
+    expect(core).toBeGreaterThan(-1);
+    expect(markup).not.toContain("support-panel--left");
+    expect(markup).not.toContain("support-panel--right");
+    expect(markup).not.toContain("Resumen de hoy");
+    expect(markup).not.toContain("Próximos eventos");
+    expect(markup).not.toContain("Hábitos de hoy");
+    expect(markup).toContain("Toca el orbe para hablar");
+    expect(markup).toContain('aria-label="Toca para hablar"');
     expect(markup).not.toContain("audio se enviará a OpenAI");
   });
 
@@ -137,6 +143,22 @@ describe("Ares command-center information", () => {
     expect(markup).toContain("No tienes recordatorios próximos.");
   });
 
+  it("renders only Main-authoritative habit progress, pending icons, and controlled states", async () => {
+    const ready = summarizeAresHabits(dailyHabits);
+    const readyMarkup = renderToStaticMarkup(createElement(AresInformationPanels, { today: { kind: "READY", data: summarizeAresToday(schedule, new Date("2026-10-02T09:00:00-05:00")) }, habits: { kind: "READY", data: ready } }));
+    expect(readyMarkup).toContain("Hábitos de hoy");
+    expect(readyMarkup).toMatch(/1<\/strong> de 2 completados/);
+    expect(readyMarkup).toContain("Caminar");
+    expect(readyMarkup).not.toContain("Leer</span>");
+
+    const habits = { getDailyProgress: vi.fn(async () => ({ ok: true as const, data: dailyHabits })) } as unknown as HabitsApi;
+    await expect(loadAresHabitSummary(habits, new Date(2026, 9, 2))).resolves.toEqual({ kind: "READY", data: ready });
+    expect(habits.getDailyProgress).toHaveBeenCalledWith({ date: "2026-10-02" });
+    expect(renderToStaticMarkup(createElement(AresInformationPanels, { today: { kind: "READY", data: summarizeAresToday(schedule, new Date()) }, habits: { kind: "READY", data: { completedCount: 0, totalCount: 0, pending: [] } } }))).toContain("No tienes hábitos activos para hoy.");
+    expect(renderToStaticMarkup(createElement(AresInformationPanels, { today: { kind: "READY", data: summarizeAresToday(schedule, new Date()) }, habits: { kind: "ERROR" } }))).toContain("No se pudieron cargar los hábitos.");
+    expect(renderToStaticMarkup(createElement(AresInformationPanels, { today: { kind: "ERROR" }, habits: { kind: "READY", data: ready } }))).toContain("1</strong> de 2 completados");
+  });
+
   it("keeps the voice entry compact by hiding redundant completed-processing feedback", () => {
     const markup = renderToStaticMarkup(createElement(VoiceCommandControls, {
       state: "IDLE",
@@ -145,7 +167,7 @@ describe("Ares command-center information", () => {
       onCancel: vi.fn()
     }));
 
-    expect(markup).toContain("¿En qué trabajamos hoy, Juli?");
+    expect(markup).toContain("Toca para hablar");
     expect(markup).toContain('aria-label="Iniciar grabación por voz"');
     expect(markup).not.toContain("Instrucción procesada.");
   });

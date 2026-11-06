@@ -10,6 +10,15 @@ import { createEventDeletionResolver } from "./assistant-event-reference";
 import { getPlannerService } from "../planner/planner-composition";
 import type { PlannerService } from "../planner/planner-service";
 import { createWeeklyScheduleReferenceResolver } from "../actions/weekly-schedule-analysis";
+import { createWeeklyScheduleMutationReferences } from "../actions/weekly-schedule-mutation-references";
+import { createHabitMutationReferences } from "../actions/habit-mutation-references";
+import { getHabitService } from "../habits/habit-composition";
+import type { HabitService } from "../habits/habit-service";
+import { HABIT_ICON_KEYS } from "../../shared/habit-contracts";
+import { getKnownApplicationProviderReferences } from "../applications/known-application-catalog";
+import { getSupervisedFileService } from "../files/supervised-file-composition";
+import { getMessagingService } from "../messaging/messaging-composition";
+import { getSpotifyAuthService } from "../spotify/spotify-composition";
 import {
   getAssistantContextService,
   type AssistantContextService
@@ -25,13 +34,17 @@ type AssistantInterpretationServiceDependencies = {
   getInterpreter: () => AssistantInterpreter;
   getApplicationService: () => Pick<ApplicationService, "listApplications">;
   getPlannerService?: () => Pick<PlannerService, "listWeeklySchedules">;
+  getHabitService?: () => Pick<HabitService, "list">;
   getContextService?: () => AssistantContextService;
+  /** Count-only view of the last file search; it never exposes names or paths. */
+  getActiveFileSearch?: () => { resultCount: number } | undefined;
 };
 
 const maximumTrustedApplicationAliases = 100;
 const maximumTrustedWeeklyScheduleTitles = 50;
+const maximumTrustedHabitTitles = 100;
 const requiresTrustedApplicationReferences = (actions: readonly string[]): boolean =>
-  actions.some((action) => action === "OPEN_APPLICATION" || action === "OPEN_WEB_PAGE");
+  actions.some((action) => action === "OPEN_APPLICATION");
 
 const toTrustedApplicationAliases = (
   applications: Awaited<ReturnType<ApplicationService["listApplications"]>>
@@ -53,6 +66,22 @@ const toTrustedWeeklyScheduleTitles = (
     .filter((title) => title.length > 0))]
     .slice(0, maximumTrustedWeeklyScheduleTitles);
 };
+
+const toTrustedHabitTitles = (
+  habits: Awaited<ReturnType<HabitService["list"]>>
+): string[] => {
+  if (!habits.ok) return [];
+  return [...new Set(habits.data.items
+    .filter((habit) => habit.active)
+    .map((habit) => habit.title.trim().replace(/\s+/g, " "))
+    .filter((title) => title.length > 0))]
+    .slice(0, maximumTrustedHabitTitles);
+};
+
+const supportedProviderContext = (context: ReturnType<AssistantContextService["getCachedProviderContext"]>) =>
+  context && ["TASK", "EVENT", "REMINDER", "APPLICATION"].includes(context.kind)
+    ? context
+    : undefined;
 
 const unavailable = (
   code: "ASSISTANT_BUSY" | "ASSISTANT_IPC_UNAVAILABLE"
@@ -114,10 +143,19 @@ export const createAssistantInterpretationService = (
         const initialWeeklySchedules = plannerService
           ? await plannerService.listWeeklySchedules({}).catch(() => undefined)
           : undefined;
+        const initialHabits = dependencies.getHabitService
+          ? await dependencies.getHabitService().list({}).catch(() => undefined)
+          : undefined;
         const reference = {
           knownApplicationAliases: initialApplications ? toTrustedApplicationAliases(initialApplications) : [],
+          knownCatalogApplications: getKnownApplicationProviderReferences(),
+          ...(dependencies.getActiveFileSearch?.() ? { activeFileSearch: dependencies.getActiveFileSearch() } : {}),
           ...(plannerService ? { knownWeeklyScheduleTitles: initialWeeklySchedules ? toTrustedWeeklyScheduleTitles(initialWeeklySchedules) : [] } : {}),
-          ...(cachedContext ? { currentContext: cachedContext } : {})
+          ...(dependencies.getHabitService ? {
+            knownHabitTitles: initialHabits ? toTrustedHabitTitles(initialHabits) : [],
+            allowedHabitIcons: [...HABIT_ICON_KEYS]
+          } : {}),
+          ...(supportedProviderContext(cachedContext) ? { currentContext: supportedProviderContext(cachedContext) } : {})
         };
         return await dependencies.getInterpreter().interpret(
           normalizedInput,
@@ -137,10 +175,14 @@ export const createAssistantInterpretationService = (
               webContentsId === undefined || !contextService
                 ? undefined
                 : await contextService.getValidated(webContentsId);
+            const providerContext = currentContext
+              ? supportedProviderContext(currentContext.providerContext)
+              : undefined;
             return {
               reference: {
                 knownApplicationAliases: trustedApplicationAliases,
-                ...(currentContext ? { currentContext: currentContext.providerContext } : {})
+                knownCatalogApplications: getKnownApplicationProviderReferences(),
+                ...(providerContext ? { currentContext: providerContext } : {})
               },
               currentContext
             };
@@ -161,10 +203,29 @@ export const getAssistantInterpretationService = (): AssistantInterpretationServ
   assistantInterpretationService ??= createAssistantInterpretationService({
     getInterpreter: () => createAssistantInterpreter({
       resolveEventDeletion: createEventDeletionResolver(getPlannerService),
-      resolveWeeklyScheduleTitle: createWeeklyScheduleReferenceResolver(getPlannerService)
+      resolveWeeklyScheduleTitle: createWeeklyScheduleReferenceResolver(getPlannerService),
+      resolveWeeklyScheduleMutationReferences: createWeeklyScheduleMutationReferences(getPlannerService),
+      resolveHabitMutationReferences: createHabitMutationReferences(() => ({
+        ...getHabitService(),
+        listCategories: getPlannerService().listCategories
+      })),
+      getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
+      resolveFoundFileName: (name) => getSupervisedFileService().resolveFoundFileByName(name),
+      resolveFoundFolderName: (name) => getSupervisedFileService().resolveFoundFolderByName(name),
+      resolveMessagingContact: (reference) => getMessagingService().resolveContactReference(reference),
+      hasActiveMessageDraft: () => getMessagingService().hasActiveDraft(),
+      isSpotifyConnected: async () => (await getSpotifyAuthService().getStatus()).connected,
+      isSpotifyAppRegistered: async () => {
+        const listed = await getApplicationService().listApplications({ enabled: true, limit: 100 });
+        return listed.ok && listed.data.items.some(
+          (record) => record.isEnabled && record.launchMode === "CATALOG_APPLICATION" && record.catalogKey === "SPOTIFY"
+        );
+      }
     }),
+    getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
     getApplicationService,
     getPlannerService,
+    getHabitService,
     getContextService: getAssistantContextService
   });
   return assistantInterpretationService;

@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { EventRecord, PlannerApi, TaskRecord } from "../src/shared/planner-contracts";
 import { CalendarDayDetails, canDeleteLoadedCalendarEvents, resolveSelectedCalendarEvent } from "../src/renderer/features/calendar/calendar-day-details";
-import { loadCalendarData } from "../src/renderer/features/calendar/calendar-data";
+import { loadCalendarData, loadCalendarRangeData } from "../src/renderer/features/calendar/calendar-data";
+import { CalendarAgendaView, CalendarDayView, CalendarWeekView } from "../src/renderer/features/calendar/calendar-date-views";
 import { CalendarEventDeleteDialog, handleCalendarDeleteDialogKey } from "../src/renderer/features/calendar/calendar-event-delete-dialog";
 import { CalendarEventEditDialog } from "../src/renderer/features/calendar/calendar-event-edit-dialog";
 import { eventEditValues, saveCalendarEventEdit } from "../src/renderer/features/calendar/calendar-event-editing";
@@ -23,6 +24,8 @@ import {
   groupCalendarRecordsByDay,
   monthStartFor,
   nextMonthStartFor,
+  addLocalCalendarDays,
+  mondayForLocalDate,
   toLocalCalendarDate,
   toLocalDateTimeWithOffset
 } from "../src/renderer/features/calendar/calendar-date-utils";
@@ -104,6 +107,11 @@ describe("calendar date helpers", () => {
   it("formats Spanish month names with a deliberate capitalized month identity", () => {
     expect(formatCalendarMonth(new Date(2026, 8, 1))).toBe("Septiembre de 2026");
   });
+
+  it("uses deterministic local day arithmetic and Monday week boundaries", () => {
+    expect(addLocalCalendarDays("2026-09-30", 1)).toBe("2026-10-01");
+    expect(mondayForLocalDate("2026-09-20")).toBe("2026-09-14");
+  });
 });
 
 describe("calendar month-grid density", () => {
@@ -146,6 +154,15 @@ describe("calendar month-grid density", () => {
 });
 
 describe("calendar planner reads", () => {
+  it("loads a bounded selected-date range through the existing explicit list APIs", async () => {
+    const planner = plannerWith(
+      Promise.resolve({ ok: true, data: { items: [task()], total: 1 } }),
+      Promise.resolve({ ok: true, data: { items: [event()], total: 1 } })
+    );
+    await expect(loadCalendarRangeData(planner, "2026-09-15", 14)).resolves.toMatchObject({ tasks: [task()], events: [event()] });
+    expect(planner.tasks.list).toHaveBeenCalledWith({ dueDateFrom: "2026-09-15", dueDateTo: "2026-09-28", includeCompleted: true });
+    expect(planner.events.list).toHaveBeenCalledOnce();
+  });
   it("loads tasks and events through only the approved list methods", async () => {
     const planner = plannerWith(
       Promise.resolve({ ok: true, data: { items: [task()], total: 1 } }),
@@ -199,6 +216,21 @@ describe("calendar planner reads", () => {
 });
 
 describe("calendar workspace presentation", () => {
+  it("keeps date-based planner views separate from the named weekly-routine view", () => {
+    expect(calendarViewSource).toContain('MONTH: "Mes", DAY: "Día", WEEK: "Semana", AGENDA: "Agenda"');
+    expect(calendarViewSource).toContain('<WeeklyRoutinePlanner');
+    expect(calendarViewSource).toContain('<CalendarWeekView');
+    expect(calendarViewSource).toContain('setSelectedDate(next)');
+  });
+
+  it("renders authoritative chronological day, week, and agenda entries with controlled empty states", () => {
+    const items = new Map([["2026-09-15", { tasks: [task()], events: [event()] }]]);
+    expect(renderToStaticMarkup(createElement(CalendarDayView, { selectedDate: "2026-09-15", itemsByDay: items }))).toContain("Tarea real");
+    expect(renderToStaticMarkup(createElement(CalendarWeekView, { selectedDate: "2026-09-14", itemsByDay: items }))).toContain("Evento real");
+    expect(renderToStaticMarkup(createElement(CalendarAgendaView, { selectedDate: "2026-09-15", itemsByDay: items }))).toContain("Martes");
+    expect(renderToStaticMarkup(createElement(CalendarAgendaView, { selectedDate: "2026-09-15", itemsByDay: new Map() }))).toContain("No hay tareas ni eventos próximos.");
+  });
+
   it("keeps a compact command header, one month plane, and the selected-day focus rail", () => {
     expect(calendarViewSource).toContain('className="calendar-header__identity"');
     expect(calendarViewSource).toContain('className="calendar-controls"');
@@ -215,9 +247,9 @@ describe("calendar workspace presentation", () => {
   });
 
   it("retains visible month controls and distinct keyboard-accessible date states", () => {
-    expect(calendarViewSource).toContain(">Mes anterior</button>");
+    expect(calendarViewSource).toContain(">Anterior</button>");
     expect(calendarViewSource).toContain(">Hoy</button>");
-    expect(calendarViewSource).toContain(">Mes siguiente</button>");
+    expect(calendarViewSource).toContain(">Siguiente</button>");
     expect(calendarStyles).toContain(".calendar-day.is-selected");
     expect(calendarStyles).toContain(".calendar-day.is-today::after");
     expect(calendarStyles).toContain(".calendar-day:focus-visible");
@@ -428,7 +460,7 @@ describe("calendar event deletion", () => {
     expect(cancelFlow).not.toContain("confirmCalendarEventDeletion(");
     expect(confirmFlow).toContain("if (!outcome.deleted)");
     expect(confirmFlow.indexOf("if (!outcome.deleted)")).toBeLessThan(confirmFlow.indexOf("setReloadVersion"));
-    expect(calendarViewSource).toContain("[displayedMonth, reloadVersion, plannerView]");
+    expect(calendarViewSource).toContain("[calendarView, displayedMonth, reloadVersion, plannerView, selectedDate]");
     expect(calendarViewSource).toContain('focusAfterClosing.current = "trigger"');
   });
 });

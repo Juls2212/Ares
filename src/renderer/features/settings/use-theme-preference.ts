@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 
+import { findScheme, nextScheme, type ColorScheme } from "./color-schemes";
 import {
   getBrowserThemeStorage,
   initializeThemePreference,
@@ -12,22 +13,26 @@ const getThemeRoot = (): HTMLElement | undefined =>
 
 const getInitialTheme = (): ThemePreference => {
   const root = getThemeRoot();
-  if (!root) return "light";
+  if (!root) return findScheme(undefined).id;
   return initializeThemePreference(root, getBrowserThemeStorage());
 };
 
+/** The active color scheme and a function that moves to the next one in the list, persisting the choice. */
 export const useThemePreference = (): {
-  theme: ThemePreference;
-  toggleTheme: () => void;
+  scheme: ColorScheme;
+  next: ColorScheme;
+  /** Moves to the next scheme and returns it. */
+  cycleScheme: () => ColorScheme;
 } => {
-  const [theme, setTheme] = useState<ThemePreference>(getInitialTheme);
+  const [schemeId, setSchemeId] = useState<ThemePreference>(getInitialTheme);
 
-  const toggleTheme = useCallback((): void => {
-    const nextTheme: ThemePreference = theme === "light" ? "dark" : "light";
+  const cycleScheme = useCallback((): ColorScheme => {
+    const target = nextScheme(schemeId);
     const root = getThemeRoot();
-    if (root) saveThemePreference(root, getBrowserThemeStorage(), nextTheme);
-    setTheme(nextTheme);
-  }, [theme]);
+    if (root) saveThemePreference(root, getBrowserThemeStorage(), target.id);
+    setSchemeId(target.id);
+    return target;
+  }, [schemeId]);
 
-  return { theme, toggleTheme };
+  return { scheme: findScheme(schemeId), next: nextScheme(schemeId), cycleScheme };
 };

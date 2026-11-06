@@ -17,6 +17,8 @@ const existingRecord = (name = "Example App", alias = "example-app"): Applicatio
   id: "550e8400-e29b-41d4-a716-446655440000",
   name,
   platform: "WINDOWS",
+  launchMode: "WINDOWS_EXECUTABLE",
+  catalogKey: null,
   isFavorite: false,
   isEnabled: true,
   lastLaunchedAt: null,

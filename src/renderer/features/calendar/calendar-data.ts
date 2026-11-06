@@ -1,5 +1,5 @@
 import type { PlannerApi, TaskRecord, EventRecord } from "../../../shared/planner-contracts";
-import { nextMonthStartFor, toLocalCalendarDate, toLocalDateTimeWithOffset } from "./calendar-date-utils";
+import { addLocalCalendarDays, localDateFromIso, nextMonthStartFor, toLocalCalendarDate, toLocalDateTimeWithOffset } from "./calendar-date-utils";
 
 export type CalendarLoadData = {
   tasks: TaskRecord[];
@@ -43,5 +43,29 @@ export const loadCalendarData = async (planner: PlannerApi | undefined, monthSta
     events: eventsResult.status === "fulfilled" && eventsResult.value ? eventsResult.value : [],
     ...(tasksResult.status === "fulfilled" && tasksResult.value !== undefined ? {} : { taskError: unavailableTasksMessage }),
     ...(eventsResult.status === "fulfilled" && eventsResult.value !== undefined ? {} : { eventError: unavailableEventsMessage })
+  };
+};
+
+/** Loads a bounded local-calendar range through the existing explicit task and event list APIs. */
+export const loadCalendarRangeData = async (
+  planner: PlannerApi | undefined,
+  startDate: string,
+  dayCount: number
+): Promise<CalendarLoadData> => {
+  if (!planner || !Number.isInteger(dayCount) || dayCount < 1 || dayCount > 42) {
+    return { tasks: [], events: [], taskError: unavailableTasksMessage, eventError: unavailableEventsMessage };
+  }
+  const rangeStart = localDateFromIso(startDate);
+  const endDate = addLocalCalendarDays(startDate, dayCount - 1);
+  const exclusiveEnd = localDateFromIso(addLocalCalendarDays(startDate, dayCount));
+  const [tasksResult, eventsResult] = await Promise.allSettled([
+    planner.tasks.list({ dueDateFrom: startDate, dueDateTo: endDate, includeCompleted: true }),
+    planner.events.list({ startAt: toLocalDateTimeWithOffset(rangeStart), endAt: toLocalDateTimeWithOffset(exclusiveEnd) })
+  ]);
+  return {
+    tasks: tasksResult.status === "fulfilled" && tasksResult.value.ok ? tasksResult.value.data.items : [],
+    events: eventsResult.status === "fulfilled" && eventsResult.value.ok ? eventsResult.value.data.items : [],
+    ...(tasksResult.status === "fulfilled" && tasksResult.value.ok ? {} : { taskError: unavailableTasksMessage }),
+    ...(eventsResult.status === "fulfilled" && eventsResult.value.ok ? {} : { eventError: unavailableEventsMessage })
   };
 };

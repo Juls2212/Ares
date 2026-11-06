@@ -91,6 +91,19 @@ describe("preload surface", () => {
     expect(IPC_CHANNELS.settings).toEqual({
       voice: { get: "settings:voice:get", update: "settings:voice:update" }
     });
+    expect(IPC_CHANNELS.messaging).toEqual({
+      contactFormRequested: "messaging:contact-form-requested",
+      submitContactForm: "messaging:contact-form:submit",
+      cancelContactForm: "messaging:contact-form:cancel"
+    });
+    expect(IPC_CHANNELS.habits).toEqual({
+      create: "habits:create",
+      list: "habits:list",
+      update: "habits:update",
+      complete: "habits:complete",
+      getDailyProgress: "habits:get-daily-progress",
+      getWeeklyProgress: "habits:get-weekly-progress"
+    });
   });
 
   it("exposes only the approved dashboard summary method", () => {
@@ -124,6 +137,16 @@ describe("preload surface", () => {
     expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.update, input");
     expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.delete, input");
     expect(preloadSource).not.toContain("database:");
+  });
+
+  it("exposes only explicit habit operations without raw IPC or database capability", () => {
+    expect(preloadSource).toContain("habits: {");
+    for (const operation of ["create", "list", "update", "complete", "getDailyProgress", "getWeeklyProgress"]) {
+      expect(preloadSource).toContain(`IPC_CHANNELS.habits.${operation}, input`);
+    }
+    expect(preloadSource).not.toContain("IPC_CHANNELS.habits.invoke");
+    expect(preloadSource).not.toContain("habits: {\n    database:");
+    expect(rendererGlobalSource).not.toContain("ipcRenderer");
   });
 
   it("exposes exactly the approved action methods", () => {
@@ -180,8 +203,23 @@ describe("preload surface", () => {
     expect(preloadSource).not.toContain("voice: {\n    start:");
     expect(preloadSource).not.toContain("getUserMedia:");
     expect(preloadSource).not.toContain("microphone:");
-    expect(preloadSource.match(/ipcRenderer\.on\(/g)).toHaveLength(1);
+    // The shortcut subscription and the Main-initiated contact form request are the only two listeners.
+    expect(preloadSource.match(/ipcRenderer\.on\(/g)).toHaveLength(2);
     expect(preloadSource).not.toContain("ipcRenderer.once(");
+  });
+
+  it("exposes three individually named messaging methods and no generic messaging, link or number access", () => {
+    expect(preloadSource).toContain("messaging: {");
+    expect(preloadSource).toContain("ipcRenderer.on(IPC_CHANNELS.messaging.contactFormRequested, listener)");
+    expect(preloadSource).toContain("removeListener(IPC_CHANNELS.messaging.contactFormRequested, listener)");
+    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.messaging.submitContactForm, input)");
+    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.messaging.cancelContactForm, input)");
+    const messagingBlock = preloadSource.slice(preloadSource.indexOf("messaging: {"), preloadSource.indexOf("speech: {"));
+    expect(Object.keys(IPC_CHANNELS.messaging)).toHaveLength(3);
+    expect(messagingBlock.match(/ipcRenderer\.invoke\(/g)).toHaveLength(2);
+    for (const forbidden of ["listContacts", "getContact", "getPhone", "send", "openChat", "openExternal", "whatsapp", "wa.me"]) {
+      expect(messagingBlock).not.toContain(forbidden);
+    }
   });
 
   it("exposes only approved voice-preference methods", () => {
