@@ -172,7 +172,7 @@ describe("trusted response speech", () => {
       data: { site: "YOUTUBE", mode: "HOME" }
     } as ActionOutcome);
 
-    expect(search).toBe("Listo, busqué en Spotify.");
+    expect(search).toBe("Busqué en Spotify en la web. Pulsa reproducir cuando quieras. Si registras la app de Spotify, el resultado es mejor.");
     expect(home).toBe("Listo, abrí YouTube.");
     expect(JSON.stringify({ search, home })).not.toContain("http");
     expect(composeFinalResponse({ action: "SEARCH_APPROVED_SITE", status: "EXECUTION_FAILED", data: { site: "SPOTIFY", mode: "SEARCH" } } as ActionOutcome)).toBeUndefined();

@@ -24,9 +24,44 @@ describe("assistant capability registry", () => {
     expect(ENABLED_ASSISTANT_CAPABILITIES.every((capability) => capability.label.length > 0)).toBe(true);
   });
 
-  it("reserves future domains without registering or enabling their actions", () => {
-    expect(CAPABILITY_DOMAINS).toEqual(["INTERNAL_MEMORY", "APPLICATIONS", "WEB", "FILES", "MESSAGING"]);
-    expect(ENABLED_ASSISTANT_CAPABILITIES.some((capability) => (capability.domain as string) === "MESSAGING")).toBe(false);
+  it("enables the FILES and MESSAGING domains only for their explicit action lists", () => {
+    expect(CAPABILITY_DOMAINS).toEqual(["INTERNAL_MEMORY", "APPLICATIONS", "WEB", "FILES", "MESSAGING", "MUSIC"]);
+    expect(ENABLED_ASSISTANT_CAPABILITIES.filter((capability) => capability.domain === "MUSIC").map((capability) => [capability.action, capability.approval, capability.executor]).sort())
+      .toEqual([
+        ["CONNECT_SPOTIFY", "CONFIRMATION_REQUIRED", "MUSIC"],
+        ["DISCONNECT_SPOTIFY", "CONFIRMATION_REQUIRED", "MUSIC"],
+        ["GET_SPOTIFY_STATUS", "DIRECT", "MUSIC"],
+        ["NEXT_SPOTIFY_TRACK", "DIRECT", "MUSIC"],
+        ["PAUSE_SPOTIFY", "DIRECT", "MUSIC"],
+        ["PLAY_SPOTIFY_MUSIC", "DIRECT", "MUSIC"],
+        ["PREVIOUS_SPOTIFY_TRACK", "DIRECT", "MUSIC"],
+        ["RESUME_SPOTIFY", "DIRECT", "MUSIC"],
+        ["SET_SPOTIFY_VOLUME", "DIRECT", "MUSIC"],
+        ["WHAT_IS_PLAYING", "DIRECT", "MUSIC"]
+      ]);
+    for (const action of ["SPOTIFY_REQUEST", "GET_SPOTIFY_TOKEN", "ADD_TO_PLAYLIST", "FOLLOW_ARTIST", "TRANSFER_PLAYBACK", "SEARCH_SPOTIFY"]) {
+      expect(getEnabledAssistantCapability(action)).toBeUndefined();
+    }
+    expect(ENABLED_ASSISTANT_CAPABILITIES.filter((capability) => capability.domain === "MESSAGING").map((capability) => capability.action).sort())
+      .toEqual([
+        "DELETE_CONTACT", "DISCARD_MESSAGE_DRAFT", "EDIT_MESSAGE_DRAFT", "LIST_CONTACTS",
+        "OPEN_WHATSAPP_CHAT_WITH_DRAFT", "PREPARE_MESSAGE_DRAFT", "SAVE_CONTACT"
+      ]);
+    expect(Object.fromEntries(
+      ENABLED_ASSISTANT_CAPABILITIES.filter((capability) => capability.domain === "MESSAGING").map((capability) => [capability.action, [capability.approval, capability.executor]])
+    )).toEqual({
+      SAVE_CONTACT: ["CONFIRMATION_REQUIRED", "MESSAGING"],
+      LIST_CONTACTS: ["DIRECT", "MESSAGING"],
+      DELETE_CONTACT: ["REINFORCED_CONFIRMATION_REQUIRED", "MESSAGING"],
+      PREPARE_MESSAGE_DRAFT: ["DIRECT", "MESSAGING"],
+      EDIT_MESSAGE_DRAFT: ["DIRECT", "MESSAGING"],
+      DISCARD_MESSAGE_DRAFT: ["DIRECT", "MESSAGING"],
+      OPEN_WHATSAPP_CHAT_WITH_DRAFT: ["CONFIRMATION_REQUIRED", "MESSAGING"]
+    });
+    expect(getEnabledAssistantCapability("SEARCH_SPOTIFY_APP")).toMatchObject({ domain: "APPLICATIONS", approval: "DIRECT", executor: "APPLICATION" });
+    for (const action of ["SEND_MESSAGE", "SEND_WHATSAPP", "OPEN_CHAT", "OPEN_URL", "READ_CONTACTS", "IMPORT_CONTACTS"]) {
+      expect(getEnabledAssistantCapability(action)).toBeUndefined();
+    }
     expect(ENABLED_ASSISTANT_CAPABILITIES.filter((capability) => capability.domain === "FILES").map((capability) => capability.action).sort())
       .toEqual([
         "CREATE_FOLDER", "DELETE_FOUND_ITEM", "MOVE_FOUND_ITEMS", "OPEN_FOUND_FILE",

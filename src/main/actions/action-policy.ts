@@ -28,6 +28,105 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       scopeSummary: "Aplicación registrada"
     }
   },
+  SEARCH_SPOTIFY_APP: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se abrirá la aplicación de Spotify en una búsqueda.",
+      affectedItemCount: 1,
+      scopeSummary: "Aplicación registrada"
+    }
+  },
+  CONNECT_SPOTIFY: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Ares abrirá la página de autorización de Spotify en tu navegador. Permite el control de la reproducción y vuelve aquí.",
+      affectedItemCount: 1,
+      scopeSummary: "Cuenta de Spotify"
+    }
+  },
+  DISCONNECT_SPOTIFY: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se borrarán las credenciales de Spotify guardadas en este equipo.",
+      affectedItemCount: 1,
+      scopeSummary: "Cuenta de Spotify"
+    }
+  },
+  GET_SPOTIFY_STATUS: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará si Spotify está conectado.",
+      affectedItemCount: null,
+      scopeSummary: "Estado local"
+    }
+  },
+  PLAY_SPOTIFY_MUSIC: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se buscará y reproducirá música en Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  PAUSE_SPOTIFY: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se pausará Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  RESUME_SPOTIFY: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se reanudará Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  NEXT_SPOTIFY_TRACK: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se pasará a la siguiente canción de Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  PREVIOUS_SPOTIFY_TRACK: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se volverá a la canción anterior de Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  SET_SPOTIFY_VOLUME: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se ajustará el volumen de Spotify.",
+      affectedItemCount: 1,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
+  WHAT_IS_PLAYING: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará qué está sonando en Spotify.",
+      affectedItemCount: null,
+      scopeSummary: "Reproducción de Spotify"
+    }
+  },
   REGISTER_CATALOG_APPLICATION: {
     approval: "CONFIRMATION_REQUIRED",
     availability: "IMPLEMENTED",
@@ -340,6 +439,69 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       summary: "Se marcará un hábito como completado hoy.",
       affectedItemCount: 1,
       scopeSummary: "Hábito existente"
+    }
+  },
+  SAVE_CONTACT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se guardará un contacto nuevo.",
+      affectedItemCount: 1,
+      scopeSummary: "Contacto nuevo"
+    }
+  },
+  LIST_CONTACTS: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultarán los nombres de tus contactos.",
+      affectedItemCount: null,
+      scopeSummary: "Contactos guardados"
+    }
+  },
+  DELETE_CONTACT: {
+    approval: "REINFORCED_CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se eliminará un contacto guardado.",
+      affectedItemCount: 1,
+      scopeSummary: "Contacto guardado"
+    }
+  },
+  PREPARE_MESSAGE_DRAFT: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se preparará un borrador de mensaje. No se enviará.",
+      affectedItemCount: 1,
+      scopeSummary: "Borrador local"
+    }
+  },
+  EDIT_MESSAGE_DRAFT: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se cambiará el texto del borrador. No se enviará.",
+      affectedItemCount: 1,
+      scopeSummary: "Borrador local"
+    }
+  },
+  DISCARD_MESSAGE_DRAFT: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se descartará el borrador de mensaje.",
+      affectedItemCount: 1,
+      scopeSummary: "Borrador local"
+    }
+  },
+  OPEN_WHATSAPP_CHAT_WITH_DRAFT: {
+    approval: "CONFIRMATION_REQUIRED",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se abrirá WhatsApp con el borrador. Tú pulsas enviar; Ares no envía nada.",
+      affectedItemCount: 1,
+      scopeSummary: "Chat de WhatsApp"
     }
   },
   OPEN_REGISTERED_APPLICATION: {

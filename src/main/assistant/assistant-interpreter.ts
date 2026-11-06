@@ -1,4 +1,5 @@
 import {
+  SPOTIFY_SEARCH_KINDS,
   WEB_BROWSERS,
   WEB_DESTINATIONS,
   type ActionSubmission
@@ -79,6 +80,18 @@ import type { HabitMutationReferences } from "../actions/habit-mutation-referenc
 import { validateCreateHabitInput, validateUpdateHabitInput } from "../habits/habit-validation";
 import { isEnabledAssistantAction } from "../actions/capability-registry";
 import { validateApprovedWebActionInput } from "../actions/approved-web-action-executor";
+import { parseMessagingCommand } from "./messaging-phrases";
+import { parseStreamingCommand } from "./streaming-phrases";
+import { parseSpotifyControlCommand } from "./spotify-control-phrases";
+import { validateSpotifySearchQuery } from "../applications/spotify-search";
+import type { ContactResolution } from "../messaging/messaging-service";
+import { MESSAGING_FAILURES } from "../messaging/messaging-failures";
+import {
+  sanitizeMessageBody,
+  toLookupKey,
+  validateContactAliases,
+  validateContactName
+} from "../messaging/messaging-validation";
 
 const MAX_INSTRUCTION_LENGTH = 2_000;
 const MAX_DRAFTS = 8;
@@ -104,6 +117,14 @@ export type AssistantInterpreterDependencies = {
   resolveFoundFileName?: (name: string) => FoundFileNameResolution;
   /** Main-side matching of a spoken folder name against FOLDER entries of the last search. */
   resolveFoundFolderName?: (name: string) => FoundFileNameResolution;
+  /** Main-side matching of a spoken contact reference; contact names and numbers never reach the provider. */
+  resolveMessagingContact?: (reference: string) => Promise<ContactResolution>;
+  /** Whether a message draft is active; the draft itself is never exposed to the interpreter. */
+  hasActiveMessageDraft?: () => boolean;
+  /** Whether Spotify is registered and enabled; used only to choose between the app and the web search. */
+  isSpotifyAppRegistered?: () => Promise<boolean>;
+  /** Local connection state of the Spotify Web API; it decides whether «pon X» plays or asks to connect. */
+  isSpotifyConnected?: () => Promise<boolean>;
 };
 
 export type TrustedAssistantReference = {
@@ -327,6 +348,327 @@ const resolveFoundFileCommand = (
   const resolution = resolveFoundFileName(name);
   if (resolution.state === "RESOLVED") return readyDraft(resolution.ordinal);
   return resolution.state === "AMBIGUOUS" ? clarification(FOUND_FILE_AMBIGUOUS) : undefined;
+};
+
+type MessagingInterpretationDependencies = Pick<
+  AssistantInterpreterDependencies,
+  "resolveMessagingContact" | "hasActiveMessageDraft"
+>;
+
+const MESSAGING_DRAFT_ACTIONS = [
+  "SAVE_CONTACT",
+  "LIST_CONTACTS",
+  "DELETE_CONTACT",
+  "PREPARE_MESSAGE_DRAFT",
+  "EDIT_MESSAGE_DRAFT",
+  "DISCARD_MESSAGE_DRAFT",
+  "OPEN_WHATSAPP_CHAT_WITH_DRAFT"
+] as const;
+
+const isMessagingDraftAction = (action: unknown): boolean =>
+  typeof action === "string" && (MESSAGING_DRAFT_ACTIONS as readonly string[]).includes(action);
+
+const PHONE_IN_VOICE_QUESTION =
+  "No me dictes el número por voz. Dime solo el nombre del contacto y escribirás el número en un formulario.";
+const SAVE_NEEDS_NAME = "¿Cómo se llama el contacto que quieres guardar?";
+const DRAFT_NEEDS_RECIPIENT = "¿A quién quieres escribirle?";
+const DRAFT_NEEDS_BODY = "¿Qué quieres decirle? Solo prepararé un borrador; no lo enviaré.";
+const EDIT_NEEDS_BODY = "¿Por qué texto quieres cambiar el mensaje?";
+const OPEN_CHAT_NAMED_QUESTION =
+  "Solo puedo abrir el chat del mensaje que preparaste. Di «envíalo» para abrirlo en WhatsApp y pulsar enviar tú.";
+
+const PHONE_DIGITS_IN_TEXT = /\d(?:[\s().-]*\d){6,}/u;
+const CONTACT_SAVE_INTENT =
+  /\b(?:guarda|guardar|agrega|agregar|a[ñn]ade|a[ñn]adir|crea|crear|registra|registrar|anota|apunta)\b.*\b(?:contacto|n[uú]mero|tel[eé]fono|celular)\b/iu;
+
+/** A number said aloud must not reach the provider: the contact form is the only place to enter it. */
+const getPhoneInVoiceClarification = (instruction: string): AssistantOperationResult<AssistantInterpretation> | undefined =>
+  PHONE_DIGITS_IN_TEXT.test(instruction) && CONTACT_SAVE_INTENT.test(instruction)
+    ? clarification(PHONE_IN_VOICE_QUESTION)
+    : undefined;
+
+const resolveContactForDraft = async (
+  reference: string,
+  dependencies: MessagingInterpretationDependencies
+): Promise<{ displayName: string } | { question: string }> => {
+  if (!dependencies.resolveMessagingContact) return { displayName: reference };
+  const resolution = await dependencies.resolveMessagingContact(reference);
+  if (resolution.state === "RESOLVED") return { displayName: resolution.displayName };
+  return {
+    question:
+      resolution.state === "AMBIGUOUS"
+        ? MESSAGING_FAILURES.MESSAGING_CONTACT_AMBIGUOUS
+        : resolution.state === "UNAVAILABLE"
+          ? MESSAGING_FAILURES.MESSAGING_STORAGE_UNAVAILABLE
+          : MESSAGING_FAILURES.MESSAGING_CONTACT_NOT_FOUND
+  };
+};
+
+/**
+ * «guarda un contacto llamado Mamá», «qué contactos tengo», «escríbele a Mamá que llego en diez minutos»,
+ * «cámbialo por …» and «descarta el mensaje» are classified and resolved in Main before any provider call.
+ * A request to send or to open the chat only receives the fixed notice that nothing is sent yet, and
+ * another channel only receives the fixed notice that WhatsApp drafts are the only option.
+ */
+const resolveMessagingCommand = async (
+  instruction: string,
+  dependencies: MessagingInterpretationDependencies
+): Promise<AssistantOperationResult<AssistantInterpretation> | undefined> => {
+  const command = parseMessagingCommand(instruction);
+  if (!command) return getPhoneInVoiceClarification(instruction);
+  const ready = (action: string, input: unknown): AssistantOperationResult<AssistantInterpretation> =>
+    success({
+      state: "READY",
+      summary: READY_SUMMARY,
+      drafts: [{ action, input } as ActionSubmission],
+      clarifications: []
+    });
+  const hasDraft = dependencies.hasActiveMessageDraft?.() ?? false;
+
+  switch (command.kind) {
+    case "PHONE_IN_VOICE":
+      return clarification(PHONE_IN_VOICE_QUESTION);
+    case "SAVE_CONTACT_INCOMPLETE":
+      return clarification(SAVE_NEEDS_NAME);
+    case "SAVE_CONTACT": {
+      const name = validateContactName(command.name);
+      return name.ok ? ready("SAVE_CONTACT", { contactName: name.data.displayName }) : clarification(name.error.userMessage);
+    }
+    case "LIST_CONTACTS":
+      return ready("LIST_CONTACTS", {});
+    case "DELETE_CONTACT": {
+      const resolved = await resolveContactForDraft(command.name, dependencies);
+      return "question" in resolved ? clarification(resolved.question) : ready("DELETE_CONTACT", { contactName: resolved.displayName });
+    }
+    case "DRAFT_INCOMPLETE":
+      return clarification(command.missing === "RECIPIENT" ? DRAFT_NEEDS_RECIPIENT : DRAFT_NEEDS_BODY);
+    case "OTHER_CHANNEL_REQUEST":
+      return clarification(MESSAGING_FAILURES.MESSAGING_UNSUPPORTED_CHANNEL);
+    case "PREPARE_DRAFT": {
+      if (command.channel !== "WHATSAPP") return clarification(MESSAGING_FAILURES.MESSAGING_UNSUPPORTED_CHANNEL);
+      const body = sanitizeMessageBody(command.body);
+      if (!body.ok) return clarification(body.error.userMessage);
+      const resolved = await resolveContactForDraft(command.recipient, dependencies);
+      return "question" in resolved
+        ? clarification(resolved.question)
+        : ready("PREPARE_MESSAGE_DRAFT", { recipient: resolved.displayName, body: body.data, channel: "WHATSAPP" });
+    }
+    case "EDIT_INCOMPLETE":
+      return clarification(hasDraft ? EDIT_NEEDS_BODY : MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+    case "EDIT_DRAFT": {
+      if (!hasDraft) return clarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+      const body = sanitizeMessageBody(command.body);
+      return body.ok ? ready("EDIT_MESSAGE_DRAFT", { body: body.data }) : clarification(body.error.userMessage);
+    }
+    case "DISCARD_DRAFT":
+      return hasDraft ? ready("DISCARD_MESSAGE_DRAFT", {}) : clarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+    case "SEND_REQUEST":
+    case "OPEN_CHAT_REQUEST":
+      return hasDraft
+        ? ready("OPEN_WHATSAPP_CHAT_WITH_DRAFT", {})
+        : clarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+    case "OPEN_CHAT_NAMED":
+      return clarification(OPEN_CHAT_NAMED_QUESTION);
+  }
+};
+
+const mentionsInInstruction = (instruction: string, value: string): boolean => {
+  const key = toLookupKey(value);
+  return key.length > 0 && toLookupKey(instruction).includes(key);
+};
+
+/**
+ * Validates a provider draft for the MESSAGING actions with the same closed rules as the deterministic
+ * path. Names and the message text must come from what the person said, and the provider never supplies
+ * a number: the strict output schema has no field for one.
+ */
+const validateMessagingProviderDraft = async (
+  candidate: UnknownRecord,
+  instruction: string,
+  dependencies: MessagingInterpretationDependencies
+): Promise<DraftValidationResult> => {
+  const action = candidate.action as (typeof MESSAGING_DRAFT_ACTIONS)[number];
+  if (candidate.input != null || (candidate.messagingAction != null && !isRecord(candidate.messagingAction))) return null;
+  const fields: UnknownRecord = isRecord(candidate.messagingAction)
+    ? Object.fromEntries(Object.entries(candidate.messagingAction).filter(([, value]) => value !== null))
+    : {};
+  const only = (allowed: readonly string[]): boolean => hasOnlyKeys(fields, allowed);
+  if (action === "OPEN_WHATSAPP_CHAT_WITH_DRAFT") {
+    if (Object.keys(fields).length !== 0) return null;
+    return dependencies.hasActiveMessageDraft?.() ?? false
+      ? ({ action, input: {} } as ActionSubmission)
+      : draftClarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+  }
+  if ((action === "LIST_CONTACTS" || action === "DISCARD_MESSAGE_DRAFT") && Object.keys(fields).length === 0) {
+    return { action, input: {} } as ActionSubmission;
+  }
+  if (action === "LIST_CONTACTS" || action === "DISCARD_MESSAGE_DRAFT") return null;
+
+  if (action === "SAVE_CONTACT") {
+    if (!only(["contactName", "aliases"])) return null;
+    const name = validateContactName(fields.contactName);
+    if (!name.ok) return draftClarification(SAVE_NEEDS_NAME);
+    const aliases = validateContactAliases(fields.aliases);
+    if (!aliases.ok) return draftClarification(aliases.error.userMessage);
+    if (!mentionsInInstruction(instruction, name.data.displayName)) return draftClarification(SAVE_NEEDS_NAME);
+    if (!aliases.data.every((alias) => mentionsInInstruction(instruction, alias.displayName))) return null;
+    return {
+      action,
+      input: {
+        contactName: name.data.displayName,
+        ...(aliases.data.length === 0 ? {} : { aliases: aliases.data.map((alias) => alias.displayName) })
+      }
+    } as ActionSubmission;
+  }
+  if (action === "DELETE_CONTACT") {
+    if (!only(["contactName"]) || typeof fields.contactName !== "string") return draftClarification(MESSAGING_FAILURES.MESSAGING_CONTACT_NOT_FOUND);
+    const resolved = await resolveContactForDraft(fields.contactName, dependencies);
+    return "question" in resolved
+      ? draftClarification(resolved.question)
+      : ({ action, input: { contactName: resolved.displayName } } as ActionSubmission);
+  }
+  if (action === "PREPARE_MESSAGE_DRAFT") {
+    if (!only(["recipient", "body", "channel"])) return null;
+    if (fields.channel !== undefined && fields.channel !== "WHATSAPP") return draftClarification(MESSAGING_FAILURES.MESSAGING_UNSUPPORTED_CHANNEL);
+    if (typeof fields.recipient !== "string") return draftClarification(DRAFT_NEEDS_RECIPIENT);
+    const body = sanitizeMessageBody(fields.body);
+    if (!body.ok) return draftClarification(typeof fields.body === "string" ? body.error.userMessage : DRAFT_NEEDS_BODY);
+    if (!mentionsInInstruction(instruction, body.data)) return draftClarification(DRAFT_NEEDS_BODY);
+    const resolved = await resolveContactForDraft(fields.recipient, dependencies);
+    return "question" in resolved
+      ? draftClarification(resolved.question)
+      : ({ action, input: { recipient: resolved.displayName, body: body.data, channel: "WHATSAPP" } } as ActionSubmission);
+  }
+  // EDIT_MESSAGE_DRAFT
+  if (!only(["body"])) return null;
+  if (!(dependencies.hasActiveMessageDraft?.() ?? false)) return draftClarification(MESSAGING_FAILURES.MESSAGING_NO_DRAFT);
+  const body = sanitizeMessageBody(fields.body);
+  if (!body.ok) return draftClarification(typeof fields.body === "string" ? body.error.userMessage : EDIT_NEEDS_BODY);
+  if (!mentionsInInstruction(instruction, body.data)) return draftClarification(EDIT_NEEDS_BODY);
+  return { action, input: { body: body.data } } as ActionSubmission;
+};
+
+const NOT_CONNECTED_QUESTION =
+  "Para reproducir música necesito conectar tu cuenta de Spotify. Di «conecta Spotify».";
+const APP_SEARCH_HINT = " Mientras tanto, «busca algo en Spotify» abre la búsqueda en la aplicación.";
+const VOLUME_QUESTION = "El volumen debe estar entre 0 y 100.";
+
+const isSpotifyConnected = async (dependencies: StreamingInterpretationDependencies): Promise<boolean> => {
+  try {
+    return (await dependencies.isSpotifyConnected?.()) ?? false;
+  } catch {
+    return false;
+  }
+};
+
+/** Asks to connect instead of playing; it never falls back silently to another route. */
+const notConnectedQuestion = async (dependencies: StreamingInterpretationDependencies): Promise<string> =>
+  (await isSpotifyRegistered(dependencies)) ? `${NOT_CONNECTED_QUESTION}${APP_SEARCH_HINT}` : NOT_CONNECTED_QUESTION;
+
+/** «conecta Spotify», «pausa», «siguiente», «sube el volumen», «qué está sonando»: classified in Main, no provider. */
+const resolveSpotifyControlCommand = (instruction: string): AssistantOperationResult<AssistantInterpretation> | undefined => {
+  const command = parseSpotifyControlCommand(instruction);
+  if (!command) return undefined;
+  const ready = (action: string, input: unknown): AssistantOperationResult<AssistantInterpretation> =>
+    success({ state: "READY", summary: READY_SUMMARY, drafts: [{ action, input } as ActionSubmission], clarifications: [] });
+  switch (command.kind) {
+    case "CONNECT": return ready("CONNECT_SPOTIFY", {});
+    case "DISCONNECT": return ready("DISCONNECT_SPOTIFY", {});
+    case "STATUS": return ready("GET_SPOTIFY_STATUS", {});
+    case "PAUSE": return ready("PAUSE_SPOTIFY", {});
+    case "RESUME": return ready("RESUME_SPOTIFY", {});
+    case "NEXT": return ready("NEXT_SPOTIFY_TRACK", {});
+    case "PREVIOUS": return ready("PREVIOUS_SPOTIFY_TRACK", {});
+    case "WHAT_IS_PLAYING": return ready("WHAT_IS_PLAYING", {});
+    case "VOLUME_CHANGE": return ready("SET_SPOTIFY_VOLUME", { change: command.direction });
+    case "VOLUME_LEVEL": return ready("SET_SPOTIFY_VOLUME", { level: command.level });
+    case "VOLUME_INVALID": return clarification(VOLUME_QUESTION);
+  }
+};
+
+type StreamingInterpretationDependencies = {
+  isSpotifyAppRegistered?: () => Promise<boolean>;
+  isSpotifyConnected?: () => Promise<boolean>;
+};
+
+const SPOTIFY_QUERY_QUESTION = "Indica qué canción, artista o álbum quieres buscar en Spotify.";
+const WEB_QUERY_QUESTION = "Indica una búsqueda válida para Google, YouTube o Spotify.";
+
+const isSpotifyRegistered = async (dependencies: StreamingInterpretationDependencies): Promise<boolean> => {
+  try {
+    return (await dependencies.isSpotifyAppRegistered?.()) ?? false;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * «busca/pon/reproduce X en Spotify» and «pon música de X» open the registered Spotify app on a search, or fall
+ * back to the approved Spotify web search when the app is not registered; exactly one of them, never both.
+ * «busca X en Google/YouTube», «pon X en YouTube» and «abre Google/YouTube» use the approved web actions. A
+ * registered application alias with the same name keeps priority and falls through to the provider.
+ */
+const resolveStreamingCommand = async (
+  instruction: string,
+  knownAliases: readonly string[],
+  dependencies: StreamingInterpretationDependencies
+): Promise<AssistantOperationResult<AssistantInterpretation> | undefined> => {
+  const command = parseStreamingCommand(instruction);
+  if (!command) return undefined;
+  const ready = (action: string, input: unknown): AssistantOperationResult<AssistantInterpretation> =>
+    success({ state: "READY", summary: READY_SUMMARY, drafts: [{ action, input } as ActionSubmission], clarifications: [] });
+
+  if (command.kind === "SPOTIFY_SEARCH") {
+    const query = validateSpotifySearchQuery(command.query);
+    if (!query) return clarification(SPOTIFY_QUERY_QUESTION);
+    if (command.playRequested) {
+      return (await isSpotifyConnected(dependencies))
+        ? ready("PLAY_SPOTIFY_MUSIC", { query, ...(command.searchKind === "ANY" ? {} : { kind: command.searchKind }) })
+        : clarification(await notConnectedQuestion(dependencies));
+    }
+    if (await isSpotifyRegistered(dependencies)) {
+      return ready("SEARCH_SPOTIFY_APP", {
+        query,
+        ...(command.searchKind === "ANY" ? {} : { kind: command.searchKind }),
+        ...(command.playRequested ? { playRequested: true } : {})
+      });
+    }
+    const web = validateApprovedWebActionInput("SEARCH_APPROVED_SITE", { site: "SPOTIFY", query });
+    return web ? ready("SEARCH_APPROVED_SITE", web.input) : clarification(WEB_QUERY_QUESTION);
+  }
+
+  const siteAlias = normalizeApplicationAlias(command.site);
+  if (knownAliases.some((alias) => normalizeApplicationAlias(alias) === siteAlias)) return undefined;
+  if (command.kind === "WEB_OPEN") return ready("OPEN_APPROVED_PAGE", { site: command.site });
+  const web = validateApprovedWebActionInput("SEARCH_APPROVED_SITE", { site: command.site, query: command.query });
+  return web ? ready("SEARCH_APPROVED_SITE", web.input) : clarification(WEB_QUERY_QUESTION);
+};
+
+/** The model may name either Spotify route; Main keeps it consistent with whether the app is registered. */
+const reconcileSpotifyRouting = async (
+  draft: ActionSubmission,
+  dependencies: StreamingInterpretationDependencies
+): Promise<ActionSubmission | { clarification: string }> => {
+  if (draft.action === "PLAY_SPOTIFY_MUSIC") {
+    return (await isSpotifyConnected(dependencies)) ? draft : { clarification: await notConnectedQuestion(dependencies) };
+  }
+  if (draft.action === "SEARCH_SPOTIFY_APP" && draft.input.playRequested === true) {
+    if (!(await isSpotifyConnected(dependencies))) return { clarification: await notConnectedQuestion(dependencies) };
+    return {
+      action: "PLAY_SPOTIFY_MUSIC",
+      input: { query: draft.input.query, ...(draft.input.kind && draft.input.kind !== "ANY" ? { kind: draft.input.kind } : {}) }
+    };
+  }
+  if (draft.action === "SEARCH_SPOTIFY_APP") {
+    if (await isSpotifyRegistered(dependencies)) return draft;
+    const web = validateApprovedWebActionInput("SEARCH_APPROVED_SITE", { site: "SPOTIFY", query: draft.input.query });
+    return web ? ({ action: web.action, input: web.input } as ActionSubmission) : draft;
+  }
+  if (draft.action === "SEARCH_APPROVED_SITE" && draft.input.site === "SPOTIFY" && (await isSpotifyRegistered(dependencies))) {
+    const query = validateSpotifySearchQuery(draft.input.query);
+    return query ? { action: "SEARCH_SPOTIFY_APP", input: { query } } : draft;
+  }
+  return draft;
 };
 
 const rejection = (
@@ -934,6 +1276,58 @@ const validateDraft = async (
       }
       return { action, input: { destination: "YOUTUBE", browser: "CHROME" } };
     }
+    case "CONNECT_SPOTIFY":
+    case "DISCONNECT_SPOTIFY":
+    case "GET_SPOTIFY_STATUS":
+    case "PAUSE_SPOTIFY":
+    case "RESUME_SPOTIFY":
+    case "NEXT_SPOTIFY_TRACK":
+    case "PREVIOUS_SPOTIFY_TRACK":
+    case "WHAT_IS_PLAYING":
+      return isRecord(input) && hasOnlyKeys(input, []) ? { action, input: {} } : null;
+    case "PLAY_SPOTIFY_MUSIC": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["query", "kind"])) return null;
+      const query = validateSpotifySearchQuery(input.query);
+      if (!query) return draftClarification(SPOTIFY_QUERY_QUESTION);
+      if (input.kind !== undefined && !(SPOTIFY_SEARCH_KINDS as readonly unknown[]).includes(input.kind)) return null;
+      if (!normalizeApplicationAlias(instruction).includes(normalizeApplicationAlias(query))) {
+        return draftClarification(SPOTIFY_QUERY_QUESTION);
+      }
+      return {
+        action,
+        input: {
+          query,
+          ...(input.kind === undefined || input.kind === "ANY" ? {} : { kind: input.kind as (typeof SPOTIFY_SEARCH_KINDS)[number] })
+        }
+      };
+    }
+    case "SET_SPOTIFY_VOLUME": {
+      if (!isRecord(input) || Object.keys(input).length !== 1) return draftClarification(VOLUME_QUESTION);
+      if (typeof input.level === "number" && Number.isInteger(input.level) && input.level >= 0 && input.level <= 100) {
+        return { action, input: { level: input.level } };
+      }
+      if (input.change === "UP" || input.change === "DOWN") return { action, input: { change: input.change } };
+      return draftClarification(VOLUME_QUESTION);
+    }
+    case "SEARCH_SPOTIFY_APP": {
+      if (!isRecord(input) || !hasOnlyKeys(input, ["query", "kind", "playRequested"])) return null;
+      const query = validateSpotifySearchQuery(input.query);
+      if (!query) return draftClarification(SPOTIFY_QUERY_QUESTION);
+      if (input.kind !== undefined && !(SPOTIFY_SEARCH_KINDS as readonly unknown[]).includes(input.kind)) return null;
+      if (input.playRequested !== undefined && typeof input.playRequested !== "boolean") return null;
+      // The query must come from what the person said, not from the model.
+      if (!normalizeApplicationAlias(instruction).includes(normalizeApplicationAlias(query))) {
+        return draftClarification(SPOTIFY_QUERY_QUESTION);
+      }
+      return {
+        action,
+        input: {
+          query,
+          ...(input.kind === undefined || input.kind === "ANY" ? {} : { kind: input.kind as (typeof SPOTIFY_SEARCH_KINDS)[number] }),
+          ...(input.playRequested === true ? { playRequested: true } : {})
+        }
+      };
+    }
     case "SEARCH_FILES": {
       // Only a short name fragment plus closed enums; the model never supplies a path or root location.
       if (!isRecord(input) || !hasOnlyKeys(input, ["query", "root", "kind"])) return null;
@@ -1100,6 +1494,14 @@ const parseCandidateInput = (candidate: UnknownRecord): unknown => {
     // A null or false optional is "not given"; the closed validators then see only what was really supplied.
     return Object.fromEntries(Object.entries(candidate.filesAction).filter(([key, value]) => value !== null && !(key === "all" && value === false)));
   }
+  if (candidate.action === "SET_SPOTIFY_VOLUME") {
+    if (candidate.input !== null || !isRecord(candidate.spotifyControl)) return undefined;
+    return Object.fromEntries(Object.entries(candidate.spotifyControl).filter(([, value]) => value !== null));
+  }
+  if (candidate.action === "SEARCH_SPOTIFY_APP" || candidate.action === "PLAY_SPOTIFY_MUSIC") {
+    if (candidate.input !== null || !isRecord(candidate.spotifySearch)) return undefined;
+    return Object.fromEntries(Object.entries(candidate.spotifySearch).filter(([, value]) => value !== null));
+  }
   if (candidate.action === "REGISTER_CATALOG_APPLICATION") {
     if (candidate.input !== null || !isRecord(candidate.catalogApplication)) return undefined;
     const { catalogKey, alias } = candidate.catalogApplication;
@@ -1157,6 +1559,9 @@ const parseCandidateInput = (candidate: UnknownRecord): unknown => {
     (candidate.approvedWeb !== undefined && candidate.approvedWeb !== null)
     || (candidate.catalogApplication !== undefined && candidate.catalogApplication !== null)
     || (candidate.filesAction !== undefined && candidate.filesAction !== null)
+    || (candidate.messagingAction !== undefined && candidate.messagingAction !== null)
+    || (candidate.spotifySearch !== undefined && candidate.spotifySearch !== null)
+    || (candidate.spotifyControl !== undefined && candidate.spotifyControl !== null)
   ) return undefined;
   return parseDraftInput(candidate.input);
 };
@@ -1173,7 +1578,9 @@ const parseProviderOutput = async (
   instruction = "",
   resolveTrustedReference?: TrustedAssistantReferenceResolver,
   resolveFoundFileName?: AssistantInterpreterDependencies["resolveFoundFileName"],
-  resolveFoundFolderName?: AssistantInterpreterDependencies["resolveFoundFolderName"]
+  resolveFoundFolderName?: AssistantInterpreterDependencies["resolveFoundFolderName"],
+  messagingDependencies: MessagingInterpretationDependencies = {},
+  streamingDependencies: StreamingInterpretationDependencies = {}
 ): Promise<AssistantOperationResult<AssistantInterpretation>> => {
   if (typeof raw !== "string") {
     return rejection(ASSISTANT_ERROR_CODES.malformed);
@@ -1243,7 +1650,7 @@ const parseProviderOutput = async (
   }
   const drafts: ActionSubmission[] = [];
   for (const [index, candidate] of parsed.drafts.entries()) {
-    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "weeklyRoutine", "habitAction", "approvedWeb", "catalogApplication", "filesAction"])) {
+    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "weeklyRoutine", "habitAction", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "spotifySearch", "spotifyControl"])) {
       return rejection(ASSISTANT_ERROR_CODES.malformed);
     }
     let effective: UnknownRecord = candidate;
@@ -1273,7 +1680,10 @@ const parseProviderOutput = async (
       if (resolution.state !== "RESOLVED") return clarification(`El borrador ${index + 1}: ${FOUND_FILE_UNMATCHED}`);
       effective = { ...candidate, filesAction: { ordinal: resolution.ordinal } };
     }
-    const draft = await validateDraft(
+    const messagingDraft = isMessagingDraftAction(effective.action)
+      ? await validateMessagingProviderDraft(effective, instruction, messagingDependencies)
+      : undefined;
+    const draft = messagingDraft !== undefined ? messagingDraft : await validateDraft(
       { action: effective.action, input: parseCandidateInput(effective) },
       trustedReference,
       temporalResolver,
@@ -1286,7 +1696,10 @@ const parseProviderOutput = async (
     );
     if (isDraftClarification(draft)) return clarification(`El borrador ${index + 1}: ${draft.question}`);
     if (!draft) return rejection(ASSISTANT_ERROR_CODES.rejected);
-    for (const expandedDraft of Array.isArray(draft) ? draft : [draft]) {
+    for (const providerDraft of Array.isArray(draft) ? draft : [draft]) {
+      const reconciled = await reconcileSpotifyRouting(providerDraft, streamingDependencies);
+      if ("clarification" in reconciled) return clarification(`El borrador ${index + 1}: ${reconciled.clarification}`);
+      const expandedDraft = reconciled;
       if (!drafts.some((existing) => existing.action === expandedDraft.action && JSON.stringify(existing.input) === JSON.stringify(expandedDraft.input))) {
         drafts.push(expandedDraft);
       }
@@ -1357,6 +1770,13 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
         referenceOverrides?.knownApplicationAliases
       );
       if (aliasOnlyQuestion) return clarification(aliasOnlyQuestion);
+      const messagingResult = await resolveMessagingCommand(normalizedInput.instruction, {
+        resolveMessagingContact: dependencies.resolveMessagingContact,
+        hasActiveMessageDraft: dependencies.hasActiveMessageDraft
+      });
+      if (messagingResult) return messagingResult;
+      const spotifyControlResult = resolveSpotifyControlCommand(normalizedInput.instruction);
+      if (spotifyControlResult) return spotifyControlResult;
       const mutationResult = resolveFileMutationCommand(
         normalizedInput.instruction,
         referenceOverrides?.activeFileSearch ?? dependencies.getActiveFileSearch?.(),
@@ -1370,6 +1790,12 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
         dependencies.resolveFoundFileName
       );
       if (foundFileResult) return foundFileResult;
+      const streamingResult = await resolveStreamingCommand(
+        normalizedInput.instruction,
+        referenceOverrides?.knownApplicationAliases ?? [],
+        { isSpotifyAppRegistered: dependencies.isSpotifyAppRegistered, isSpotifyConnected: dependencies.isSpotifyConnected }
+      );
+      if (streamingResult) return streamingResult;
       let provider: StructuredInterpretationProvider;
       try {
         provider = createProvider(getConfiguration());
@@ -1426,7 +1852,12 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           normalizedInput.instruction,
           resolveTrustedReference,
           dependencies.resolveFoundFileName,
-          dependencies.resolveFoundFolderName
+          dependencies.resolveFoundFolderName,
+          {
+            resolveMessagingContact: dependencies.resolveMessagingContact,
+            hasActiveMessageDraft: dependencies.hasActiveMessageDraft
+          },
+          { isSpotifyAppRegistered: dependencies.isSpotifyAppRegistered, isSpotifyConnected: dependencies.isSpotifyConnected }
         );
         if (result.ok && result.data.errorCode === ASSISTANT_ERROR_CODES.malformed) {
           logError(`Assistant interpretation failed [${ASSISTANT_ERROR_CODES.malformed}].`);

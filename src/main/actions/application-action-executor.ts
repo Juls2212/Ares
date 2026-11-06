@@ -5,11 +5,14 @@ import type {
   OpenWebPageActionProposal,
   RegisterCatalogApplicationActionProposal,
   RequestCustomApplicationRegistrationActionProposal,
+  SearchSpotifyAppActionProposal,
+  SearchSpotifyAppInput,
   TerminalActionStatus
 } from "../../shared/action-contracts";
 import { createApplicationLauncher, type ApplicationLauncher } from "../applications/application-launcher";
 import { getApplicationService, getCustomApplicationRegistrationService } from "../applications/application-composition";
 import type { CustomApplicationRegistrationService } from "../applications/custom-application-registration-service";
+import { validateSpotifySearchQuery } from "../applications/spotify-search";
 import { createWebPageLauncher, type WebPageLauncher } from "../applications/web-page-launcher";
 import { CATALOG_REGISTRATION_EXECUTION_FAILURE_CODES } from "../applications/catalog-registration-failures";
 import {
@@ -19,6 +22,7 @@ import {
 
 type ApplicationActionProposal =
   | OpenApplicationActionProposal
+  | SearchSpotifyAppActionProposal
   | OpenWebPageActionProposal
   | RegisterCatalogApplicationActionProposal
   | RequestCustomApplicationRegistrationActionProposal;
@@ -51,6 +55,22 @@ const failureStatus = (errorCode: string): TerminalActionStatus =>
   errorCode === "WEB_PAGE_LAUNCH_FAILED"
     ? "EXECUTION_FAILED"
     : "VALIDATION_FAILED";
+
+const SEARCH_KIND_PHRASES: Record<NonNullable<SearchSpotifyAppInput["kind"]>, string> = {
+  TRACK: "la canción ",
+  ARTIST: "al artista ",
+  ALBUM: "el álbum ",
+  PLAYLIST: "la playlist ",
+  ANY: ""
+};
+
+/** Generic text: it may name the query for the person, never a link, and never claims playback. */
+const describeSpotifySearch = (query: string, input: SearchSpotifyAppInput): string =>
+  `Busqué ${SEARCH_KIND_PHRASES[input.kind ?? "ANY"]}«${query}» en Spotify. Pulsa reproducir cuando quieras.${
+    input.playRequested === true
+      ? " Para reproducir directamente necesitaré la conexión con Spotify prevista para la próxima fase."
+      : ""
+  }`;
 
 export const createApplicationActionExecutor = (
   overrides: Partial<ApplicationActionExecutorDependencies> = {}
@@ -114,6 +134,33 @@ export const createApplicationActionExecutor = (
             status: "SUCCEEDED",
             data: { applicationName: result.data.applicationName },
             userSummary: `Listo, registré ${result.data.applicationName}.`
+          };
+        }
+        if (proposal.action === "SEARCH_SPOTIFY_APP") {
+          const query = validateSpotifySearchQuery(proposal.input.query);
+          const result = query === undefined
+            ? undefined
+            : await getLauncher().searchSpotifyApp(query);
+          if (query === undefined || !result || !result.ok) {
+            const error = result && !result.ok
+              ? result.error
+              : { code: "APPLICATION_SPOTIFY_QUERY_INVALID", userMessage: "Indica qué canción, artista o álbum quieres buscar en Spotify." };
+            return {
+              actionId: proposal.actionId,
+              action: proposal.action,
+              riskLevel: policy.riskLevel,
+              status: failureStatus(error.code),
+              errorCode: error.code,
+              userSummary: error.userMessage
+            };
+          }
+          return {
+            actionId: proposal.actionId,
+            action: proposal.action,
+            riskLevel: policy.riskLevel,
+            status: "SUCCEEDED",
+            data: { applicationName: result.data.applicationName },
+            userSummary: describeSpotifySearch(query, proposal.input)
           };
         }
         if (proposal.action === "REGISTER_CATALOG_APPLICATION") {

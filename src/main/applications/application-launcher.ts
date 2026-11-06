@@ -51,6 +51,8 @@ export type ApplicationLauncher = {
   launchResolvedTarget: (
     target: ResolvedApplicationTarget
   ) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
+  /** Opens the registered, enabled Spotify app on a search; the query is validated again by the adapter. */
+  searchSpotifyApp: (query: unknown) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
   launchResolvedBrowserTarget: (
     target: ResolvedApplicationTarget,
     destination: TrustedWebDestination
@@ -65,7 +67,9 @@ const launcherMessages = {
   APPLICATION_LAUNCH_FAILED: "No se pudo abrir la aplicación registrada.",
   APPLICATION_DISABLED: "La aplicación está deshabilitada.",
   APPLICATION_CATALOG_UNAVAILABLE: "No encontré esa aplicación disponible en este equipo.",
-  APPLICATION_CATALOG_LAUNCH_FAILED: CATALOG_LAUNCH_FAILURE.userMessage
+  APPLICATION_CATALOG_LAUNCH_FAILED: CATALOG_LAUNCH_FAILURE.userMessage,
+  APPLICATION_SPOTIFY_NOT_REGISTERED: "Primero debes registrar esa aplicación para poder abrirla.",
+  APPLICATION_SPOTIFY_QUERY_INVALID: "Indica qué canción, artista o álbum quieres buscar en Spotify."
 } as const;
 
 type LauncherErrorCode = keyof typeof launcherMessages;
@@ -193,6 +197,27 @@ export const createApplicationLauncher = (
       const resolved = await dependencies.applicationService.resolveEnabledApplicationByAlias(alias);
       if (!resolved.ok) return resolved;
       return launchResolvedTarget(resolved.data, []);
+    },
+    searchSpotifyApp: async (query) => {
+      const listed = await dependencies.applicationService.listApplications({ enabled: true, limit: 100 });
+      if (!listed.ok) return { ok: false, error: listed.error };
+      const registered = listed.data.items.some(
+        (record) =>
+          record.isEnabled &&
+          record.launchMode === "CATALOG_APPLICATION" &&
+          record.catalogKey === "SPOTIFY" &&
+          record.platform === dependencies.catalogAdapter.getCurrentPlatform()
+      );
+      if (!registered) return createFailure("APPLICATION_SPOTIFY_NOT_REGISTERED");
+      const result = await dependencies.catalogAdapter.openSearch("SPOTIFY", query);
+      if (result.ok) return createSuccess(result.data);
+      return createFailure(
+        result.error.code === CATALOG_LAUNCH_FAILURE.code
+          ? "APPLICATION_CATALOG_LAUNCH_FAILED"
+          : result.error.code === "APPLICATION_SPOTIFY_QUERY_INVALID"
+            ? "APPLICATION_SPOTIFY_QUERY_INVALID"
+            : "APPLICATION_CATALOG_UNAVAILABLE"
+      );
     },
     launchResolvedTarget: (target) => launchResolvedTarget(target, []),
     launchResolvedBrowserTarget: (target, destination) => launchResolvedTarget(target, [destination.url])

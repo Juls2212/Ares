@@ -4,9 +4,12 @@ import type {
   ApprovedWebActionProposal,
   ExecutableActionProposal,
   FileActionProposal,
+  MessagingActionProposal,
   OpenApplicationActionProposal,
   RegisterCatalogApplicationActionProposal,
   RequestCustomApplicationRegistrationActionProposal,
+  SearchSpotifyAppActionProposal,
+  SpotifyMusicActionProposal,
   SupervisedFilesActionProposal
 } from "../../shared/action-contracts";
 import type { FileOperationResult, FileOrganizationPlan } from "../../shared/file-contracts";
@@ -22,6 +25,13 @@ import {
   type SupervisedFileActionExecutor
 } from "./supervised-file-action-executor";
 import type { FilesResult } from "../files/supervised-file-failures";
+import {
+  createMessagingActionExecutor,
+  type MessagingActionExecutor,
+  type PreparedMessagingAction
+} from "./messaging-action-executor";
+import type { MessagingResult } from "../messaging/messaging-failures";
+import { createSpotifyActionExecutor, type SpotifyActionExecutor } from "./spotify-action-executor";
 import { createPlannerActionExecutor, type PlannerActionExecutor } from "./planner-action-executor";
 
 export type ActionExecutor = {
@@ -33,6 +43,9 @@ export type ActionExecutor = {
     proposal: RegisterCatalogApplicationActionProposal
   ) => ReturnType<NonNullable<ApplicationActionExecutor["prepareCatalogRegistration"]>>;
   prepareFilesAction?: (proposal: SupervisedFilesActionProposal) => Promise<FilesResult<PreparedFilesAction>>;
+  prepareMessagingAction?: (proposal: MessagingActionProposal) => Promise<MessagingResult<PreparedMessagingAction>>;
+  /** Drops the Main-held snapshot of a proposal that was cancelled or expired without running. */
+  releasePrepared?: (proposal: ExecutableActionProposal) => void;
   prepareCustomRegistration?: (
     proposal: RequestCustomApplicationRegistrationActionProposal
   ) => ReturnType<NonNullable<ApplicationActionExecutor["prepareCustomRegistration"]>>;
@@ -43,15 +56,19 @@ type ActionExecutorDependencies = {
   applicationExecutor?: ApplicationActionExecutor;
   approvedWebExecutor?: ApprovedWebActionExecutor;
   filesExecutor?: SupervisedFileActionExecutor;
+  messagingExecutor?: MessagingActionExecutor;
+  spotifyExecutor?: SpotifyActionExecutor;
 };
 
 const isApplicationAction = (
   proposal: ExecutableActionProposal
 ): proposal is
   | OpenApplicationActionProposal
+  | SearchSpotifyAppActionProposal
   | RegisterCatalogApplicationActionProposal
   | RequestCustomApplicationRegistrationActionProposal =>
   proposal.action === "OPEN_APPLICATION" ||
+  proposal.action === "SEARCH_SPOTIFY_APP" ||
   proposal.action === "REGISTER_CATALOG_APPLICATION" ||
   proposal.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
 
@@ -69,6 +86,35 @@ const isSupervisedFilesProposal = (proposal: ExecutableActionProposal): proposal
   proposal.action === "MOVE_FOUND_ITEMS" ||
   proposal.action === "ORGANIZE_FOUND_ITEMS" ||
   proposal.action === "DELETE_FOUND_ITEM";
+
+const MESSAGING_ACTIONS = [
+  "SAVE_CONTACT",
+  "LIST_CONTACTS",
+  "DELETE_CONTACT",
+  "PREPARE_MESSAGE_DRAFT",
+  "EDIT_MESSAGE_DRAFT",
+  "DISCARD_MESSAGE_DRAFT",
+  "OPEN_WHATSAPP_CHAT_WITH_DRAFT"
+] as const;
+
+const isMessagingProposal = (proposal: ExecutableActionProposal): proposal is MessagingActionProposal =>
+  (MESSAGING_ACTIONS as readonly string[]).includes(proposal.action);
+
+const SPOTIFY_MUSIC_ACTIONS = [
+  "CONNECT_SPOTIFY",
+  "DISCONNECT_SPOTIFY",
+  "GET_SPOTIFY_STATUS",
+  "PLAY_SPOTIFY_MUSIC",
+  "PAUSE_SPOTIFY",
+  "RESUME_SPOTIFY",
+  "NEXT_SPOTIFY_TRACK",
+  "PREVIOUS_SPOTIFY_TRACK",
+  "SET_SPOTIFY_VOLUME",
+  "WHAT_IS_PLAYING"
+] as const;
+
+const isSpotifyMusicProposal = (proposal: ExecutableActionProposal): proposal is SpotifyMusicActionProposal =>
+  (SPOTIFY_MUSIC_ACTIONS as readonly string[]).includes(proposal.action);
 
 const unsupportedOutcome = (
   proposal: ExecutableActionProposal,
@@ -90,6 +136,8 @@ export const createActionExecutor = (
   const applicationExecutor = overrides.applicationExecutor ?? createApplicationActionExecutor();
   const approvedWebExecutor = overrides.approvedWebExecutor ?? createApprovedWebActionExecutor();
   const filesExecutor = overrides.filesExecutor ?? createSupervisedFileActionExecutor();
+  const messagingExecutor = overrides.messagingExecutor ?? createMessagingActionExecutor();
+  const spotifyExecutor = overrides.spotifyExecutor ?? createSpotifyActionExecutor();
 
   return {
     execute: (proposal, policy) => {
@@ -106,6 +154,16 @@ export const createActionExecutor = (
           ? filesExecutor.execute(proposal, policy)
           : Promise.resolve(unsupportedOutcome(proposal, policy));
       }
+      if (capability.executor === "MUSIC") {
+        return isSpotifyMusicProposal(proposal)
+          ? spotifyExecutor.execute(proposal, policy)
+          : Promise.resolve(unsupportedOutcome(proposal, policy));
+      }
+      if (capability.executor === "MESSAGING") {
+        return isMessagingProposal(proposal)
+          ? messagingExecutor.execute(proposal, policy)
+          : Promise.resolve(unsupportedOutcome(proposal, policy));
+      }
       return plannerExecutor.execute(proposal as Parameters<PlannerActionExecutor["execute"]>[0], policy);
     },
     prepareCatalogRegistration: (proposal) => {
@@ -118,6 +176,10 @@ export const createActionExecutor = (
       return applicationExecutor.prepareCatalogRegistration(proposal);
     },
     prepareFilesAction: (proposal) => filesExecutor.prepare(proposal),
+    prepareMessagingAction: (proposal) => messagingExecutor.prepare(proposal),
+    releasePrepared: (proposal) => {
+      if (isMessagingProposal(proposal)) messagingExecutor.release(proposal);
+    },
     prepareCustomRegistration: (proposal) => {
       if (!getEnabledAssistantCapability(proposal.action) || !applicationExecutor.prepareCustomRegistration) {
         return Promise.resolve({

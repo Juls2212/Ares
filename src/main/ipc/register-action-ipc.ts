@@ -11,7 +11,7 @@ import {
 import type { ActionHistoryService } from "../actions/action-history-service";
 import type { ActionOrchestrator } from "../actions/action-orchestrator";
 import { speechService } from "../voice/speech-composition";
-import { composeFinalResponse } from "../voice/final-response-composer";
+import { composeFinalResponse, preservesDisplaySummary } from "../voice/final-response-composer";
 
 export type ActionIpcHandler = (input: unknown) => Promise<OperationResult<unknown>>;
 export type ActionIpcHandlerRegistrar = (channel: string, handler: ActionIpcHandler) => void;
@@ -100,7 +100,7 @@ export const attachSpokenActionResponse = (
   }
   const composed = composeFinalResponse(result.data);
   const text = composed ?? result.data.userSummary;
-  if (composed) result.data.userSummary = composed;
+  if (composed && !preservesDisplaySummary(result.data.action)) result.data.userSummary = composed;
   result.data.spokenResponse = responses.remember(windowId, text);
   return result;
 };

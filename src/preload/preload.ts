@@ -73,6 +73,14 @@ import type {
   UpdateApplicationInput
 } from "../shared/application-contracts";
 import type {
+  ContactFormCancellation,
+  ContactFormCancellationData,
+  ContactFormRequest,
+  ContactFormSubmission,
+  ContactFormSubmissionData,
+  MessagingOperationResult
+} from "../shared/messaging-contracts";
+import type {
   DashboardOperationResult,
   DashboardTodaySummary
 } from "../shared/dashboard-contracts";
@@ -322,6 +330,23 @@ const aresApi = {
         ipcRenderer.removeListener(IPC_CHANNELS.voice.globalShortcutActivated, listener);
       };
     }
+  },
+  messaging: {
+    onContactFormRequested: (callback: (request: ContactFormRequest) => void) => {
+      const listener = (_event: unknown, request: ContactFormRequest): void => callback(request);
+      ipcRenderer.on(IPC_CHANNELS.messaging.contactFormRequested, listener);
+      return (): void => {
+        ipcRenderer.removeListener(IPC_CHANNELS.messaging.contactFormRequested, listener);
+      };
+    },
+    submitContactForm: (input: ContactFormSubmission) =>
+      ipcRenderer.invoke(IPC_CHANNELS.messaging.submitContactForm, input) as Promise<
+        MessagingOperationResult<ContactFormSubmissionData>
+      >,
+    cancelContactForm: (input: ContactFormCancellation) =>
+      ipcRenderer.invoke(IPC_CHANNELS.messaging.cancelContactForm, input) as Promise<
+        MessagingOperationResult<ContactFormCancellationData>
+      >
   },
   speech: {
     speak: (input: { responseId: string }) => ipcRenderer.invoke(IPC_CHANNELS.speech.speak, input) as Promise<OperationResult<import("../shared/speech-contracts").SpeechAudio>>

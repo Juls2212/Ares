@@ -17,6 +17,8 @@ import type { HabitService } from "../habits/habit-service";
 import { HABIT_ICON_KEYS } from "../../shared/habit-contracts";
 import { getKnownApplicationProviderReferences } from "../applications/known-application-catalog";
 import { getSupervisedFileService } from "../files/supervised-file-composition";
+import { getMessagingService } from "../messaging/messaging-composition";
+import { getSpotifyAuthService } from "../spotify/spotify-composition";
 import {
   getAssistantContextService,
   type AssistantContextService
@@ -209,7 +211,16 @@ export const getAssistantInterpretationService = (): AssistantInterpretationServ
       })),
       getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
       resolveFoundFileName: (name) => getSupervisedFileService().resolveFoundFileByName(name),
-      resolveFoundFolderName: (name) => getSupervisedFileService().resolveFoundFolderByName(name)
+      resolveFoundFolderName: (name) => getSupervisedFileService().resolveFoundFolderByName(name),
+      resolveMessagingContact: (reference) => getMessagingService().resolveContactReference(reference),
+      hasActiveMessageDraft: () => getMessagingService().hasActiveDraft(),
+      isSpotifyConnected: async () => (await getSpotifyAuthService().getStatus()).connected,
+      isSpotifyAppRegistered: async () => {
+        const listed = await getApplicationService().listApplications({ enabled: true, limit: 100 });
+        return listed.ok && listed.data.items.some(
+          (record) => record.isEnabled && record.launchMode === "CATALOG_APPLICATION" && record.catalogKey === "SPOTIFY"
+        );
+      }
     }),
     getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
     getApplicationService,

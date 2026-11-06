@@ -9,6 +9,7 @@ import type {
   ApplicationPlatform
 } from "../../shared/application-contracts";
 import { validateExecutablePath } from "./application-validation";
+import { validateSpotifySearchQuery } from "./spotify-search";
 import { CATALOG_LAUNCH_FAILURE } from "./catalog-registration-failures";
 import {
   getKnownApplication,
@@ -40,6 +41,8 @@ type CatalogApplicationAdapterDependencies = {
   };
   /** Receives only a catalog key; the protocol string is looked up inside this module. */
   openFixedProtocol: (key: ApplicationCatalogKey) => Promise<void>;
+  /** Receives only an already validated query; the search target is composed inside this module. */
+  openSpotifySearch: (query: string) => Promise<void>;
 };
 
 type ResolvedCatalogLaunchTarget =
@@ -50,6 +53,8 @@ export type CatalogApplicationAdapter = {
   getCurrentPlatform: () => ApplicationPlatform | undefined;
   isAvailable: (key: unknown) => Promise<ApplicationOperationResult<{ available: true }>>;
   launch: (key: unknown) => Promise<ApplicationOperationResult<{ applicationName: string }>>;
+  /** Opens the Spotify app on a search. It is reachable only for the SPOTIFY key. */
+  openSearch: (key: unknown, query: unknown) => Promise<ApplicationOperationResult<{ applicationName: string }>>;
 };
 
 const unavailable = <T>(): ApplicationOperationResult<T> => ({
@@ -88,6 +93,16 @@ const openFixedProtocolStrategy = async (key: ApplicationCatalogKey): Promise<vo
   await shell.openExternal(FIXED_PROTOCOL_STRATEGIES[key] as string);
 };
 
+/**
+ * The one extension of the Spotify strategy: the fixed `spotify:` scheme plus the fixed `search:` segment and the
+ * encoded query. The result is handed to the operating system here and never returned, stored or logged.
+ */
+const openSpotifySearchStrategy = async (query: string): Promise<void> => {
+  const validated = validateSpotifySearchQuery(query);
+  if (!validated) throw new Error("Invalid Spotify search query.");
+  await shell.openExternal(`${FIXED_PROTOCOL_STRATEGIES.SPOTIFY as string}search:${encodeURIComponent(validated)}`);
+};
+
 /** Derives only standard Windows per-user application directories in Electron Main. */
 const getDefaultWindowsUserDirectories = () => {
   const home = homedir();
@@ -107,6 +122,7 @@ export const createCatalogApplicationAdapter = (
     spawn: overrides.spawn ?? spawnProcess,
     getWindowsUserDirectories: overrides.getWindowsUserDirectories ?? getDefaultWindowsUserDirectories,
     openFixedProtocol: overrides.openFixedProtocol ?? openFixedProtocolStrategy,
+    openSpotifySearch: overrides.openSpotifySearch ?? openSpotifySearchStrategy,
     logError: overrides.logError ?? ((message) => console.error(message))
   };
 
@@ -180,6 +196,27 @@ export const createCatalogApplicationAdapter = (
 
   return {
     getCurrentPlatform: () => mapPlatform(dependencies.platform()),
+    openSearch: async (key, query) => {
+      const definition = getKnownApplication(key);
+      if (!definition || definition.key !== "SPOTIFY" || dependencies.platform() !== "win32") return unavailable();
+      const validated = validateSpotifySearchQuery(query);
+      if (!validated) {
+        return {
+          ok: false,
+          error: {
+            code: "APPLICATION_SPOTIFY_QUERY_INVALID",
+            userMessage: "Indica qué canción, artista o álbum quieres buscar en Spotify."
+          }
+        };
+      }
+      try {
+        await dependencies.openSpotifySearch(validated);
+      } catch {
+        dependencies.logError("Catalog application launch failed.");
+        return launchFailed();
+      }
+      return { ok: true, data: { applicationName: definition.displayName } };
+    },
     isAvailable: async (key) => (await resolve(key) ? { ok: true, data: { available: true } } : unavailable()),
     launch: async (key) => {
       const resolved = await resolve(key);

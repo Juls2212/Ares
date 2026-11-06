@@ -5,15 +5,16 @@ export const CAPABILITY_DOMAINS = [
   "APPLICATIONS",
   "WEB",
   "FILES",
-  "MESSAGING"
+  "MESSAGING",
+  "MUSIC"
 ] as const;
 
 export type CapabilityDomain = (typeof CAPABILITY_DOMAINS)[number];
-export type CapabilityExecutorCategory = "PLANNER" | "APPLICATION" | "WEB" | "FILES";
+export type CapabilityExecutorCategory = "PLANNER" | "APPLICATION" | "WEB" | "FILES" | "MESSAGING" | "MUSIC";
 
 export type AssistantCapability = {
   action: ActionName;
-  domain: Extract<CapabilityDomain, "INTERNAL_MEMORY" | "APPLICATIONS" | "WEB" | "FILES">;
+  domain: Extract<CapabilityDomain, "INTERNAL_MEMORY" | "APPLICATIONS" | "WEB" | "FILES" | "MESSAGING" | "MUSIC">;
   approval: ActionApprovalClass;
   enabled: true;
   executor: CapabilityExecutorCategory;
@@ -47,6 +48,7 @@ const internalMemoryCapabilities = [
 
 const applicationCapabilities = [
   ["OPEN_APPLICATION", "DIRECT", "Abrir aplicación registrada"],
+  ["SEARCH_SPOTIFY_APP", "DIRECT", "Buscar en la aplicación de Spotify"],
   ["REGISTER_CATALOG_APPLICATION", "CONFIRMATION_REQUIRED", "Registrar aplicación aprobada"],
   ["REQUEST_CUSTOM_APPLICATION_REGISTRATION", "CONFIRMATION_REQUIRED", "Registrar aplicación propia"]
 ] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
@@ -68,6 +70,37 @@ const filesCapabilities = [
   ["DELETE_FOUND_ITEM", "REINFORCED_CONFIRMATION_REQUIRED", "Enviar elemento encontrado a la Papelera"]
 ] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
 
+/**
+ * The MESSAGING domain is enabled for exactly these seven actions: contact management, a local message
+ * draft, and one confirmed action that opens a WhatsApp chat with that draft. None of them sends anything.
+ */
+const messagingCapabilities = [
+  ["SAVE_CONTACT", "CONFIRMATION_REQUIRED", "Guardar contacto"],
+  ["LIST_CONTACTS", "DIRECT", "Listar contactos"],
+  ["DELETE_CONTACT", "REINFORCED_CONFIRMATION_REQUIRED", "Eliminar contacto"],
+  ["PREPARE_MESSAGE_DRAFT", "DIRECT", "Preparar borrador de mensaje"],
+  ["EDIT_MESSAGE_DRAFT", "DIRECT", "Editar borrador de mensaje"],
+  ["DISCARD_MESSAGE_DRAFT", "DIRECT", "Descartar borrador de mensaje"],
+  ["OPEN_WHATSAPP_CHAT_WITH_DRAFT", "CONFIRMATION_REQUIRED", "Abrir chat de WhatsApp con el borrador"]
+] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
+
+/**
+ * The MUSIC domain is enabled for exactly these ten Spotify actions: connecting the account, reading the local
+ * connection state, and controlling playback on the already-running device. Nothing else about the account.
+ */
+const musicCapabilities = [
+  ["CONNECT_SPOTIFY", "CONFIRMATION_REQUIRED", "Conectar Spotify"],
+  ["DISCONNECT_SPOTIFY", "CONFIRMATION_REQUIRED", "Desconectar Spotify"],
+  ["GET_SPOTIFY_STATUS", "DIRECT", "Consultar conexión de Spotify"],
+  ["PLAY_SPOTIFY_MUSIC", "DIRECT", "Reproducir música en Spotify"],
+  ["PAUSE_SPOTIFY", "DIRECT", "Pausar Spotify"],
+  ["RESUME_SPOTIFY", "DIRECT", "Reanudar Spotify"],
+  ["NEXT_SPOTIFY_TRACK", "DIRECT", "Siguiente canción de Spotify"],
+  ["PREVIOUS_SPOTIFY_TRACK", "DIRECT", "Canción anterior de Spotify"],
+  ["SET_SPOTIFY_VOLUME", "DIRECT", "Ajustar volumen de Spotify"],
+  ["WHAT_IS_PLAYING", "DIRECT", "Consultar qué está sonando"]
+] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
+
 const createCapability = (
   action: ActionName,
   domain: AssistantCapability["domain"],
@@ -78,7 +111,7 @@ const createCapability = (
 
 /**
  * Main-only registry of assistant actions that have a deliberate typed executor.
- * MESSAGING remains reserved; FILES is enabled only for the four supervised actions above.
+ * FILES and MESSAGING are each enabled only for the explicit action lists above.
  */
 export const ENABLED_ASSISTANT_CAPABILITIES: readonly AssistantCapability[] = Object.freeze([
   ...internalMemoryCapabilities.map(([action, approval, label]) =>
@@ -88,7 +121,11 @@ export const ENABLED_ASSISTANT_CAPABILITIES: readonly AssistantCapability[] = Ob
   ...webCapabilities.map(([action, approval, label]) =>
     createCapability(action, "WEB", approval, label, "WEB")),
   ...filesCapabilities.map(([action, approval, label]) =>
-    createCapability(action, "FILES", approval, label, "FILES"))
+    createCapability(action, "FILES", approval, label, "FILES")),
+  ...messagingCapabilities.map(([action, approval, label]) =>
+    createCapability(action, "MESSAGING", approval, label, "MESSAGING")),
+  ...musicCapabilities.map(([action, approval, label]) =>
+    createCapability(action, "MUSIC", approval, label, "MUSIC"))
 ]);
 
 const capabilitiesByAction = new Map(

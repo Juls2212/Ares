@@ -51,6 +51,7 @@ export type AresApi = {
   voice: VoiceApi;
   speech: import("./speech-contracts").SpeechApi;
   settings: SettingsApi;
+  messaging: import("./messaging-contracts").MessagingApi;
 };
 
 export const IPC_CHANNELS = {
@@ -139,6 +140,11 @@ export const IPC_CHANNELS = {
     globalShortcutActivated: "voice:global-shortcut-activated"
   },
   speech: { speak: "speech:speak" },
+  messaging: {
+    contactFormRequested: "messaging:contact-form-requested",
+    submitContactForm: "messaging:contact-form:submit",
+    cancelContactForm: "messaging:contact-form:cancel"
+  },
   settings: {
     voice: {
       get: "settings:voice:get",

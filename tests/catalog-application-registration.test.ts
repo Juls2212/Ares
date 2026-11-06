@@ -21,7 +21,8 @@ const registerApplication = vi.fn(async (_input: unknown) => ({ ok: true as cons
 const availableAdapter = {
   getCurrentPlatform: () => "WINDOWS" as const,
   isAvailable: vi.fn(async () => ({ ok: true as const, data: { available: true as const } })),
-  launch: vi.fn()
+  launch: vi.fn(),
+  openSearch: vi.fn()
 };
 
 describe("catalog application registration", () => {

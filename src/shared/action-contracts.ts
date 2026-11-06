@@ -40,6 +40,19 @@ import type {
 } from "./habit-contracts";
 import type { ApplicationCatalogKey } from "./application-contracts";
 import type {
+  DeleteContactInput,
+  DiscardMessageDraftInput,
+  EditMessageDraftInput,
+  ListContactsInput,
+  MessagingActionData,
+  OpenWhatsAppChatWithDraftInput,
+  PrepareMessageDraftInput,
+  PreparedDeleteContactInput,
+  PreparedOpenWhatsAppChatInput,
+  PreparedSaveContactInput,
+  SaveContactInput
+} from "./messaging-contracts";
+import type {
   CreateSupervisedFolderInput,
   DeleteFoundItemInput,
   MoveFoundItemsInput,
@@ -93,7 +106,25 @@ export const ACTION_NAMES = [
   "UPDATE_HABIT",
   "COMPLETE_HABIT",
   "DELETE_EVENT",
-  "DELETE_TASK"
+  "DELETE_TASK",
+  "SAVE_CONTACT",
+  "LIST_CONTACTS",
+  "DELETE_CONTACT",
+  "PREPARE_MESSAGE_DRAFT",
+  "EDIT_MESSAGE_DRAFT",
+  "DISCARD_MESSAGE_DRAFT",
+  "OPEN_WHATSAPP_CHAT_WITH_DRAFT",
+  "SEARCH_SPOTIFY_APP",
+  "CONNECT_SPOTIFY",
+  "DISCONNECT_SPOTIFY",
+  "GET_SPOTIFY_STATUS",
+  "PLAY_SPOTIFY_MUSIC",
+  "PAUSE_SPOTIFY",
+  "RESUME_SPOTIFY",
+  "NEXT_SPOTIFY_TRACK",
+  "PREVIOUS_SPOTIFY_TRACK",
+  "SET_SPOTIFY_VOLUME",
+  "WHAT_IS_PLAYING"
 ] as const;
 
 /** Policy-only kinds are not executable submissions until a typed Main adapter exists. */
@@ -216,6 +247,31 @@ export type HabitActionProposal =
   | (ActionProposalBase & { action: "UPDATE_HABIT"; input: UpdateHabitActionInput })
   | (ActionProposalBase & { action: "COMPLETE_HABIT"; input: CompleteHabitActionInput });
 
+/** Closed refinement of a Spotify app search; it only shapes the spoken text, never the launch target. */
+export const SPOTIFY_SEARCH_KINDS = ["TRACK", "ARTIST", "ALBUM", "PLAYLIST", "ANY"] as const;
+export type SpotifySearchKind = (typeof SPOTIFY_SEARCH_KINDS)[number];
+
+/** A plain-text query only; Main composes the fixed Spotify search target and never accepts a URI. */
+export type SearchSpotifyAppInput = {
+  query: string;
+  kind?: SpotifySearchKind;
+  /** True when the person asked to play; it only adds the hint that direct playback is not available yet. */
+  playRequested?: boolean;
+};
+
+/** Spotify Web API playback: a plain query and a closed kind, or a bounded volume; never an id, URI or URL. */
+export type PlaySpotifyMusicInput = { query: string; kind?: SpotifySearchKind };
+export type SetSpotifyVolumeInput = { level: number } | { change: "UP" | "DOWN" };
+export type SpotifyEmptyInputAction =
+  | "CONNECT_SPOTIFY"
+  | "DISCONNECT_SPOTIFY"
+  | "GET_SPOTIFY_STATUS"
+  | "PAUSE_SPOTIFY"
+  | "RESUME_SPOTIFY"
+  | "NEXT_SPOTIFY_TRACK"
+  | "PREVIOUS_SPOTIFY_TRACK"
+  | "WHAT_IS_PLAYING";
+
 export type OpenApplicationInput = {
   alias: string;
 };
@@ -271,6 +327,16 @@ export type OpenApplicationActionProposal = ActionProposalBase & {
   input: OpenApplicationInput;
 };
 
+export type SearchSpotifyAppActionProposal = ActionProposalBase & {
+  action: "SEARCH_SPOTIFY_APP";
+  input: SearchSpotifyAppInput;
+};
+
+export type SpotifyMusicActionProposal =
+  | (ActionProposalBase & { action: SpotifyEmptyInputAction; input: Record<string, never> })
+  | (ActionProposalBase & { action: "PLAY_SPOTIFY_MUSIC"; input: PlaySpotifyMusicInput })
+  | (ActionProposalBase & { action: "SET_SPOTIFY_VOLUME"; input: SetSpotifyVolumeInput });
+
 export type RegisterCatalogApplicationActionProposal = ActionProposalBase & {
   action: "REGISTER_CATALOG_APPLICATION";
   input: RegisterCatalogApplicationInput;
@@ -314,6 +380,22 @@ export type SupervisedFilesActionProposal =
   | (ActionProposalBase & { action: "ORGANIZE_FOUND_ITEMS"; input: OrganizeFoundItemsInput })
   | (ActionProposalBase & { action: "DELETE_FOUND_ITEM"; input: DeleteFoundItemInput });
 
+/**
+ * The MESSAGING domain: contacts and local drafts only. The phone number is never part of any
+ * proposal; Main holds it in a pending contact and the proposal carries only an opaque reference.
+ */
+export type MessagingActionProposal =
+  | (ActionProposalBase & { action: "SAVE_CONTACT"; input: SaveContactInput | PreparedSaveContactInput })
+  | (ActionProposalBase & { action: "LIST_CONTACTS"; input: ListContactsInput })
+  | (ActionProposalBase & { action: "DELETE_CONTACT"; input: DeleteContactInput | PreparedDeleteContactInput })
+  | (ActionProposalBase & { action: "PREPARE_MESSAGE_DRAFT"; input: PrepareMessageDraftInput })
+  | (ActionProposalBase & { action: "EDIT_MESSAGE_DRAFT"; input: EditMessageDraftInput })
+  | (ActionProposalBase & { action: "DISCARD_MESSAGE_DRAFT"; input: DiscardMessageDraftInput })
+  | (ActionProposalBase & {
+      action: "OPEN_WHATSAPP_CHAT_WITH_DRAFT";
+      input: OpenWhatsAppChatWithDraftInput | PreparedOpenWhatsAppChatInput;
+    });
+
 /** Legacy file shapes that stay unregistered; SEARCH_FILES and CREATE_FOLDER now use the supervised shapes. */
 export type LegacyFileActionProposal = Exclude<FileActionProposal, { action: "SEARCH_FILES" | "CREATE_FOLDER" }>;
 
@@ -322,12 +404,15 @@ export type ExecutableActionProposal =
   | HabitActionProposal
   | WeatherActionProposal
   | OpenApplicationActionProposal
+  | SearchSpotifyAppActionProposal
+  | SpotifyMusicActionProposal
   | RegisterCatalogApplicationActionProposal
   | RequestCustomApplicationRegistrationActionProposal
   | ApprovedWebActionProposal
   | OpenWebPageActionProposal
   | LegacyFileActionProposal
-  | SupervisedFilesActionProposal;
+  | SupervisedFilesActionProposal
+  | MessagingActionProposal;
 
 export type DeferredActionName = Exclude<ActionName, ExecutableActionProposal["action"]>;
 
@@ -374,6 +459,16 @@ export type OpenApplicationActionSubmission = {
   input: OpenApplicationInput;
 };
 
+export type SearchSpotifyAppActionSubmission = {
+  action: "SEARCH_SPOTIFY_APP";
+  input: SearchSpotifyAppInput;
+};
+
+export type SpotifyMusicActionSubmission =
+  | { action: SpotifyEmptyInputAction; input: Record<string, never> }
+  | { action: "PLAY_SPOTIFY_MUSIC"; input: PlaySpotifyMusicInput }
+  | { action: "SET_SPOTIFY_VOLUME"; input: SetSpotifyVolumeInput };
+
 export type RegisterCatalogApplicationActionSubmission = {
   action: "REGISTER_CATALOG_APPLICATION";
   input: RegisterCatalogApplicationInput;
@@ -411,6 +506,15 @@ export type SupervisedFilesActionSubmission =
   | { action: "ORGANIZE_FOUND_ITEMS"; input: Omit<OrganizeFoundItemsInput, "preparedId"> }
   | { action: "DELETE_FOUND_ITEM"; input: Omit<DeleteFoundItemInput, "preparedId"> };
 
+export type MessagingActionSubmission =
+  | { action: "SAVE_CONTACT"; input: SaveContactInput }
+  | { action: "LIST_CONTACTS"; input: ListContactsInput }
+  | { action: "DELETE_CONTACT"; input: DeleteContactInput }
+  | { action: "PREPARE_MESSAGE_DRAFT"; input: PrepareMessageDraftInput }
+  | { action: "EDIT_MESSAGE_DRAFT"; input: EditMessageDraftInput }
+  | { action: "DISCARD_MESSAGE_DRAFT"; input: DiscardMessageDraftInput }
+  | { action: "OPEN_WHATSAPP_CHAT_WITH_DRAFT"; input: OpenWhatsAppChatWithDraftInput };
+
 export type LegacyFileActionSubmission = Exclude<FileActionSubmission, { action: "SEARCH_FILES" | "CREATE_FOLDER" }>;
 
 export type DeferredActionSubmission = {
@@ -423,12 +527,15 @@ export type ActionSubmission =
   | HabitActionSubmission
   | WeatherActionSubmission
   | OpenApplicationActionSubmission
+  | SearchSpotifyAppActionSubmission
+  | SpotifyMusicActionSubmission
   | RegisterCatalogApplicationActionSubmission
   | RequestCustomApplicationRegistrationActionSubmission
   | ApprovedWebActionSubmission
   | OpenWebPageActionSubmission
   | LegacyFileActionSubmission
   | SupervisedFilesActionSubmission
+  | MessagingActionSubmission
   | DeferredActionSubmission;
 
 export type ActionConfirmationRequirement = {
@@ -502,6 +609,7 @@ export type ActionData =
   | OpenWebPageActionData
   | SupervisedFileSearchData
   | SupervisedFileMutationData
+  | MessagingActionData
   | FileActionData;
 
 export type ActionOutcome = {

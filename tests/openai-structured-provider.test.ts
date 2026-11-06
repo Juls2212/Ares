@@ -69,7 +69,7 @@ describe("OpenAI structured interpretation provider", () => {
       expect(variant).toMatchObject({
         type: "object",
         additionalProperties: false,
-        required: ["action", "input", "weeklyRoutine", "habitAction", "approvedWeb", "catalogApplication", "filesAction"]
+        required: ["action", "input", "weeklyRoutine", "habitAction", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "spotifySearch", "spotifyControl"]
       });
     }
 
@@ -125,7 +125,7 @@ describe("OpenAI structured interpretation provider", () => {
       "ANALYZE_WEEKLY_SCHEDULE",
       "GET_TODAY_AVAILABILITY"
     ]));
-    expect(actions).toHaveLength(35);
+    expect(actions).toHaveLength(53);
     for (const action of [
       "SEARCH_FILES", "REVEAL_FOUND_FILE", "OPEN_FOUND_FILE", "CREATE_FOLDER",
       "RENAME_FOUND_ITEM", "MOVE_FOUND_ITEMS", "ORGANIZE_FOUND_ITEMS", "DELETE_FOUND_ITEM"

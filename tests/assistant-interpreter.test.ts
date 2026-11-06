@@ -125,7 +125,7 @@ describe("Main-only assistant interpreter", () => {
     const result = await interpreterFor({
       state: "READY", summary: "Preparé la acción.", responseText: "", clarifications: [],
       drafts: [{ action: "SEARCH_APPROVED_SITE", input: null, weeklyRoutine: null, habitAction: null, approvedWeb: { site: "GOOGLE", query: "https://example.com" } }]
-    }).interpret({ instruction: "Busca algo en Google" }, reference);
+    }).interpret({ instruction: "Quiero ver una página de Google" }, reference);
 
     expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
   });
