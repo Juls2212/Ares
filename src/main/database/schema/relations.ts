@@ -6,6 +6,7 @@ import { eventNotificationDeliveries } from "./event-notification-deliveries";
 import { events } from "./events";
 import { habitCompletions } from "./habit-completions";
 import { habits } from "./habits";
+import { messagingContactAliases, messagingContacts } from "./messaging-contacts";
 import { reminders } from "./reminders";
 import { tasks } from "./tasks";
 import { weeklyRoutines } from "./weekly-routines";
@@ -94,5 +95,16 @@ export const applicationAliasesRelations = relations(applicationAliases, ({ one 
   application: one(applications, {
     fields: [applicationAliases.applicationId],
     references: [applications.id]
+  })
+}));
+
+export const messagingContactsRelations = relations(messagingContacts, ({ many }) => ({
+  aliases: many(messagingContactAliases)
+}));
+
+export const messagingContactAliasesRelations = relations(messagingContactAliases, ({ one }) => ({
+  contact: one(messagingContacts, {
+    fields: [messagingContactAliases.contactId],
+    references: [messagingContacts.id]
   })
 }));
