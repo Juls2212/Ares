@@ -6,7 +6,7 @@ const source = (file: string): string => readFileSync(file, "utf8");
 describe("Ares assistant output placement", () => {
   it("keeps the compact shell voice-only without a command dock or typed entry", () => {
     const view = source("src/renderer/views/ares-view.tsx");
-    const controlsStart = view.indexOf("<ParticleOrb");
+    const controlsStart = view.indexOf("<GlassOrb");
     const review = view.indexOf("<InterpretationResult");
     const controls = view.slice(controlsStart, review);
 
@@ -33,7 +33,7 @@ describe("Ares assistant output placement", () => {
     const view = source("src/renderer/views/ares-view.tsx");
     const controls = source("src/renderer/features/voice/response-speech-controls.tsx");
 
-    expect(view).toContain("responseText={visibleCoreResponse}");
+    expect(view).toContain("{visibleCoreResponse}");
     expect(view).toContain('const coreResponse = spokenResponse?.text ?? "";');
     expect(view).not.toContain("resolvedActionMessage");
     expect(view).not.toContain('className="command-instrument__speech"');
@@ -52,7 +52,7 @@ describe("Ares assistant output placement", () => {
     expect(view).toContain('? "ACTING"');
     expect(view).toContain('exclusiveCoreState === "FAILURE" ? "error"');
     expect(view).toContain('const visibleCoreResponse = responsePhase ? coreResponseText : "";');
-    expect(view).toContain("responseText={visibleCoreResponse}");
+    expect(view).toContain("{visibleCoreResponse}");
     expect(view).toContain("const handleStartRecording");
     expect(view).toContain("clearCoreForNewInteraction();");
   });

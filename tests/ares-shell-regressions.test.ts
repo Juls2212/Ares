@@ -27,8 +27,8 @@ vi.mock("react", async (importOriginal) => {
 
 import { App } from "../src/renderer/app/App";
 import { AresView } from "../src/renderer/views/ares-view";
-import { ParticleOrb } from "../src/renderer/components/particle-orb";
-import { UtilityPanel } from "../src/renderer/features/settings/utility-panel";
+import { GlassOrb } from "../src/renderer/components/glass-orb";
+import { ColorSchemeButton } from "../src/renderer/features/settings/color-scheme-button";
 import { ResponseSpeechControls } from "../src/renderer/features/voice/response-speech-controls";
 
 const render = <T,>(scope: string, component: () => T): T => {
@@ -52,15 +52,14 @@ const renderAppOrb = () => {
   const app = render("app", App);
   const props = find(app, AresView)!.props;
   const view = render("view", () => AresView(props));
-  return render("orb", () => ParticleOrb(find(view, ParticleOrb)!.props));
+  return render("orb", () => GlassOrb(find(view, GlassOrb)!.props));
 };
 
-const styles = readFileSync("src/renderer/styles/ares.css", "utf8");
-const activeStyles = styles.slice(styles.lastIndexOf("/* The active voice shell"));
+const styles = readFileSync("src/renderer/styles/ares-glass.css", "utf8");
 const rule = (selector: string): string => {
-  const start = activeStyles.indexOf(`${selector} {`);
-  if (start < 0) throw new Error("Expected active-shell style rule is missing.");
-  return activeStyles.slice(start, activeStyles.indexOf("}", start) + 1);
+  const start = styles.indexOf(`${selector} {`);
+  if (start < 0) throw new Error("Expected glass style rule is missing.");
+  return styles.slice(start, styles.indexOf("}", start) + 1);
 };
 
 describe("compact shell regressions", () => {
@@ -105,7 +104,7 @@ describe("compact shell regressions", () => {
     expect(orb.type).toBe("button");
     expect(orb.props.type).toBe("button");
     expect(orb.props.disabled).toBe(false);
-    expect(orb.props["aria-label"]).toBe("Hablar con Ares");
+    expect(orb.props["aria-label"]).toBe("Toca para hablar");
     // Native Enter/Space generate one click; no additional key handler may double-dispatch it.
     expect(orb.props.onKeyDown).toBeUndefined();
     orb.props.onClick({ type: "click", detail: activation === "click" ? 1 : 0 });
@@ -113,7 +112,7 @@ describe("compact shell regressions", () => {
     expect(getUserMedia).toHaveBeenCalledExactlyOnceWith({ audio: true });
     expect(recorderStart).toHaveBeenCalledOnce();
     const listening = renderAppOrb();
-    expect(listening.props["aria-label"]).toBe("Cancelar grabación");
+    expect(listening.props["aria-label"]).toBe("Escuchando. Toca para cancelar");
     listening.props.onClick();
     expect(trackStop).toHaveBeenCalledOnce();
     expect(renderAppOrb().props["data-state"]).toBe("idle");
@@ -135,8 +134,8 @@ describe("compact shell regressions", () => {
     const view = render("view", () => AresView({ ...find(app, AresView)!.props, orbState: "speaking" }));
     const stop = vi.fn();
     find(view, ResponseSpeechControls)!.props.stopRef.current = stop;
-    const orb = render("orb", () => ParticleOrb(find(view, ParticleOrb)!.props));
-    expect(orb.props["aria-label"]).toBe("Detener voz");
+    const orb = render("orb", () => GlassOrb(find(view, GlassOrb)!.props));
+    expect(orb.props["aria-label"]).toBe("Hablando. Toca para detener");
     orb.props.onClick();
     expect(stop).toHaveBeenCalledOnce();
     expect(getUserMedia).not.toHaveBeenCalled();
@@ -150,49 +149,40 @@ describe("compact shell regressions", () => {
       voiceState: state === "processing" ? "PROCESSING" : "IDLE",
       draftStates: state === "acting" ? { 0: { busy: true, resolved: false } } : {}
     }));
-    const orb = render("orb", () => ParticleOrb(find(view, ParticleOrb)!.props));
+    const orb = render("orb", () => GlassOrb(find(view, GlassOrb)!.props));
     expect(orb.props.disabled).toBe(true);
     orb.props.onClick();
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("switches both directions through the existing settings handler and theme attribute", () => {
-    for (const expectedTheme of ["dark", "light"]) {
+  it("cycles the color schemes in both directions through the color button and the data-theme attribute", () => {
+    for (const expectedScheme of ["blue", "green"]) {
       const app = render("app", App);
-      find(app, "button")!.props.onClick();
-      const openApp = render("app", App);
-      const panel = render("settings", () => UtilityPanel(find(openApp, UtilityPanel)!.props));
-      find(panel, "button")!.props.onClick();
-      expect(theme).toBe(expectedTheme);
-      expect(root.setAttribute).toHaveBeenLastCalledWith("data-theme", expectedTheme);
-      expect(find(render("app", App), UtilityPanel)!.props.theme).toBe(expectedTheme);
-      // Close the existing settings affordance before opening it for the next toggle.
-      find(render("app", App), "button")!.props.onClick();
+      find(app, ColorSchemeButton)!.props.onCycle();
+      expect(theme).toBe(expectedScheme);
+      expect(root.setAttribute).toHaveBeenLastCalledWith("data-theme", expectedScheme);
+      expect(find(render("app", App), ColorSchemeButton)!.props.current.id).toBe(expectedScheme);
     }
   });
 
-  it("uses theme-dependent glass, orb, text, and focus styles", () => {
-    const dark = rule(":root .ares-shell.ares-glass-shell:has(.command-layout)");
-    const light = rule(':root:not([data-theme="dark"]) .ares-shell.ares-glass-shell:has(.command-layout)');
-    expect(dark).toContain("--glass-background: #101c2c");
-    expect(light).toContain("--glass-background: #e7edf3");
-    expect(dark).toContain("--glass-response: #f0f7ff");
-    expect(light).toContain("--glass-response: #142c46");
-    for (const token of ["--neural-primary-rgb", "--neural-focal-rgb", "--glass-wordmark", "--glass-state-text", "--glass-nucleus", "--glass-atmosphere", "--focus"]) {
-      expect(dark).toContain(`${token}:`);
+  it("uses theme-dependent glass, text, button, and focus tokens", () => {
+    const light = rule(":root");
+    const dark = rule(':root[data-theme="blue"]');
+    for (const token of ["--ink", "--ink-2", "--glass-tint", "--card-tint", "--button-primary-bg", "--button-reinforced-bg", "--focus-ink", "--surface-opaque"]) {
       expect(light).toContain(`${token}:`);
+      expect(dark).toContain(`${token}:`);
     }
-    expect(dark).toContain("background-color: var(--glass-background)");
-    expect(dark).toContain("background-image: var(--glass-atmosphere)");
-    expect(rule(":root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb__response")).toContain("color: var(--glass-response)");
-    expect(rule(":root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb:focus-visible")).toContain("outline: 2px solid var(--focus)");
+    expect(rule(".ares-shell")).toContain("background-color: var(--glass-tint)");
+    expect(rule(".command-response p")).toContain("color: var(--ink)");
+    expect(rule(".glass-orb:focus-visible .glass-orb__ring")).toContain("opacity: 1");
+    expect(rule(".glass-orb__ring")).toContain("border: 2px solid var(--focus-ink)");
   });
 
-  it("overrides inherited decorative hit testing and keeps every orb layer inert", () => {
-    expect(styles).toMatch(/\.command-core__visual\s*\{[^}]*pointer-events: none;/);
-    expect(rule(":root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb")).toContain("pointer-events: auto");
-    expect(activeStyles).toMatch(/\.command-core__visual,\s*:root[^{}]*\.particle-orb\s*\{\s*pointer-events: auto;/);
-    expect(rule(":root .ares-shell.ares-glass-shell:has(.command-layout) .particle-orb > *")).toContain("pointer-events: none");
-    expect(rule(":root .ares-shell.ares-glass-shell::before")).toContain("pointer-events: none");
+  it("keeps every decorative layer inert so only the orb button receives pointer input", () => {
+    expect(rule(".ares-shell::after")).toContain("pointer-events: none");
+    expect(rule(".command-glow")).toContain("pointer-events: none");
+    expect(rule(".glass-orb__ring")).toContain("pointer-events: none");
+    expect(rule(".command-text")).toContain("pointer-events: none");
+    expect(rule(".command-response")).toContain("pointer-events: auto");
   });
 });

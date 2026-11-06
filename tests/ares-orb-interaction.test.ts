@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
-import { ParticleOrb, type ParticleOrbState } from "../src/renderer/components/particle-orb";
+import { GlassOrb, type OrbState } from "../src/renderer/components/glass-orb";
 import { AresView, createOrbInteraction } from "../src/renderer/views/ares-view";
 
 const callbacks = () => ({ start: vi.fn(), cancel: vi.fn(), stop: vi.fn() });
@@ -34,7 +34,7 @@ describe("orb-only voice interaction", () => {
   it("cancels listening without submitting or starting another recording", () => {
     const handlers = callbacks();
     const interaction = createOrbInteraction("recording", handlers);
-    expect(interaction.label).toBe("Cancelar grabación");
+    expect(interaction.label).toBe("Escuchando. Toca para cancelar");
     interaction.activate();
     expect(handlers.cancel).toHaveBeenCalledOnce();
     expect(handlers.start).not.toHaveBeenCalled();
@@ -44,7 +44,7 @@ describe("orb-only voice interaction", () => {
   it("stops speaking through the existing playback controller", () => {
     const handlers = callbacks();
     const interaction = createOrbInteraction("speaking", handlers);
-    expect(interaction.label).toBe("Detener voz");
+    expect(interaction.label).toBe("Hablando. Toca para detener");
     interaction.activate();
     expect(handlers.stop).toHaveBeenCalledOnce();
     expect(handlers.start).not.toHaveBeenCalled();
@@ -67,38 +67,39 @@ describe("orb-only voice interaction", () => {
     for (const handler of Object.values(handlers)) expect(handler).not.toHaveBeenCalled();
   });
 
-  it("uses a native button for Enter/Space, with text and decorations inside it", () => {
-    const markup = renderToStaticMarkup(createElement(ParticleOrb, {
-      state: "speaking", label: "Toca para detener", accessibleLabel: "Detener voz",
-      responseText: "Listo, abrí Spotify.", responsePhase: "REVEALING", onActivate: vi.fn()
+  it("uses a native button for Enter/Space, with only decorative layers inside it", () => {
+    const markup = renderToStaticMarkup(createElement(GlassOrb, {
+      state: "speaking", accessibleLabel: "Detener voz", onActivate: vi.fn()
     }));
     expect(markup).toMatch(/^<button type="button" aria-label="Detener voz"/);
-    expect(markup).toContain("particle-orb__response--revealing");
-    expect(markup).toContain("Listo, abrí Spotify.");
-    expect(markup).toContain("Toca para detener");
-    expect(markup).toMatch(/<span aria-hidden="true" class="particle-orb__response.*<\/button>$/);
+    expect(markup).toContain('data-state="speaking"');
+    expect(markup).toContain('data-visual="speaking"');
+    expect(markup).toContain('aria-hidden="true" class="glass-orb__stage"');
+    expect(markup).toMatch(/glass-orb__ring"><\/span><\/button>$/);
+    // The text lives outside the button, so assistive technology reads one label.
+    expect(markup).not.toMatch(/>[^<]+<\/span><\/button>/);
     expect(markup).not.toContain("tabindex=\"-1\"");
   });
 
   it("renders only one primary control with no microphone, typed input, or external playback UI", () => {
     const markup = renderToStaticMarkup(createElement(AresView, viewProperties));
     expect(markup.match(/<button/g)).toHaveLength(1);
-    expect(markup).toContain('aria-label="Hablar con Ares"');
-    expect(markup).toContain("Toca para hablar");
+    expect(markup).toContain('aria-label="Toca para hablar"');
+    expect(markup).toContain("Toca el orbe para hablar");
     for (const removed of ["voice-controls", "voice-button--microphone", "response-speech-controls", "command-instrument__speech", "textarea", "Interpretar"]) {
       expect(markup).not.toContain(removed);
     }
   });
 
   it.each([
-    ["RECORDING", "recording", "Cancelar grabación", false],
-    ["PROCESSING", "transcribing", "Ares está procesando", true]
+    ["RECORDING", "recording", "Escuchando. Toca para cancelar", false],
+    ["PROCESSING", "transcribing", "Procesando", true]
   ] as const)("preserves semantic %s state in the mounted shell", (voiceState, state, label, disabled) => {
-    const markup = renderToStaticMarkup(createElement(AresView, { ...viewProperties, voiceState, orbState: state as ParticleOrbState, voiceLevel: .7 }));
+    const markup = renderToStaticMarkup(createElement(AresView, { ...viewProperties, voiceState, orbState: state as OrbState }));
     expect(markup).toContain(`aria-label="${label}"`);
     expect(markup.includes('disabled=""')).toBe(disabled);
     expect(markup).toContain(`data-state="${state}"`);
-    expect(markup).toContain(`data-voice-level="${voiceState === "RECORDING" ? "0.700" : "0.000"}"`);
+    expect(markup).toContain(`data-visual="${voiceState === "RECORDING" ? "listening" : "processing"}"`);
   });
 
   it("returns dialog focus to the orb and retains automatic playback cleanup", () => {

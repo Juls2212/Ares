@@ -9,6 +9,8 @@ const rendererSource = [
   "src/renderer/views/ares-view.tsx",
   "src/renderer/features/assistant/interpretation-result.tsx",
   "src/renderer/features/voice/voice-command-controls.tsx",
+  "src/renderer/features/settings/color-scheme-button.tsx",
+  // The panel is no longer mounted, but its source (and the strings it holds) is kept.
   "src/renderer/features/settings/utility-panel.tsx",
   "src/renderer/features/settings/theme-preference.ts",
   "src/renderer/features/settings/use-theme-preference.ts"
@@ -77,7 +79,7 @@ describe("temporary renderer messaging", () => {
     expect(rendererSource).not.toContain("Detener y transcribir");
     expect(rendererSource).toContain(">Cancelar</button>");
     expect(rendererSource).toContain("createSpeechEndDetector");
-    expect(rendererSource).toContain("maximumDurationMs: 10_000");
+    expect(rendererSource).toContain("maximumDurationMs: LIVE_RECORDING_LIMIT_MS");
     expect(rendererSource).toContain("window.ares.voice.transcribe");
     const transcriptionFlow = rendererSource.slice(
       rendererSource.indexOf("const transcribeAudio ="),
@@ -114,22 +116,24 @@ describe("temporary renderer messaging", () => {
   });
 
   it("keeps the appearance control local to the renderer", () => {
-    expect(rendererSource).toContain("Activar modo oscuro");
-    expect(rendererSource).toContain("Activar modo claro");
-    expect(rendererSource).toContain('setAttribute("data-theme", theme)');
+    expect(rendererSource).toContain("Cambiar color");
+    // The legacy panel source keeps its old wording, but nothing mounted calls the color change a dark or light mode.
+    expect(appSource).not.toMatch(/modo oscuro|modo claro/u);
+    expect(readFileSync(path.resolve(process.cwd(), "src/renderer/features/settings/color-scheme-button.tsx"), "utf8")).not.toMatch(/modo oscuro|modo claro/u);
+    expect(rendererSource).toContain('setAttribute("data-theme", scheme.id)');
     expect(rendererSource).toContain('"ares-theme-preference"');
     expect(rendererSource).not.toContain("window.ares.settings.appearance");
     expect(rendererSource).not.toContain("window.ares.theme");
   });
 
-  it("keeps Spanish command controls and the renderer-only particle orb", () => {
+  it("keeps Spanish command controls and the renderer-only glass orb", () => {
     expect(rendererSource).toContain("Toca para hablar");
     expect(rendererSource).toContain("Iniciar grabación por voz");
     expect(rendererSource).toContain("Hablar con Ares");
     expect(rendererSource).not.toContain("Proponer acción");
     expect(rendererSource).toContain("Confirmar");
     expect(rendererSource).toContain("Cancelar");
-    expect(rendererSource).toContain("<ParticleOrb");
+    expect(rendererSource).toContain("<GlassOrb");
     expect(rendererSource).not.toContain("window.ares.files");
     expect(rendererSource).not.toContain("window.ares.assistant.execute");
   });
@@ -143,8 +147,8 @@ describe("temporary renderer messaging", () => {
     // The orb is the only visible control; the dock and heading of the former workspace are not mounted.
     expect(aresView).not.toContain("command-heading");
     expect(aresView).not.toContain("<VoiceCommandControls");
-    expect(aresView.indexOf("command-core__visual")).toBeLessThan(aresView.indexOf("<InterpretationResult"));
-    expect(aresView).toContain("<ParticleOrb");
+    expect(aresView.indexOf("command-orb")).toBeLessThan(aresView.indexOf("<InterpretationResult"));
+    expect(aresView).toContain("<GlassOrb");
     expect(aresView).not.toContain("command-instrument__axis");
     expect(aresView).not.toContain("command-instrument__anchor");
     expect(aresView).toContain("<InterpretationResult");

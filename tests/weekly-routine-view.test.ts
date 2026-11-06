@@ -157,7 +157,8 @@ describe("weekly routine planner presentation", () => {
     expect(markup).toContain(">Calendario</button>");
     expect(markup).toContain(">Horario semanal</button>");
     expect(markup).toContain('id="calendar-month-view"');
-    expect(markup).toContain("Mes anterior");
+    expect(markup).toContain('aria-label="Navegación del calendario"');
+    expect(markup).toContain(">Anterior</button>");
   });
 
   it("renders only the gallery on the initial weekly planner mount", () => {
@@ -205,7 +206,7 @@ describe("weekly routine planner presentation", () => {
 
   it("keeps normal calendar layout free of forced rail and page overflow", () => {
     expect(weeklySource).toContain('className="weekly-routine-shell" id="weekly-routine-view" role="tabpanel"');
-    expect(viewSource).toContain('className="calendar-console" id="calendar-month-view" role="tabpanel"');
+    expect(viewSource).toContain('className={`calendar-console calendar-console--${calendarView.toLowerCase()}`} id="calendar-month-view" role="tabpanel"');
     expect(readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8")).toContain(".calendar-focus-rail {\n  max-height: none;\n  overflow-y: visible;");
     expect(readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8")).toContain(".calendar-shell {\n  padding: clamp(.55rem, 1.35vh, .9rem) 0 clamp(.7rem, 1.5vh, 1rem);\n  box-sizing: border-box;\n  overflow-x: clip;");
   });

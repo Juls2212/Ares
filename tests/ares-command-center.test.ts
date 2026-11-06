@@ -82,7 +82,7 @@ describe("Ares command-center information", () => {
       onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     }));
-    const core = markup.indexOf("command-core");
+    const core = markup.indexOf("command-orb");
 
     expect(core).toBeGreaterThan(-1);
     expect(markup).not.toContain("support-panel--left");
@@ -90,8 +90,8 @@ describe("Ares command-center information", () => {
     expect(markup).not.toContain("Resumen de hoy");
     expect(markup).not.toContain("Próximos eventos");
     expect(markup).not.toContain("Hábitos de hoy");
-    expect(markup).toContain("Toca para hablar");
-    expect(markup).toContain('aria-label="Hablar con Ares"');
+    expect(markup).toContain("Toca el orbe para hablar");
+    expect(markup).toContain('aria-label="Toca para hablar"');
     expect(markup).not.toContain("audio se enviará a OpenAI");
   });
 

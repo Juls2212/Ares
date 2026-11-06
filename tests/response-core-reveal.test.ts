@@ -48,13 +48,13 @@ describe("core response reveal", () => {
     expect(reveal).toContain("showFull();");
   });
 
-  it("uses a text-only floating core overlay and never reinstates a response card", () => {
-    const component = source("src/renderer/components/particle-orb.tsx");
-    const styles = source("src/renderer/styles/ares.css");
+  it("shows the response as plain text below the orb and never reinstates a response card", () => {
+    const view = source("src/renderer/views/ares-view.tsx");
+    const styles = source("src/renderer/styles/ares-glass.css");
 
-    expect(component).toContain("particle-orb__response--${responsePhase.toLowerCase()}");
-    expect(component).not.toContain("particle-orb__response-card");
-    expect(styles).toContain(".particle-orb__response--fading { opacity: 0; }");
-    expect(styles).not.toContain(".particle-orb__response-card");
+    expect(view).toContain("command-response__reserved");
+    expect(view).not.toContain("response-card");
+    expect(styles).toContain(".command-response__reserved { color: transparent; }");
+    expect(styles).not.toContain("response-card");
   });
 });
