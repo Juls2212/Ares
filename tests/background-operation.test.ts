@@ -122,7 +122,7 @@ describe("microphone opens only after an explicit activation", () => {
   });
 
   it("keeps the bounded recording duration and the silence timeout", () => {
-    expect(app).toContain("maximumDurationMs: 10_000");
+    expect(app).toContain("maximumDurationMs: LIVE_RECORDING_LIMIT_MS");
     expect(SPEECH_END_SILENCE_MS).toBe(1_700);
   });
 });

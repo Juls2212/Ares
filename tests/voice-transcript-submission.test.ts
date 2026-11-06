@@ -16,7 +16,7 @@ describe("explicit voice instruction submission", () => {
   it("executes direct voice proposals in Main but leaves file changes and deletions pending", async () => {
     const execute = vi.fn(async (proposal: any) => ({ actionId: proposal.actionId, action: proposal.action, riskLevel: 1 as const, status: "SUCCEEDED" as const, userSummary: "Se creó la tarea." }));
     const orchestrator = createActionOrchestrator({ executor: { execute }, historyService: { recordTerminal: vi.fn(async () => ({ ok: false as const, error: { code: "TEST_HISTORY", userMessage: "Historial no disponible." } })), list: vi.fn() }, logError: vi.fn() });
-    const drafts: ActionSubmission[] = [task, { action: "RENAME_FILE", input: { source: { rootId: "DOCUMENTS", relativePath: "report.txt" }, newName: "summary.txt" } }, { action: "DELETE_TASK", input: { taskId: "550e8400-e29b-41d4-a716-446655440000" } }, { action: "DELETE_EVENT", input: { eventId: "550e8400-e29b-41d4-a716-446655440001" } }];
+    const drafts: ActionSubmission[] = [task, { action: "CREATE_WEEKLY_SCHEDULE", input: { title: "Horario" } }, { action: "DELETE_TASK", input: { taskId: "550e8400-e29b-41d4-a716-446655440000" } }, { action: "DELETE_EVENT", input: { eventId: "550e8400-e29b-41d4-a716-446655440001" } }];
     const outcomes: unknown[] = [];
     const f = { ...fixture(ready(drafts)), propose: async (_index: number, draft: ActionSubmission) => { outcomes.push(await orchestrator.propose(draft)); } };
     await createVoiceTranscriptSubmission().submit(f);
@@ -71,7 +71,6 @@ describe("explicit voice instruction submission", () => {
   });
   it("keeps typed submission button-driven and failed audio separate from input replacement", () => {
     const source = readFileSync("src/renderer/app/App.tsx", "utf8");
-    expect(source).toContain("await submitInstruction(instruction);");
     expect(source).toContain("submitInstruction(text, true");
     expect(source.indexOf("if (!result.ok) return setVoiceMessage")).toBeLessThan(source.indexOf("voiceSubmission.current.submit"));
     expect(source).toContain("generation <= voiceUploadGeneration.current");

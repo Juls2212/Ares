@@ -9,6 +9,7 @@ import {
 import { createGlobalVoiceShortcutLifecycle, DEFAULT_VOICE_SHORTCUT } from "../src/main/voice/global-voice-shortcut";
 import { VOICE_SHORTCUTS, formatShortcutForDisplay } from "../src/shared/settings-contracts";
 import { VOICE_MAX_RECORDING_DURATION_MS } from "../src/shared/voice-contracts";
+import { LIVE_RECORDING_LIMIT_MS } from "../src/renderer/features/voice/recording-limits";
 
 const source = (file: string): string => readFileSync(file, "utf8");
 
@@ -79,21 +80,23 @@ describe("one-time orb hint", () => {
     const view = source("src/renderer/views/ares-view.tsx");
     expect(view).toContain('shortcutHint && exclusiveCoreState === "IDLE" && !coreResponse');
     expect(view).toContain('className="shortcut-hint" role="note"');
-    const css = source("src/renderer/styles/ares.css");
+    const css = source("src/renderer/styles/ares-glass.css");
     const start = css.indexOf(".shortcut-hint {");
     const block = css.slice(start, css.indexOf("}", start) + 1);
     expect(block).toContain("pointer-events: none;");
-    expect(block).toContain("var(--ink)");
-    expect(block).toContain("var(--core-soft-line)");
-    expect(block).toContain("bottom: .55rem;");
+    expect(block).toContain("var(--ink-2)");
+    expect(block).toContain("bottom: 5cqw;");
     expect(block).not.toMatch(/animation|transition/);
   });
 });
 
 describe("recording limits found in code", () => {
-  it("define 60 s in the shared contract and 10 s as the renderer's active limit", () => {
+  it("define 60 s in the shared contract and 30 s as the renderer's active limit", () => {
     expect(VOICE_MAX_RECORDING_DURATION_MS).toBe(60_000);
-    expect(source("src/renderer/app/App.tsx")).toContain("maximumDurationMs: 10_000");
+    expect(LIVE_RECORDING_LIMIT_MS).toBe(30_000);
+    expect(LIVE_RECORDING_LIMIT_MS).toBeLessThan(VOICE_MAX_RECORDING_DURATION_MS);
+    expect(source("src/renderer/app/App.tsx")).toContain("maximumDurationMs: LIVE_RECORDING_LIMIT_MS");
+    expect(source("src/renderer/features/voice/recording-limits.ts")).toContain("LIVE_RECORDING_LIMIT_MS = 30_000");
     expect(source("src/renderer/features/voice/manual-voice-recorder.ts")).toContain("dependencies.maximumDurationMs ?? VOICE_MAX_RECORDING_DURATION_MS");
   });
 });

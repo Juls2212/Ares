@@ -24,6 +24,8 @@ type SpeechEndDetectorDependencies = {
   cancelFrame?: (handle: number) => void;
   onSpeechEnded: () => void;
   onLevel?: (level: number) => void;
+  /** The raw RMS of every analyser poll; the orb maps it to its own amplitude. Detection does not depend on it. */
+  onRms?: (rms: number) => void;
 };
 
 export type SpeechEndDetector = {
@@ -90,6 +92,7 @@ export const createSpeechEndDetector = (dependencies: SpeechEndDetectorDependenc
     const values = new Uint8Array(analyser.fftSize);
     analyser.getByteTimeDomainData(values);
     const measuredLevel = measureLevel(values);
+    dependencies.onRms?.(measuredLevel);
     const normalizedLevel = normalizeVoiceLevel(measuredLevel);
     const smoothing = normalizedLevel > smoothedLevel ? VOICE_LEVEL_ATTACK : VOICE_LEVEL_RELEASE;
     smoothedLevel += (normalizedLevel - smoothedLevel) * smoothing;

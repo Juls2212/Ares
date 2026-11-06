@@ -11,16 +11,20 @@ describe("renderer-only voice level visualization", () => {
     const cancellation = source("src/renderer/features/voice/recording-cancellation.ts");
 
     expect(detector).toContain("dependencies.onLevel?.");
+    expect(detector).toContain("dependencies.onRms?.(measuredLevel)");
     expect(detector).toContain("smoothedLevel");
     expect(detector).toContain("Math.min(1, Math.max(0");
     expect(detector).not.toContain("console.");
     expect(detector).not.toContain("window.ares");
-    expect(app).toContain("onLevel: reduceMotion ? undefined");
-    expect(app).toContain("setVoiceLevel(0)");
-    expect(app).toContain('if (voiceState !== "RECORDING") setVoiceLevel(0);');
-    expect(app).toContain("onProcessing: () => { detector.dispose(); setVoiceLevel(0);");
-    expect(app).toContain("onCancelled: () => { detector.dispose(); setVoiceLevel(0);");
-    expect(app).toContain("onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); setVoiceLevel(0);");
+    // The raw level goes to the orb's amplitude source; it never becomes React state again.
+    expect(app).toContain("orbAmplitudeSource.pushMicRms(rms)");
+    expect(app).not.toContain("setVoiceLevel");
+    expect(app).not.toContain("voiceLevel");
+    expect(app).toContain("orbAmplitudeSource.reset()");
+    expect(app).toContain('if (voiceState !== "RECORDING") orbAmplitudeSource.reset();');
+    expect(app).toContain("onProcessing: () => { detector.dispose(); orbAmplitudeSource.reset();");
+    expect(app).toContain("onCancelled: () => { detector.dispose(); orbAmplitudeSource.reset();");
+    expect(app).toContain("onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); orbAmplitudeSource.reset();");
     expect(cancellation).not.toContain("addEventListener(\"visibilitychange\"");
     expect(cancellation).toContain('windowTarget.addEventListener("pagehide", cancel)');
   });
@@ -35,6 +39,8 @@ describe("renderer-only voice level visualization", () => {
 
     expect(protectedSources).not.toContain("voiceLevel");
     expect(protectedSources).not.toContain("onLevel");
+    expect(protectedSources).not.toContain("onRms");
+    expect(protectedSources).not.toContain("orbAmplitude");
     expect(protectedSources).not.toContain("AnalyserNode");
     expect(protectedSources).not.toContain("createAnalyser");
   });
