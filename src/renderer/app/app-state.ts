@@ -1,7 +1,7 @@
 import type { ActionSubmission } from "../../shared/action-contracts";
 import type { RegisterableCatalogApplication } from "../../shared/application-contracts";
 import type { VoiceShortcutEffectiveStatus } from "../../shared/settings-contracts";
-import type { ParticleOrbState } from "../components/particle-orb";
+import type { OrbState } from "../components/orb-visuals";
 
 export type VoiceState = "IDLE" | "RECORDING" | "PROCESSING";
 
@@ -28,6 +28,17 @@ export const actionLabels: Record<ActionSubmission["action"], string> = {
   UPDATE_HABIT: "Actualizar hábito",
   COMPLETE_HABIT: "Completar hábito",
   OPEN_APPLICATION: "Abrir aplicación registrada",
+  SEARCH_SPOTIFY_APP: "Buscar en la aplicación de Spotify",
+  CONNECT_SPOTIFY: "Conectar Spotify",
+  DISCONNECT_SPOTIFY: "Desconectar Spotify",
+  GET_SPOTIFY_STATUS: "Consultar conexión de Spotify",
+  PLAY_SPOTIFY_MUSIC: "Reproducir música en Spotify",
+  PAUSE_SPOTIFY: "Pausar Spotify",
+  RESUME_SPOTIFY: "Reanudar Spotify",
+  NEXT_SPOTIFY_TRACK: "Siguiente canción de Spotify",
+  PREVIOUS_SPOTIFY_TRACK: "Canción anterior de Spotify",
+  SET_SPOTIFY_VOLUME: "Ajustar volumen de Spotify",
+  WHAT_IS_PLAYING: "Consultar qué está sonando",
   REGISTER_CATALOG_APPLICATION: "Registrar aplicación aprobada",
   REQUEST_CUSTOM_APPLICATION_REGISTRATION: "Registrar aplicación propia",
   OPEN_APPROVED_PAGE: "Abrir sitio aprobado",
@@ -46,7 +57,14 @@ export const actionLabels: Record<ActionSubmission["action"], string> = {
   MOVE_FILE: "Mover archivo",
   ORGANIZE_FILES: "Organizar archivos",
   DELETE_EVENT: "Eliminar evento",
-  DELETE_TASK: "Eliminar tarea"
+  DELETE_TASK: "Eliminar tarea",
+  SAVE_CONTACT: "Guardar contacto",
+  LIST_CONTACTS: "Listar contactos",
+  DELETE_CONTACT: "Eliminar contacto",
+  PREPARE_MESSAGE_DRAFT: "Preparar borrador de mensaje",
+  EDIT_MESSAGE_DRAFT: "Editar borrador de mensaje",
+  DISCARD_MESSAGE_DRAFT: "Descartar borrador de mensaje",
+  OPEN_WHATSAPP_CHAT_WITH_DRAFT: "Abrir chat de WhatsApp con el borrador"
 };
 
 export const catalogApplicationLabels: Record<RegisterableCatalogApplication, string> = {
@@ -62,7 +80,7 @@ export const voiceShortcutStatusLabels: Record<VoiceShortcutEffectiveStatus, str
   UNAVAILABLE: "Atajo no disponible"
 };
 
-export const orbStateFor = (voiceState: VoiceState, isInterpreting: boolean): ParticleOrbState => {
+export const orbStateFor = (voiceState: VoiceState, isInterpreting: boolean): OrbState => {
   if (isInterpreting) return "interpreting";
   if (voiceState === "RECORDING") return "recording";
   if (voiceState === "PROCESSING") return "transcribing";

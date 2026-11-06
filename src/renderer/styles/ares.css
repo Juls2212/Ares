@@ -2180,3 +2180,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Main-initiated contact form: the number field exists only inside this dialog. */
+.contact-form { display: grid; gap: .7rem; margin-top: .8rem; }
+.contact-form__field { display: grid; gap: .3rem; color: var(--ink-muted); font-family: var(--font-display); font-size: .77rem; }
+.contact-form__field input { min-height: 35px; padding: .38rem .5rem; border: 1px solid var(--line); background: var(--input-surface); color: var(--ink); font: inherit; font-size: .9rem; }
+.contact-form__error { margin: 0; color: var(--ink); font-size: .82rem; line-height: 1.4; border-left: 2px solid var(--accent); padding-left: .55rem; }

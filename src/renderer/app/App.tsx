@@ -28,10 +28,15 @@ import { createGlobalVoiceShortcutController } from "../features/voice/global-vo
 import { createManualVoiceRecorder, type ManualVoiceRecorder } from "../features/voice/manual-voice-recorder";
 import { bindRecordingCancellation } from "../features/voice/recording-cancellation";
 import { createSpeechEndDetector, type SpeechEndDetector } from "../features/voice/speech-end-detector";
+import { orbAmplitudeSource } from "../features/voice/orb-amplitude";
+import { LIVE_RECORDING_LIMIT_MS } from "../features/voice/recording-limits";
 import { createVoiceTranscriptSubmission } from "../features/voice/voice-transcript-submission";
 import type { VoiceMimeType } from "../../shared/voice-contracts";
-import { type DraftActionState } from "../features/assistant/interpretation-result";
-import { UtilityPanel } from "../features/settings/utility-panel";
+import { hasAssistantReview, type DraftActionState } from "../features/assistant/interpretation-result";
+import type { ContactFormRequest } from "../../shared/messaging-contracts";
+import { ContactFormDialog, type ContactFormValues } from "../features/messaging/contact-form-dialog";
+import { ColorSchemeButton } from "../features/settings/color-scheme-button";
+import { colorChangeAnnouncement } from "../features/settings/color-schemes";
 import { useThemePreference } from "../features/settings/use-theme-preference";
 import { AresView } from "../views/ares-view";
 
@@ -59,9 +64,9 @@ let shortcutHintShown = false;
 const SHORTCUT_HINT_DURATION_MS = 8_000;
 
 export const App = () => {
-  const { theme, toggleTheme } = useThemePreference();
+  const { scheme, next: nextColorScheme, cycleScheme } = useThemePreference();
+  const [colorNotice, setColorNotice] = useState<string>();
   const [viewState, setViewState] = useState<ViewState>({ kind: "LOADING" });
-  const [utilityOpen, setUtilityOpen] = useState(false);
   const [interpretation, setInterpretation] = useState<AssistantInterpretation>();
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
@@ -72,10 +77,10 @@ export const App = () => {
   const [customDisplayName, setCustomDisplayName] = useState("");
   const [isRegisteringCustomApplication, setIsRegisteringCustomApplication] = useState(false);
   const [customRegistrationMessage, setCustomRegistrationMessage] = useState<string>();
+  const [contactForm, setContactForm] = useState<ContactFormRequest>();
   const [voiceMessage, setVoiceMessage] = useState<string>();
   const [shortcutHint, setShortcutHint] = useState<string>();
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
-  const [voiceLevel, setVoiceLevel] = useState(0);
   const voiceRecorder = useRef<ManualVoiceRecorder | undefined>(undefined);
   const speechEndDetector = useRef<SpeechEndDetector | undefined>(undefined);
   const voiceStateReference = useRef(voiceState);
@@ -122,7 +127,7 @@ export const App = () => {
   }, []);
 
   const cancelRecording = (): void => {
-    setVoiceLevel(0);
+    orbAmplitudeSource.reset();
     if (voiceStateReference.current === "IDLE" && !voiceStartInFlight.current) return;
     voiceGeneration.current++;
     speechEndDetector.current?.dispose();
@@ -140,7 +145,7 @@ export const App = () => {
   }, []);
   useEffect(() => { voiceStateReference.current = voiceState; }, [voiceState]);
   useEffect(() => {
-    if (voiceState !== "RECORDING") setVoiceLevel(0);
+    if (voiceState !== "RECORDING") orbAmplitudeSource.reset();
   }, [voiceState]);
 
   const transcribeAudio = async (audio: Blob, mimeType: VoiceMimeType, durationMs: number, generation: number): Promise<void> => {
@@ -163,13 +168,13 @@ export const App = () => {
     } catch {
       if (generation === voiceGeneration.current) setVoiceMessage("La transcripción no está disponible en este momento.");
     } finally {
-      if (generation === voiceGeneration.current) { voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceLevel(0); }
+      if (generation === voiceGeneration.current) { voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); orbAmplitudeSource.reset(); }
     }
   };
 
   const startRecording = async (fromGlobalShortcut = false): Promise<void> => {
     setSpokenResponse(undefined);
-    setVoiceLevel(0);
+    orbAmplitudeSource.reset();
     if (voiceStateReference.current !== "IDLE" || voiceStartInFlight.current || interpretationInFlight.current) return;
     voiceStartInFlight.current = true;
     const generation = ++voiceGeneration.current;
@@ -182,10 +187,10 @@ export const App = () => {
     }
     let levelAnalysisAvailable = true;
     let maximumWithoutSpeech = false;
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const detector = createSpeechEndDetector({
-      onLevel: reduceMotion ? undefined : (level) => {
-        if (generation === voiceGeneration.current) setVoiceLevel(level);
+      // The orb maps this raw level to its own amplitude and writes it as a CSS variable, with no React re-render.
+      onRms: (rms) => {
+        if (generation === voiceGeneration.current) orbAmplitudeSource.pushMicRms(rms);
       },
       onSpeechEnded: () => {
         if (generation === voiceGeneration.current) voiceRecorder.current?.stop();
@@ -198,7 +203,7 @@ export const App = () => {
       isMimeTypeSupported: MediaRecorder.isTypeSupported,
       createBlob: (parts, options) => new Blob(parts, options),
       setTimer: (callback, delay) => setTimeout(callback, delay), clearTimer: (timer) => clearTimeout(timer),
-      maximumDurationMs: 10_000,
+      maximumDurationMs: LIVE_RECORDING_LIMIT_MS,
       onMaximumDuration: () => {
         if (!levelAnalysisAvailable || detector.hasDetectedSpeech()) {
           voiceRecorder.current?.stop();
@@ -214,16 +219,16 @@ export const App = () => {
         }
       },
       onRecording: () => { voiceStateReference.current = "RECORDING"; setVoiceState("RECORDING"); },
-      onProcessing: () => { detector.dispose(); setVoiceLevel(0); voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); setVoiceMessage("Procesando…"); },
+      onProcessing: () => { detector.dispose(); orbAmplitudeSource.reset(); voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); setVoiceMessage("Procesando…"); },
       onUnavailable: (message, reason) => {
-        setVoiceLevel(0);
+        orbAmplitudeSource.reset();
         voiceStartInFlight.current = false;
         setVoiceState("IDLE");
         setVoiceMessage(fromGlobalShortcut && reason === "USER_GESTURE_REQUIRED" ? "Para iniciar la grabación, usa el botón visible." : message);
       },
       isUserActivationActive: () => navigator.userActivation?.isActive ?? false,
-      onCancelled: () => { detector.dispose(); setVoiceLevel(0); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); },
-      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); setVoiceLevel(0); void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
+      onCancelled: () => { detector.dispose(); orbAmplitudeSource.reset(); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); },
+      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); orbAmplitudeSource.reset(); void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
     });
     await voiceRecorder.current.start();
     voiceStartInFlight.current = false;
@@ -275,6 +280,36 @@ export const App = () => {
       interpretationInFlight.current = false;
       setIsInterpreting(false);
     }
+  };
+
+  // Main asks for this form while a contact is being saved; the renderer only ever receives a friendly name.
+  useEffect(() => {
+    if (!window.ares?.messaging?.onContactFormRequested) return;
+    return window.ares.messaging.onContactFormRequested((request) => setContactForm(request));
+  }, []);
+
+  const submitContactForm = async (values: ContactFormValues): Promise<string | undefined> => {
+    if (!contactForm) return "El formulario ya no está disponible.";
+    try {
+      const result = await window.ares.messaging.submitContactForm({ requestId: contactForm.requestId, ...values });
+      if (result.ok) {
+        setContactForm(undefined);
+        return undefined;
+      }
+      if (result.error.code === "MESSAGING_PENDING_EXPIRED") {
+        setContactForm(undefined);
+        setVoiceMessage(result.error.userMessage);
+      }
+      return result.error.userMessage;
+    } catch {
+      return "No se pudo enviar el formulario.";
+    }
+  };
+
+  const cancelContactForm = (): void => {
+    const form = contactForm;
+    setContactForm(undefined);
+    if (form) void window.ares.messaging.cancelContactForm({ requestId: form.requestId }).catch(() => undefined);
   };
 
   const updateDraftState = (index: number, state: DraftActionState): void => setDraftStates((current) => ({ ...current, [index]: state }));
@@ -354,39 +389,29 @@ export const App = () => {
     }
   };
 
+  // The color button is not rendered while a dialog (the confirmation card or the contact form) is open.
+  const dialogOpen = Boolean(contactForm) || hasAssistantReview(interpretation, draftStates);
+  const changeColor = (): void => {
+    setColorNotice(colorChangeAnnouncement(cycleScheme()));
+  };
+  useEffect(() => {
+    if (!colorNotice) return;
+    const timer = window.setTimeout(() => setColorNotice(undefined), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [colorNotice]);
+
   const orbState = orbStateFor(voiceState, isInterpreting);
   const voiceLabel = voiceLabelFor(voiceState, isInterpreting);
 
   return <main className="ares-shell ares-glass-shell">
     <header className="ares-header">
       <span aria-label="Ares" className="wordmark">ARES</span>
-      <div className="header-utilities">
-        <button aria-controls="utility-panel" aria-expanded={utilityOpen} aria-label="Controles técnicos" className="utility-toggle" onClick={() => setUtilityOpen((open) => !open)} type="button">⚙</button>
-      </div>
+      {!dialogOpen && <div className="header-utilities">
+        <ColorSchemeButton current={scheme} next={nextColorScheme} onCycle={changeColor} />
+      </div>}
     </header>
 
-    {utilityOpen && <UtilityPanel
-      catalogRegistrationMessage={catalogRegistrationMessage}
-      customDisplayName={customDisplayName}
-      customRegistrationMessage={customRegistrationMessage}
-      isRegisteringCatalogApplication={isRegisteringCatalogApplication}
-      isRegisteringCustomApplication={isRegisteringCustomApplication}
-      isUpdatingVoicePreferences={isUpdatingVoicePreferences}
-      onCatalogApplicationChange={setSelectedCatalogApplication}
-      onCustomDisplayNameChange={setCustomDisplayName}
-      onRegisterCatalogApplication={() => void registerCatalogApplication()}
-      onRegisterCustomApplication={() => void registerCustomApplication()}
-      onSaveVoicePreferences={() => void updateVoicePreferences()}
-      onToggleTheme={toggleTheme}
-      onVoiceShortcutChange={setSelectedVoiceShortcut}
-      onVoiceShortcutEnabledChange={setVoiceShortcutEnabled}
-      selectedCatalogApplication={selectedCatalogApplication}
-      selectedVoiceShortcut={selectedVoiceShortcut}
-      theme={theme}
-      voicePreferencesMessage={voicePreferencesMessage}
-      voiceShortcutEnabled={voiceShortcutEnabled}
-      voiceShortcutStatus={voiceShortcutStatus}
-    />}
+    {/* The settings panel (UtilityPanel) is no longer mounted; its source stays in features/settings. */}
 
     <AresView
       spokenResponse={spokenResponse}
@@ -397,15 +422,23 @@ export const App = () => {
       onPropose={(index, draft) => void propose(index, draft)}
       onResolveConfirmation={(index, confirmation, decision) => void resolveConfirmation(index, confirmation, decision)}
       onStartRecording={() => void startRecording()}
+      colorNotice={colorNotice}
       orbState={orbState}
+      scheme={scheme.id}
       technicalMessage={viewState.kind === "ERROR" ? viewState.userMessage : undefined}
       technicalState={viewState.kind}
       voiceLabel={voiceLabel}
-      voiceLevel={voiceLevel}
       voiceMessage={voiceMessage}
       shortcutHint={shortcutHint}
       voiceShortcutStatus={voiceShortcutStatus}
       voiceState={voiceState}
     />
+
+    {contactForm && <ContactFormDialog
+      key={contactForm.requestId}
+      onCancel={cancelContactForm}
+      onSubmit={submitContactForm}
+      request={contactForm}
+    />}
   </main>;
 };
