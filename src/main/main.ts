@@ -3,10 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
 import { registerAssistantIpcHandlers } from "./ipc/register-assistant-ipc";
-import { registerApplicationIpcHandlers } from "./ipc/register-application-ipc";
-import { registerDashboardIpcHandlers } from "./ipc/register-dashboard-ipc";
-import { registerHabitIpcHandlers } from "./ipc/register-habit-ipc";
-import { registerPlannerIpcHandlers } from "./ipc/register-planner-ipc";
 import { registerSettingsIpcHandlers } from "./ipc/register-settings-ipc";
 import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
 import { registerVoiceIpcHandlers } from "./ipc/register-voice-ipc";
@@ -220,8 +216,6 @@ app.whenReady().then(async () => {
   if (!isPrimaryInstance) return;
   configureSessionSecurity();
   registerSystemIpcHandlers();
-  registerPlannerIpcHandlers();
-  registerHabitIpcHandlers();
   registerActionIpcHandlers();
   registerMessagingIpcHandlers();
   // The contact form is shown by the one trusted window; the renderer receives only a friendly name.
@@ -236,8 +230,6 @@ app.whenReady().then(async () => {
   registerSpeechIpcHandlers();
   const voicePreferencesService = configureVoicePreferencesService(globalVoiceShortcutLifecycle);
   registerSettingsIpcHandlers();
-  registerApplicationIpcHandlers();
-  registerDashboardIpcHandlers();
   registerReminderDeliveryShutdown(app);
   getReminderDeliveryScheduler().start();
   const voicePreferences = await voicePreferencesService.initialize();
