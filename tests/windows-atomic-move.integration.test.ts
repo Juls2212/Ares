@@ -4,6 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWindowsAtomicMove } from "../src/main/files/windows-atomic-move";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies the native atomic-no-replace addon.
+void LEGACY_TEST_MARKER;
 
 const binaryPath = path.resolve(
   process.cwd(),
