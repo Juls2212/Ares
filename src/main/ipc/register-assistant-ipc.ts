@@ -2,7 +2,6 @@ import { ipcMain } from "electron";
 
 import {
   ASSISTANT_ERROR_CODES,
-  type AssistantContextData,
   type AssistantInterpretation,
   type AssistantOperationResult
 } from "../../shared/assistant-contracts";
@@ -11,10 +10,7 @@ import {
   getAssistantInterpretationService,
   type AssistantInterpretationService
 } from "../assistant/assistant-composition";
-import {
-  getAssistantContextService,
-  type AssistantContextService
-} from "../assistant/assistant-context-service";
+import { getAssistantContextService } from "../assistant/assistant-context-service";
 import { speechService } from "../voice/speech-composition";
 
 export type AssistantIpcHandler = (input: unknown, webContentsId?: number) => Promise<OperationResult<unknown>>;
@@ -23,7 +19,6 @@ export type AssistantIpcHandlerRegistrar = (channel: string, handler: AssistantI
 type AssistantIpcDependencies = {
   registerHandler: AssistantIpcHandlerRegistrar;
   getService: () => AssistantInterpretationService;
-  getContextService?: () => AssistantContextService;
   logError: (message: string) => void;
 };
 
@@ -35,14 +30,6 @@ const unavailable = (): AssistantOperationResult<AssistantInterpretation> => ({
     drafts: [],
     clarifications: [],
     errorCode: ASSISTANT_ERROR_CODES.ipcUnavailable
-  }
-});
-
-const contextUnavailable = (): AssistantOperationResult<AssistantContextData> => ({
-  ok: false,
-  error: {
-    code: ASSISTANT_ERROR_CODES.contextUnavailable,
-    userMessage: "No se pudo validar la selección actual."
   }
 });
 
@@ -59,26 +46,6 @@ export const createAssistantIpcRegistration = (
       } catch {
         dependencies.logError("Assistant IPC handler failed.");
         return unavailable();
-      }
-    });
-    dependencies.registerHandler(IPC_CHANNELS.assistant.context.set, async (input, webContentsId) => {
-      try {
-        return webContentsId === undefined || !dependencies.getContextService
-          ? contextUnavailable()
-          : await dependencies.getContextService().set(webContentsId, input);
-      } catch {
-        dependencies.logError("Assistant context IPC handler failed.");
-        return contextUnavailable();
-      }
-    });
-    dependencies.registerHandler(IPC_CHANNELS.assistant.context.clear, async (_input, webContentsId) => {
-      try {
-        return webContentsId === undefined || !dependencies.getContextService
-          ? contextUnavailable()
-          : dependencies.getContextService().clear(webContentsId);
-      } catch {
-        dependencies.logError("Assistant context IPC handler failed.");
-        return contextUnavailable();
       }
     });
     registered = true;
@@ -130,6 +97,5 @@ const registerElectronHandler: AssistantIpcHandlerRegistrar = (channel, handler)
 export const registerAssistantIpcHandlers = createAssistantIpcRegistration({
   registerHandler: registerElectronHandler,
   getService: getAssistantInterpretationService,
-  getContextService: getAssistantContextService,
   logError: (message) => console.error(message)
 });
