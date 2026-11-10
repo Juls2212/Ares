@@ -1,152 +1,36 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/contracts";
+import { readSource } from "./helpers/read-source";
 
-const preloadSource = readFileSync(
-  path.resolve(process.cwd(), "src/preload/preload.ts"),
-  "utf8"
-);
-
-const rendererGlobalSource = readFileSync(
-  path.resolve(process.cwd(), "src/renderer/global.d.ts"),
-  "utf8"
-);
+const preloadSource = readSource("src/preload/preload.ts");
+const rendererGlobalSource = readSource("src/renderer/global.d.ts");
 
 describe("preload surface", () => {
-  it("exposes narrow task deletion confirmations but no direct task-delete method", () => {
-    for (const operation of ["requestDeletion", "confirmDeletion", "cancelDeletion"]) expect(preloadSource).toContain(`IPC_CHANNELS.planner.tasks.${operation}, input`);
-    expect(preloadSource).not.toContain("IPC_CHANNELS.planner.tasks.delete");
-    expect(IPC_CHANNELS.planner.tasks).not.toHaveProperty("delete");
-  });
-  it("uses only explicit system, dashboard, planner, action, application catalog, and assistant channels", () => {
-    expect(IPC_CHANNELS.system).toEqual({
-      getStatus: "system:get-status",
-      getCapabilities: "system:get-capabilities"
-    });
-    expect(IPC_CHANNELS.planner).toEqual({
-      categories: {
-        create: "planner:categories:create",
-        list: "planner:categories:list",
-        update: "planner:categories:update"
+  it("uses only the explicit system, action, assistant, voice, speech, messaging and settings channels", () => {
+    expect(IPC_CHANNELS).toEqual({
+      system: { getStatus: "system:get-status", getCapabilities: "system:get-capabilities" },
+      actions: { propose: "actions:propose", confirm: "actions:confirm", cancel: "actions:cancel" },
+      assistant: { interpret: "assistant:interpret" },
+      voice: { transcribe: "voice:transcribe", globalShortcutActivated: "voice:global-shortcut-activated" },
+      speech: { speak: "speech:speak" },
+      messaging: {
+        contactFormRequested: "messaging:contact-form-requested",
+        submitContactForm: "messaging:contact-form:submit",
+        cancelContactForm: "messaging:contact-form:cancel"
       },
-      tasks: {
-        create: "planner:tasks:create",
-        list: "planner:tasks:list",
-        update: "planner:tasks:update",
-        complete: "planner:tasks:complete",
-        requestDeletion: "planner:tasks:request-deletion",
-        confirmDeletion: "planner:tasks:confirm-deletion",
-        cancelDeletion: "planner:tasks:cancel-deletion"
-      },
-      events: {
-        create: "planner:events:create",
-        list: "planner:events:list",
-        update: "planner:events:update",
-        requestDeletion: "planner:events:request-deletion",
-        confirmDeletion: "planner:events:confirm-deletion",
-        cancelDeletion: "planner:events:cancel-deletion"
-      },
-      reminders: {
-        create: "planner:reminders:create",
-        list: "planner:reminders:list"
-      },
-      weeklyRoutines: {
-        create: "planner:weekly-routines:create",
-        list: "planner:weekly-routines:list",
-        update: "planner:weekly-routines:update",
-        delete: "planner:weekly-routines:delete"
-      },
-      weeklySchedules: {
-        create: "planner:weekly-schedules:create",
-        list: "planner:weekly-schedules:list",
-        update: "planner:weekly-schedules:update",
-        delete: "planner:weekly-schedules:delete"
-      },
-      schedule: {
-        getToday: "planner:schedule:get-today",
-        getWeek: "planner:schedule:get-week"
-      }
-    });
-    expect(IPC_CHANNELS.actions).toEqual({
-      propose: "actions:propose",
-      confirm: "actions:confirm",
-      cancel: "actions:cancel",
-      history: { list: "actions:history:list" }
-    });
-    expect(IPC_CHANNELS.applications).toEqual({
-      registerCatalogApplication: "applications:register-catalog-application",
-      registerCustomApplication: "applications:register-custom-application",
-      list: "applications:list",
-      update: "applications:update"
-    });
-    expect(IPC_CHANNELS.dashboard).toEqual({
-      getTodaySummary: "dashboard:get-today-summary"
-    });
-    expect(IPC_CHANNELS.assistant).toEqual({
-      interpret: "assistant:interpret",
-      context: { set: "assistant:context:set", clear: "assistant:context:clear" }
-    });
-    expect(IPC_CHANNELS.voice).toEqual({ transcribe: "voice:transcribe", globalShortcutActivated: "voice:global-shortcut-activated" });
-    expect(IPC_CHANNELS.settings).toEqual({
-      voice: { get: "settings:voice:get", update: "settings:voice:update" }
-    });
-    expect(IPC_CHANNELS.messaging).toEqual({
-      contactFormRequested: "messaging:contact-form-requested",
-      submitContactForm: "messaging:contact-form:submit",
-      cancelContactForm: "messaging:contact-form:cancel"
-    });
-    expect(IPC_CHANNELS.habits).toEqual({
-      create: "habits:create",
-      list: "habits:list",
-      update: "habits:update",
-      complete: "habits:complete",
-      getDailyProgress: "habits:get-daily-progress",
-      getWeeklyProgress: "habits:get-weekly-progress"
+      settings: { voice: { get: "settings:voice:get" } }
     });
   });
 
-  it("exposes only the approved dashboard summary method", () => {
-    expect(preloadSource).toContain("dashboard: {");
-    expect(preloadSource).toContain("getTodaySummary:");
-    expect(preloadSource).not.toContain("dashboard: {\n    list:");
-    expect(preloadSource).not.toContain("dashboard: {\n    getDatabase:");
-  });
-
-  it("exposes exactly the approved planner method groups", () => {
-    expect(preloadSource).toContain("planner: {");
-    expect(preloadSource).toContain("categories: {");
-    expect(preloadSource).toContain("tasks: {");
-    expect(preloadSource).toContain("events: {");
-    expect(preloadSource).toContain("reminders: {");
-    expect(preloadSource).toContain("weeklyRoutines: {");
-    expect(preloadSource).toContain("weeklySchedules: {");
-    expect(preloadSource).toContain("schedule: {");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.planner.events.requestDeletion, input)");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.planner.events.confirmDeletion, input)");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.planner.events.cancelDeletion, input)");
-    expect(preloadSource).not.toContain("IPC_CHANNELS.planner.events.delete");
-    expect(preloadSource).not.toContain("planner.tasks.delete");
-    expect(preloadSource).not.toContain("planner.reminders.delete");
-    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklyRoutines.create, input");
-    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklyRoutines.list, input");
-    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklyRoutines.update, input");
-    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklyRoutines.delete, input");
-    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.create, input");
-    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.list, input");
-    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.update, input");
-    expect(preloadSource).toContain("IPC_CHANNELS.planner.weeklySchedules.delete, input");
-    expect(preloadSource).not.toContain("database:");
-  });
-
-  it("exposes only explicit habit operations without raw IPC or database capability", () => {
-    expect(preloadSource).toContain("habits: {");
-    for (const operation of ["create", "list", "update", "complete", "getDailyProgress", "getWeeklyProgress"]) {
-      expect(preloadSource).toContain(`IPC_CHANNELS.habits.${operation}, input`);
+  it("exposes no planner, habit, dashboard or application method, and no history, context or preference-write method", () => {
+    for (const removed of ["planner: {", "habits: {", "dashboard: {", "applications: {", "history: {", "context: {", "update:"]) {
+      expect(preloadSource, removed).not.toContain(removed);
     }
-    expect(preloadSource).not.toContain("IPC_CHANNELS.habits.invoke");
-    expect(preloadSource).not.toContain("habits: {\n    database:");
-    expect(rendererGlobalSource).not.toContain("ipcRenderer");
+    for (const group of ["planner", "habits", "dashboard", "applications"]) expect(IPC_CHANNELS, group).not.toHaveProperty(group);
+    expect(IPC_CHANNELS.actions).not.toHaveProperty("history");
+    expect(IPC_CHANNELS.assistant).not.toHaveProperty("context");
+    expect(IPC_CHANNELS.settings.voice).not.toHaveProperty("update");
+    expect(preloadSource).not.toMatch(/IPC_CHANNELS\.(?:planner|habits|dashboard|applications)\b/u);
   });
 
   it("exposes exactly the approved action methods", () => {
@@ -154,8 +38,6 @@ describe("preload surface", () => {
     expect(preloadSource).toContain("propose:");
     expect(preloadSource).toContain("confirm:");
     expect(preloadSource).toContain("cancel:");
-    expect(preloadSource).toContain("history: {");
-    expect(preloadSource).toContain("list:");
     expect(preloadSource).not.toContain("execute:");
     expect(preloadSource).not.toContain("getResult:");
     expect(preloadSource).not.toContain("files:");
@@ -164,35 +46,16 @@ describe("preload surface", () => {
     expect(preloadSource).not.toContain("browser:");
   });
 
-  it("exposes exactly the approved application catalog methods", () => {
-    expect(preloadSource).toContain("applications: {");
-    expect(preloadSource).toContain("registerCatalogApplication:");
-    expect(preloadSource).toContain("registerCustomApplication:");
-    expect(preloadSource).toContain("list:");
-    expect(preloadSource).toContain("update:");
-    expect(preloadSource).not.toContain("open:");
-    expect(preloadSource).not.toContain("launch:");
-    expect(preloadSource).not.toContain("resolveAlias:");
-    expect(preloadSource).not.toContain("executablePath:");
-    expect(preloadSource).not.toContain("showOpenDialog:");
-    expect(preloadSource).not.toContain("registerChrome:");
-    expect(preloadSource).not.toContain("applications:register,");
-    expect(preloadSource).not.toContain("showMessageBox:");
-    expect(preloadSource).not.toContain("executablePath:");
-    expect(preloadSource).not.toContain("showOpenDialog:");
-  });
-
-  it("exposes interpretation plus the narrow selection context methods", () => {
+  it("exposes interpretation only, with no executing, proposing or confirming assistant method", () => {
     expect(preloadSource).toContain("assistant: {");
     expect(preloadSource).toContain("interpret:");
-    expect(preloadSource).toContain("context: {");
-    expect(preloadSource).toContain("set:");
-    expect(preloadSource).toContain("clear:");
     expect(preloadSource).not.toContain("assistant: {\n    execute:");
     expect(preloadSource).not.toContain("assistant: {\n    propose:");
     expect(preloadSource).not.toContain("assistant: {\n    confirm:");
     expect(preloadSource).not.toContain("OPENAI_API_KEY");
     expect(preloadSource).not.toContain("openai");
+    expect(preloadSource).not.toContain("executablePath:");
+    expect(preloadSource).not.toContain("showOpenDialog:");
   });
 
   it("exposes bounded transcription plus only the fixed shortcut subscription", () => {
@@ -222,11 +85,11 @@ describe("preload surface", () => {
     }
   });
 
-  it("exposes only approved voice-preference methods", () => {
+  it("exposes only the voice-preference read method", () => {
     expect(preloadSource).toContain("settings: {");
     expect(preloadSource).toContain("voice: {");
     expect(preloadSource).toContain("get:");
-    expect(preloadSource).toContain("update:");
+    expect(preloadSource).not.toContain("update:");
     expect(preloadSource).not.toContain("settings: {\n    get:");
     expect(preloadSource).not.toContain("settings: {\n    write:");
     expect(preloadSource).not.toContain("settings: {\n    list:");
@@ -235,6 +98,7 @@ describe("preload surface", () => {
   it("uses the same complete Ares API contract in the renderer declaration", () => {
     expect(rendererGlobalSource).toContain('import type { AresApi } from "../shared/contracts"');
     expect(rendererGlobalSource).toContain("ares: AresApi;");
+    expect(rendererGlobalSource).not.toContain("ipcRenderer");
     expect(preloadSource).toContain("} satisfies AresApi;");
   });
 
