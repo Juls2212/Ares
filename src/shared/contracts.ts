@@ -42,11 +42,7 @@ export type SystemApi = {
 
 export type AresApi = {
   system: SystemApi;
-  dashboard: DashboardApi;
-  planner: PlannerApi;
-  habits: import("./habit-contracts").HabitsApi;
   actions: ActionApi;
-  applications: ApplicationsApi;
   assistant: AssistantApi;
   voice: VoiceApi;
   speech: import("./speech-contracts").SpeechApi;
@@ -59,81 +55,13 @@ export const IPC_CHANNELS = {
     getStatus: "system:get-status",
     getCapabilities: "system:get-capabilities"
   },
-  planner: {
-    categories: {
-      create: "planner:categories:create",
-      list: "planner:categories:list",
-      update: "planner:categories:update"
-    },
-    tasks: {
-      create: "planner:tasks:create",
-      list: "planner:tasks:list",
-      update: "planner:tasks:update",
-      complete: "planner:tasks:complete",
-      requestDeletion: "planner:tasks:request-deletion",
-      confirmDeletion: "planner:tasks:confirm-deletion",
-      cancelDeletion: "planner:tasks:cancel-deletion"
-    },
-    events: {
-      create: "planner:events:create",
-      list: "planner:events:list",
-      update: "planner:events:update",
-      requestDeletion: "planner:events:request-deletion",
-      confirmDeletion: "planner:events:confirm-deletion",
-      cancelDeletion: "planner:events:cancel-deletion"
-    },
-    reminders: {
-      create: "planner:reminders:create",
-      list: "planner:reminders:list"
-    },
-    weeklyRoutines: {
-      create: "planner:weekly-routines:create",
-      list: "planner:weekly-routines:list",
-      update: "planner:weekly-routines:update",
-      delete: "planner:weekly-routines:delete"
-    },
-    weeklySchedules: {
-      create: "planner:weekly-schedules:create",
-      list: "planner:weekly-schedules:list",
-      update: "planner:weekly-schedules:update",
-      delete: "planner:weekly-schedules:delete"
-    },
-    schedule: {
-      getToday: "planner:schedule:get-today",
-      getWeek: "planner:schedule:get-week"
-    }
-  },
-  habits: {
-    create: "habits:create",
-    list: "habits:list",
-    update: "habits:update",
-    complete: "habits:complete",
-    getDailyProgress: "habits:get-daily-progress",
-    getWeeklyProgress: "habits:get-weekly-progress"
-  },
   actions: {
     propose: "actions:propose",
     confirm: "actions:confirm",
-    cancel: "actions:cancel",
-    history: {
-      list: "actions:history:list"
-    }
-  },
-  applications: {
-    registerCatalogApplication: "applications:register-catalog-application",
-    registerCustomApplication: "applications:register-custom-application",
-    list: "applications:list",
-    update: "applications:update"
-  },
-  dashboard: {
-    getTodaySummary: "dashboard:get-today-summary"
+    cancel: "actions:cancel"
   },
   assistant: {
-    interpret: "assistant:interpret",
-    context: {
-      set: "assistant:context:set",
-      clear: "assistant:context:clear"
-    }
+    interpret: "assistant:interpret"
   },
   voice: {
     transcribe: "voice:transcribe",
@@ -147,15 +75,11 @@ export const IPC_CHANNELS = {
   },
   settings: {
     voice: {
-      get: "settings:voice:get",
-      update: "settings:voice:update"
+      get: "settings:voice:get"
     }
   }
 } as const;
-import type { PlannerApi } from "./planner-contracts";
 import type { ActionApi } from "./action-contracts";
-import type { ApplicationsApi } from "./application-contracts";
-import type { DashboardApi } from "./dashboard-contracts";
 import type { AssistantApi } from "./assistant-contracts";
 import type { VoiceApi } from "./voice-contracts";
 import type { SettingsApi } from "./settings-contracts";
