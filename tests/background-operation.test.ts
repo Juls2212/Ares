@@ -105,7 +105,8 @@ describe("microphone opens only after an explicit activation", () => {
     expect(app.match(/browserMedia.getUserMedia/g)).toHaveLength(1);
     const startIndex = app.indexOf("const startRecording");
     const mediaIndex = app.indexOf("browserMedia.getUserMedia");
-    const nextBlock = app.indexOf("const updateVoicePreferences");
+    // The start path ends where the global-shortcut subscription begins.
+    const nextBlock = app.indexOf("if (!window.ares?.voice?.onGlobalShortcut) return;");
     expect(mediaIndex).toBeGreaterThan(startIndex);
     expect(mediaIndex).toBeLessThan(nextBlock);
   });
