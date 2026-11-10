@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { readSource } from "./helpers/read-source";
 
-const source = (file: string): string => readFileSync(file, "utf8");
+const source = (file: string): string => readSource(file);
 
 describe("Ares assistant output placement", () => {
   it("keeps the compact shell voice-only without a command dock or typed entry", () => {
