@@ -116,11 +116,3 @@ export const HABIT_ERROR_CODES = {
 export type HabitErrorCode = (typeof HABIT_ERROR_CODES)[keyof typeof HABIT_ERROR_CODES];
 export type HabitOperationResult<T> = OperationResult<T>;
 
-export type HabitsApi = {
-  create: (input: CreateHabitInput) => Promise<HabitOperationResult<HabitMutationData<HabitRecord>>>;
-  list: (input: HabitListInput) => Promise<HabitOperationResult<HabitListData<HabitRecord>>>;
-  update: (input: UpdateHabitInput) => Promise<HabitOperationResult<HabitMutationData<HabitRecord>>>;
-  complete: (input: CompleteHabitInput) => Promise<HabitOperationResult<HabitMutationData<HabitCompletionRecord>>>;
-  getDailyProgress: (input: HabitDailyProgressInput) => Promise<HabitOperationResult<HabitDailyProgressData>>;
-  getWeeklyProgress: (input: HabitWeeklyProgressInput) => Promise<HabitOperationResult<HabitWeeklyProgressData>>;
-};
