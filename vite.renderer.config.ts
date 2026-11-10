@@ -1,7 +1,6 @@
 import { defineConfig } from "vite";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
 
 const createContentSecurityPolicy = (isDevelopment: boolean): string => {
   const scriptSources = isDevelopment ? "'self' 'unsafe-inline'" : "'self'";
@@ -33,7 +32,6 @@ export default defineConfig(({ command }) => {
     root: "src/renderer",
     plugins: [
       react(),
-      tailwindcss(),
       {
         name: "ares-content-security-policy",
         transformIndexHtml: {
