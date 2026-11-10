@@ -9,8 +9,9 @@ import { ContactFormDialog } from "../src/renderer/features/messaging/contact-fo
 import { ORB_VISUALS, ORB_VISUALS_BLUE, PALETTE } from "../src/renderer/components/orb-visuals";
 import type { AssistantInterpretation } from "../src/shared/assistant-contracts";
 import type { AwaitingActionConfirmation } from "../src/shared/action-contracts";
+import { readSource } from "./helpers/read-source";
 
-const source = (file: string): string => readFileSync(path.resolve(process.cwd(), file), "utf8");
+const source = (file: string): string => readSource(file);
 const css = source("src/renderer/styles/ares-glass.css");
 
 const blockOf = (selector: string): string => {
