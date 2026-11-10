@@ -6,6 +6,9 @@ import {
   validateHabitWeeklyProgressInput,
   validateUpdateHabitInput
 } from "../src/main/habits/habit-validation";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies habit validation.
+void LEGACY_TEST_MARKER;
 
 const habitId = "550e8400-e29b-41d4-a716-446655440000";
 const categoryId = "550e8400-e29b-41d4-a716-446655440001";
