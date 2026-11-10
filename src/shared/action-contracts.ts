@@ -688,9 +688,4 @@ export type ActionApi = {
   propose: (submission: ActionSubmission) => Promise<ActionOperationResult<ActionLifecycleResult>>;
   confirm: (confirmationId: string) => Promise<ActionOperationResult<ActionOutcome>>;
   cancel: (confirmationId: string) => Promise<ActionOperationResult<ActionOutcome>>;
-  history: {
-    list: (
-      input: ActionHistoryListInput
-    ) => Promise<ActionOperationResult<{ items: ActionHistoryRecord[]; total: number }>>;
-  };
 };
