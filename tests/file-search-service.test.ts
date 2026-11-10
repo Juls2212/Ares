@@ -15,6 +15,9 @@ import {
   type SearchFileStats
 } from "../src/main/files/file-search-service";
 import type { ApprovedFileRoot } from "../src/shared/file-contracts";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies the legacy file search service.
+void LEGACY_TEST_MARKER;
 
 const rootPath = "C:\\Users\\Ares\\Documents";
 
