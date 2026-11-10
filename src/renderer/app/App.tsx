@@ -6,20 +6,9 @@ import type {
   ActionSubmission,
   AwaitingActionConfirmation
 } from "../../shared/action-contracts";
-import {
-  type CatalogApplicationRegistrationData,
-  type CustomApplicationRegistrationData,
-  type RegisterableCatalogApplication
-} from "../../shared/application-contracts";
 import type { SystemCapabilities, SystemStatusData } from "../../shared/contracts";
+import { formatShortcutForDisplay, type VoiceShortcutEffectiveStatus } from "../../shared/settings-contracts";
 import {
-  formatShortcutForDisplay,
-  VOICE_SHORTCUTS,
-  type VoiceShortcut,
-  type VoiceShortcutEffectiveStatus
-} from "../../shared/settings-contracts";
-import {
-  catalogApplicationLabels,
   orbStateFor,
   type VoiceState,
   voiceLabelFor
@@ -71,12 +60,6 @@ export const App = () => {
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
   const [spokenResponse, setSpokenResponse] = useState<import("../../shared/speech-contracts").SpokenResponse>();
-  const [selectedCatalogApplication, setSelectedCatalogApplication] = useState<RegisterableCatalogApplication>("GOOGLE_CHROME");
-  const [isRegisteringCatalogApplication, setIsRegisteringCatalogApplication] = useState(false);
-  const [catalogRegistrationMessage, setCatalogRegistrationMessage] = useState<string>();
-  const [customDisplayName, setCustomDisplayName] = useState("");
-  const [isRegisteringCustomApplication, setIsRegisteringCustomApplication] = useState(false);
-  const [customRegistrationMessage, setCustomRegistrationMessage] = useState<string>();
   const [contactForm, setContactForm] = useState<ContactFormRequest>();
   const [voiceMessage, setVoiceMessage] = useState<string>();
   const [shortcutHint, setShortcutHint] = useState<string>();
@@ -89,11 +72,7 @@ export const App = () => {
   const voiceUploadGeneration = useRef(-1);
   const voiceSubmission = useRef(createVoiceTranscriptSubmission());
   const interpretationInFlight = useRef(false);
-  const [voiceShortcutEnabled, setVoiceShortcutEnabled] = useState(true);
-  const [selectedVoiceShortcut, setSelectedVoiceShortcut] = useState<VoiceShortcut>(VOICE_SHORTCUTS[0]);
   const [voiceShortcutStatus, setVoiceShortcutStatus] = useState<VoiceShortcutEffectiveStatus>();
-  const [voicePreferencesMessage, setVoicePreferencesMessage] = useState<string>();
-  const [isUpdatingVoicePreferences, setIsUpdatingVoicePreferences] = useState(false);
 
   useEffect(() => {
     const loadTechnicalStatus = async (): Promise<void> => {
@@ -109,9 +88,7 @@ export const App = () => {
     const loadVoicePreferences = async (): Promise<void> => {
       try {
         const result = await window.ares.settings.voice.get();
-        if (!result.ok) return setVoicePreferencesMessage(result.error.userMessage);
-        setVoiceShortcutEnabled(result.data.preferences.enabled);
-        setSelectedVoiceShortcut(result.data.preferences.shortcut);
+        if (!result.ok) return;
         setVoiceShortcutStatus(result.data.effectiveStatus);
         if (result.data.effectiveStatus === "UNAVAILABLE") setVoiceMessage("El atajo global no está disponible. Puedes usar el orbe.");
         if (result.data.effectiveStatus === "ACTIVE" && !shortcutHintShown) {
@@ -120,7 +97,7 @@ export const App = () => {
           window.setTimeout(() => setShortcutHint(undefined), SHORTCUT_HINT_DURATION_MS);
         }
       } catch {
-        setVoicePreferencesMessage("La configuración de voz no está disponible.");
+        // The shortcut hint is optional: without the preferences the view simply shows no hint.
       }
     };
     void loadVoicePreferences();
@@ -234,24 +211,6 @@ export const App = () => {
     voiceStartInFlight.current = false;
   };
 
-  const updateVoicePreferences = async (): Promise<void> => {
-    if (isUpdatingVoicePreferences) return;
-    setIsUpdatingVoicePreferences(true);
-    setVoicePreferencesMessage(undefined);
-    try {
-      const result = await window.ares.settings.voice.update({ enabled: voiceShortcutEnabled, shortcut: selectedVoiceShortcut });
-      if (!result.ok) return setVoicePreferencesMessage(result.error.userMessage);
-      setVoiceShortcutEnabled(result.data.preferences.enabled);
-      setSelectedVoiceShortcut(result.data.preferences.shortcut);
-      setVoiceShortcutStatus(result.data.effectiveStatus);
-      setVoicePreferencesMessage("La configuración de voz se actualizó.");
-    } catch {
-      setVoicePreferencesMessage("La configuración de voz no está disponible.");
-    } finally {
-      setIsUpdatingVoicePreferences(false);
-    }
-  };
-
   useEffect(() => {
     if (!window.ares?.voice?.onGlobalShortcut) return;
 
@@ -313,37 +272,6 @@ export const App = () => {
   };
 
   const updateDraftState = (index: number, state: DraftActionState): void => setDraftStates((current) => ({ ...current, [index]: state }));
-
-  const registerCatalogApplication = async (): Promise<void> => {
-    if (isRegisteringCatalogApplication) return;
-    setIsRegisteringCatalogApplication(true); setCatalogRegistrationMessage(undefined);
-    try {
-      const result = await window.ares.applications.registerCatalogApplication({ application: selectedCatalogApplication });
-      if (!result.ok) return setCatalogRegistrationMessage(result.error.userMessage);
-      const data: CatalogApplicationRegistrationData = result.data;
-      const label = catalogApplicationLabels[data.application];
-      setCatalogRegistrationMessage(data.status === "CANCELLED" ? `La selección de ${label} se canceló.` : data.status === "ALREADY_REGISTERED" ? `${label} ya está registrado.` : `${label} se registró correctamente.`);
-    } catch {
-      setCatalogRegistrationMessage("No se pudo registrar la aplicación.");
-    } finally {
-      setIsRegisteringCatalogApplication(false);
-    }
-  };
-
-  const registerCustomApplication = async (): Promise<void> => {
-    if (isRegisteringCustomApplication) return;
-    setIsRegisteringCustomApplication(true); setCustomRegistrationMessage(undefined);
-    try {
-      const result = await window.ares.applications.registerCustomApplication({ displayName: customDisplayName });
-      if (!result.ok) return setCustomRegistrationMessage(result.error.userMessage);
-      const data: CustomApplicationRegistrationData = result.data;
-      setCustomRegistrationMessage(data.status === "CANCELLED" ? "El registro de la aplicación se canceló." : data.status === "ALREADY_REGISTERED" ? "La aplicación ya está registrada." : "La aplicación se registró correctamente.");
-    } catch {
-      setCustomRegistrationMessage("No se pudo registrar la aplicación.");
-    } finally {
-      setIsRegisteringCustomApplication(false);
-    }
-  };
 
   const requestProposal = async (index: number, draft: ActionSubmission, isCurrent = () => true): Promise<void> => {
     if (!isCurrent()) return;
@@ -410,8 +338,6 @@ export const App = () => {
         <ColorSchemeButton current={scheme} next={nextColorScheme} onCycle={changeColor} />
       </div>}
     </header>
-
-    {/* The settings panel (UtilityPanel) is no longer mounted; its source stays in features/settings. */}
 
     <AresView
       spokenResponse={spokenResponse}
