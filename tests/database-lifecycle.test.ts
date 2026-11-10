@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createDatabaseShutdownRegistration
 } from "../src/main/database/register-database-lifecycle";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.2. Only verifies the duplicate database shutdown registration.
+void LEGACY_TEST_MARKER;
 
 describe("Main database shutdown lifecycle", () => {
   it("registers one non-blocking before-quit listener and invokes controlled shutdown", async () => {
