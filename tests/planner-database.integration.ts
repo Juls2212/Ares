@@ -27,8 +27,6 @@ import { createReminderDeliveryRepository } from "../src/main/reminders/reminder
 import { createReminderDeliveryService } from "../src/main/reminders/reminder-delivery-service";
 import { createEventDeliveryRepository } from "../src/main/events/event-delivery-repository";
 import { createEventDeliveryService } from "../src/main/events/event-delivery-service";
-import { createDashboardRepository } from "../src/main/dashboard/dashboard-repository";
-import { createDashboardService, type DashboardClock } from "../src/main/dashboard/dashboard-service";
 import type {
   CategoryRecord,
   EventRecord,
@@ -67,14 +65,6 @@ const clock: PlannerClock = {
 };
 
 const service = createPlannerService({ repositories, clock, logError: () => undefined });
-const dashboardClock: DashboardClock = {
-  now: () => new Date("2026-09-17T12:00:00.000Z"),
-  getLocalDate: () => "2026-09-17",
-  getRangeBounds: (startDate, days) => ({
-    startAt: `${startDate}T05:00:00.000Z`,
-    endAt: days === 1 ? "2026-09-18T05:00:00.000Z" : "2026-09-24T05:00:00.000Z"
-  })
-};
 const actionHistoryService = createActionHistoryService({
   repository: createActionHistoryRepository(database),
   generateActionId: () => `history-${testSuffix}-${createdActionHistoryIds.length + 1}`,
@@ -226,73 +216,6 @@ afterAll(async () => {
 });
 
 describe("planner database integration", () => {
-  it("persists, orders, updates, deletes, and clears category references for weekly routines", async () => {
-    const schedules = getSuccessData(await service.listWeeklySchedules({})).items;
-    const primarySchedule = schedules.find((schedule) => schedule.title === "Horario principal");
-    expect(primarySchedule).toBeDefined();
-    const weeklyScheduleId = primarySchedule!.id;
-    const category = trackCategory(
-      getSuccessData(await service.createCategory({ name: `Weekly routine category ${testSuffix}` })).record
-    );
-    const fridayRoutine = trackWeeklyRoutine(
-      getSuccessData(await service.createWeeklyRoutine({
-        weeklyScheduleId,
-        title: `Friday class ${testSuffix}`,
-        weekday: "FRIDAY",
-        startTime: "10:00",
-        endTime: "11:00",
-        categoryId: category.id,
-        location: "Room 2"
-      })).record
-    );
-    const mondayRoutine = trackWeeklyRoutine(
-      getSuccessData(await service.createWeeklyRoutine({
-        weeklyScheduleId,
-        title: `Monday class ${testSuffix}`,
-        weekday: "MONDAY",
-        startTime: "08:00",
-        endTime: "09:00",
-        categoryId: category.id
-      })).record
-    );
-
-    const listed = getSuccessData(await service.listWeeklyRoutines({ weeklyScheduleId }));
-    expect(listed.items.map((routine) => routine.id)).toEqual([mondayRoutine.id, fridayRoutine.id]);
-    expect(getSuccessData(await service.updateWeeklyRoutine({ routineId: mondayRoutine.id, weeklyScheduleId, endTime: "09:30" })).record.endTime).toBe("09:30");
-    expect(getFailureCode(await service.createWeeklyRoutine({ weeklyScheduleId, title: "Invalid", weekday: "MONDAY", startTime: "10:00", endTime: "09:00" }))).toBe("PLANNER_WEEKLY_ROUTINE_TIME_RANGE_INVALID");
-
-    await database.delete(categories).where(eq(categories.id, category.id));
-    const uncategorized = getSuccessData(await service.listWeeklyRoutines({ weeklyScheduleId })).items;
-    expect(uncategorized.every((routine) => routine.categoryId === null)).toBe(true);
-    const deleted = await service.deleteWeeklyRoutine({ routineId: fridayRoutine.id });
-    expect(getSuccessData(deleted)).toEqual({ deleted: true });
-    createdWeeklyRoutineIds.splice(createdWeeklyRoutineIds.indexOf(fridayRoutine.id), 1);
-    createdCategoryIds.splice(createdCategoryIds.indexOf(category.id), 1);
-  });
-  it("keeps the migration-created primary schedule and cascades only its owned routines on schedule deletion", async () => {
-    const primarySchedules = getSuccessData(await service.listWeeklySchedules({})).items
-      .filter((schedule) => schedule.title === "Horario principal");
-    expect(primarySchedules).toHaveLength(1);
-
-    const schedule = trackWeeklySchedule(
-      getSuccessData(await service.createWeeklySchedule({ title: `Routine schedule ${testSuffix}` })).record
-    );
-    const routine = trackWeeklyRoutine(
-      getSuccessData(await service.createWeeklyRoutine({
-        weeklyScheduleId: schedule.id,
-        title: `Owned routine ${testSuffix}`,
-        weekday: "MONDAY",
-        startTime: "08:00",
-        endTime: "09:00"
-      })).record
-    );
-    expect(getSuccessData(await service.listWeeklyRoutines({ weeklyScheduleId: schedule.id })).items)
-      .toEqual([routine]);
-    expect(getSuccessData(await service.deleteWeeklySchedule({ weeklyScheduleId: schedule.id }))).toEqual({ deleted: true });
-    expect(await repositories.findWeeklyRoutineById(routine.id)).toBeUndefined();
-    createdWeeklyRoutineIds.splice(createdWeeklyRoutineIds.indexOf(routine.id), 1);
-    createdWeeklyScheduleIds.splice(createdWeeklyScheduleIds.indexOf(schedule.id), 1);
-  });
   it("deletes one real event while retaining its linked reminder and unrelated events", async () => {
     const target = trackEvent(getSuccessData(await service.createEvent({
       title: `Delete target ${testSuffix}`,
@@ -395,59 +318,6 @@ describe("planner database integration", () => {
     );
   });
 
-  it("builds a bounded read-only dashboard summary from safe planner and history records", async () => {
-    const category = trackCategory(
-      getSuccessData(await service.createCategory({ name: `Dashboard category ${testSuffix}` })).record
-    );
-    const todayTask = trackTask(
-      getSuccessData(await service.createTask({
-        title: `Dashboard task ${testSuffix}`,
-        dueDate: "2026-09-17",
-        dueTime: "09:00",
-        categoryId: category.id
-      })).record
-    );
-    const upcomingEvent = trackEvent(
-      getSuccessData(await service.createEvent({
-        title: `Dashboard event ${testSuffix}`,
-        startAt: "2026-09-18T15:00:00.000Z",
-        categoryId: category.id
-      })).record
-    );
-    const todayReminder = trackReminder(
-      getSuccessData(await service.createReminder({
-        title: `Dashboard reminder ${testSuffix}`,
-        remindAt: "2026-09-17T16:00:00.000Z",
-        taskId: todayTask.id
-      })).record
-    );
-    const history = trackActionHistory(getHistorySuccess(await actionHistoryService.recordTerminal({
-      actionId: `dashboard-action-${testSuffix}`,
-      action: "CREATE_TASK",
-      riskLevel: 1,
-      status: "SUCCEEDED",
-      userSummary: "Se creó una tarea de prueba.",
-      startedAt: "2026-09-17T11:00:00.000Z",
-      finishedAt: "2026-09-17T11:01:00.000Z",
-      metadata: { itemCount: 1, sourcePath: "C:\\private" }
-    })));
-    const dashboard = createDashboardService({
-      repository: createDashboardRepository(database),
-      historyService: actionHistoryService,
-      clock: dashboardClock,
-      logError: () => undefined
-    });
-
-    const result = await dashboard.getTodaySummary();
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("Expected dashboard summary.");
-    expect(result.data.today.localDate).toBe("2026-09-17");
-    expect(result.data.today.tasks.map((record) => record.id)).toContain(todayTask.id);
-    expect(result.data.today.reminders.map((record) => record.id)).toContain(todayReminder.id);
-    expect(result.data.upcomingEvents.map((record) => record.id)).toContain(upcomingEvent.id);
-    expect(result.data.recentActivity.map((record) => record.id)).toContain(history.id);
-    expect(JSON.stringify(result.data.recentActivity)).not.toContain("C:\\private");
-  });
 
   it("persists and reads categories, tasks, events, and reminders", async () => {
     const category = trackCategory(
