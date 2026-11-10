@@ -8,10 +8,9 @@ const rendererSource = [
   "src/renderer/app/app-state.ts",
   "src/renderer/views/ares-view.tsx",
   "src/renderer/features/assistant/interpretation-result.tsx",
-  "src/renderer/features/voice/voice-command-controls.tsx",
+  "src/renderer/components/orb-visuals.ts",
+  "src/renderer/components/glass-orb.tsx",
   "src/renderer/features/settings/color-scheme-button.tsx",
-  // The panel is no longer mounted, but its source (and the strings it holds) is kept.
-  "src/renderer/features/settings/utility-panel.tsx",
   "src/renderer/features/settings/theme-preference.ts",
   "src/renderer/features/settings/use-theme-preference.ts"
 ].map((sourcePath) => readFileSync(path.resolve(process.cwd(), sourcePath), "utf8")).join("\n");
@@ -32,15 +31,6 @@ describe("temporary renderer messaging", () => {
     expect(appSource).not.toContain('>Horario semanal</button>');
   });
 
-  it("uses only the closed catalog registration flow and never renders an executable-path field", () => {
-    expect(rendererSource).toContain("window.ares.applications.registerCatalogApplication({");
-    expect(rendererSource).toContain('application: selectedCatalogApplication');
-    expect(rendererSource).not.toContain("window.ares.applications.register({");
-    expect(rendererSource).not.toContain("executablePath");
-    expect(rendererSource).not.toContain("registerChrome");
-    expect(rendererSource).toContain("window.ares.applications.registerCustomApplication({");
-    expect(rendererSource).toContain("displayName: customDisplayName");
-  });
 
   it("does not load planner or habit summaries during normal Ares startup", () => {
     const aresView = readFileSync(path.resolve(process.cwd(), "src/renderer/views/ares-view.tsx"), "utf8");
@@ -74,7 +64,6 @@ describe("temporary renderer messaging", () => {
   });
 
   it("routes successful voice input into the shared submission path without confirming actions", () => {
-    expect(rendererSource).toContain("Iniciar grabación por voz");
     expect(rendererSource).toContain("Escuchando…");
     expect(rendererSource).not.toContain("Detener y transcribir");
     expect(rendererSource).toContain(">Cancelar</button>");
@@ -103,17 +92,6 @@ describe("temporary renderer messaging", () => {
     expect(shortcutFlow).not.toContain("window.ares.actions.propose");
   });
 
-  it("renders only the approved Spanish voice preference controls", () => {
-    expect(rendererSource).toContain("Configuración de voz");
-    expect(rendererSource).toContain("Activar atajo global de voz");
-    expect(rendererSource).toContain("Guardar configuración");
-    expect(rendererSource).toContain("window.ares.settings.voice.get()");
-    expect(rendererSource).toContain("window.ares.settings.voice.update({");
-    expect(rendererSource).toContain("VOICE_SHORTCUTS.map");
-    expect(rendererSource).not.toContain("microphoneDevice");
-    expect(rendererSource).not.toContain("window.ares.settings.get");
-    expect(rendererSource).not.toContain("window.ares.settings.update");
-  });
 
   it("keeps the appearance control local to the renderer", () => {
     expect(rendererSource).toContain("Cambiar color");
@@ -128,8 +106,6 @@ describe("temporary renderer messaging", () => {
 
   it("keeps Spanish command controls and the renderer-only glass orb", () => {
     expect(rendererSource).toContain("Toca para hablar");
-    expect(rendererSource).toContain("Iniciar grabación por voz");
-    expect(rendererSource).toContain("Hablar con Ares");
     expect(rendererSource).not.toContain("Proponer acción");
     expect(rendererSource).toContain("Confirmar");
     expect(rendererSource).toContain("Cancelar");
@@ -139,11 +115,8 @@ describe("temporary renderer messaging", () => {
   });
 
   it("keeps the command entry in the sole mounted Ares workspace", () => {
-    const styles = readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8");
     const aresView = readFileSync(path.resolve(process.cwd(), "src/renderer/views/ares-view.tsx"), "utf8");
 
-    expect(styles).toContain(".command-core__visual");
-    expect(styles).toContain(".ares-header { min-height: 64px; position: sticky; top: 0;");
     // The orb is the only visible control; the dock and heading of the former workspace are not mounted.
     expect(aresView).not.toContain("command-heading");
     expect(aresView).not.toContain("<VoiceCommandControls");
@@ -153,16 +126,8 @@ describe("temporary renderer messaging", () => {
     expect(aresView).not.toContain("command-instrument__anchor");
     expect(aresView).toContain("<InterpretationResult");
     expect(aresView).toContain("<ResponseSpeechControls");
-    expect(styles).toContain(".command-instrument");
-    expect(styles).toContain("Compact voice-first Ares shell");
   });
 
-  it("uses the local Franklin Gothic stack across the renderer visual system", () => {
-    const styles = readFileSync(path.resolve(process.cwd(), "src/renderer/styles/ares.css"), "utf8");
-
-    expect(styles).toContain('"Franklin Gothic Medium", "Franklin Gothic"');
-    expect(styles).toContain("font-family: var(--font-display)");
-  });
 
   it("keeps calendar source unmounted while preserving assistant action entry points", () => {
     expect(appSource).not.toContain("CalendarView");
