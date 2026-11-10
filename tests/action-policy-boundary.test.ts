@@ -17,18 +17,17 @@ describe("action policy boundaries", () => {
 
   it("adds no generic renderer execution or IPC channel", () => {
     const preload = source("src/preload/preload.ts");
-    const plannerRegistration = source("src/main/ipc/register-planner-ipc.ts");
     expect(IPC_CHANNELS.actions).toEqual({
       propose: "actions:propose",
       confirm: "actions:confirm",
-      cancel: "actions:cancel",
-      history: { list: "actions:history:list" }
+      cancel: "actions:cancel"
     });
     expect(preload).not.toContain("actions: {\n    execute:");
     expect(preload).not.toContain("ipcRenderer: ipcRenderer");
     expect(preload).not.toContain("genericInvoke");
-    expect(plannerRegistration).toContain("IPC_CHANNELS.planner.events.confirmDeletion");
-    expect(plannerRegistration).not.toContain("IPC_CHANNELS.planner.events.delete");
-    expect(plannerRegistration).not.toContain("IPC_CHANNELS.actions");
+    // Registration files never create an action-execution channel: only the action IPC registers IPC_CHANNELS.actions.
+    for (const registration of ["register-assistant-ipc", "register-messaging-ipc", "register-speech-ipc", "register-voice-ipc", "register-settings-ipc", "register-system-ipc"]) {
+      expect(source(`src/main/ipc/${registration}.ts`), registration).not.toContain("IPC_CHANNELS.actions");
+    }
   });
 });
