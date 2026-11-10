@@ -6,6 +6,9 @@ import { habitCompletions, habits } from "../src/main/database/schema";
 import { createHabitRepositories } from "../src/main/habits/habit-repository";
 import { createHabitService } from "../src/main/habits/habit-service";
 import type { HabitOperationResult } from "../src/shared/habit-contracts";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies habit persistence.
+void LEGACY_TEST_MARKER;
 
 const database = getDatabase();
 const service = createHabitService({
