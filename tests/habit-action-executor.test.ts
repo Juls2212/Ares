@@ -4,6 +4,9 @@ import { createHabitActionExecutor } from "../src/main/actions/habit-action-exec
 import type { HabitMutationReferences } from "../src/main/actions/habit-mutation-references";
 import type { HabitService } from "../src/main/habits/habit-service";
 import { getActionPolicy } from "../src/main/actions/action-policy";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies the unwired habit executor.
+void LEGACY_TEST_MARKER;
 
 const habit = {
   id: "550e8400-e29b-41d4-a716-446655440010", title: "Leer", description: null, categoryId: null,
