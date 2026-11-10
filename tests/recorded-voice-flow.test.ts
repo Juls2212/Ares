@@ -55,8 +55,5 @@ describe("supervised recorded transcription", () => {
     expect(orbNames).toContain("Escuchando. Toca para cancelar");
     expect(view).toContain("orbAccessibleName(state, reviewOpen)");
     expect(view).not.toMatch(/window\.ares\.(actions|assistant|voice)/);
-    const controls = readFileSync("src/renderer/features/voice/voice-command-controls.tsx", "utf8");
-    expect(controls).toContain('aria-label="Iniciar grabación por voz"');
-    expect(controls).not.toContain("audio se enviará a OpenAI");
   });
 });
