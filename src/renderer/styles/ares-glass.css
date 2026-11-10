@@ -182,20 +182,6 @@ body {
   pointer-events: auto;
 }
 
-.utility-toggle {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--button-secondary-border);
-  border-radius: 50%;
-  background: var(--button-secondary-bg);
-  color: var(--ink);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
 /* The only appearance control: it moves to the next color scheme. */
 .color-button {
   display: inline-flex;
@@ -687,8 +673,7 @@ body {
   gap: 8px;
 }
 
-.review-card button,
-.utility-panel .text-button {
+.review-card button {
   height: 40px;
   border-radius: 12px;
   font-family: var(--font-family);
@@ -709,8 +694,7 @@ body {
   color: var(--button-reinforced-ink);
 }
 
-.button-secondary,
-.utility-panel .text-button {
+.button-secondary {
   border: 1px solid var(--button-secondary-border);
   background: var(--button-secondary-bg);
   color: var(--ink);
@@ -719,8 +703,6 @@ body {
 button:disabled { cursor: progress; }
 
 .review-card button:focus-visible,
-.utility-toggle:focus-visible,
-.utility-panel :focus-visible,
 .contact-form__field input:focus-visible,
 .command-response:focus-visible {
   outline: 2px solid var(--focus-ink);
@@ -732,9 +714,7 @@ button:disabled { cursor: progress; }
 .contact-form__description { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 18px; }
 .contact-form { display: flex; flex-direction: column; gap: 10px; }
 .contact-form__field { display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); font-size: 12px; font-weight: 600; line-height: 16px; }
-.contact-form__field input,
-.utility-panel input:not([type="checkbox"]),
-.utility-panel select {
+.contact-form__field input {
   box-sizing: border-box;
   width: 100%;
   min-height: 36px;
@@ -755,37 +735,6 @@ button:disabled { cursor: progress; }
   font-weight: 500;
   line-height: 18px;
 }
-
-/* ---------- Utility panel (behavior and position unchanged; only the tokens apply) ---------- */
-
-.utility-panel {
-  position: absolute;
-  top: 11cqw;
-  right: 4cqw;
-  z-index: 5;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: min(320px, 92cqw);
-  max-height: 84cqh;
-  padding: 14px;
-  overflow-y: auto;
-  border: 1px solid var(--card-edge);
-  border-radius: 18px;
-  background-color: var(--card-tint);
-  box-shadow: var(--card-shadow);
-  -webkit-backdrop-filter: var(--material-blur-card);
-  backdrop-filter: var(--material-blur-card);
-  color: var(--ink);
-}
-
-.utility-panel section { display: flex; flex-direction: column; gap: 6px; }
-.utility-panel .eyebrow { margin: 0; color: var(--ink-2); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; line-height: 16px; }
-.utility-panel label { color: var(--ink-2); font-size: 12px; font-weight: 600; line-height: 16px; }
-.utility-panel .toggle-control { display: flex; align-items: center; gap: 8px; min-height: 28px; }
-.utility-panel .toggle-control input { width: 20px; height: 20px; min-height: 0; flex: 0 0 auto; accent-color: var(--ink-2); }
-.utility-panel .utility-status { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 16px; }
 
 /* ---------- Accessibility modes ---------- */
 
@@ -842,13 +791,10 @@ button:disabled { cursor: progress; }
   .ares-shell::after,
   .command-glow,
   .glass-orb__halo { display: none; }
-  .review-card,
-  .utility-panel { border: 2px solid CanvasText; background-color: Canvas; color: CanvasText; backdrop-filter: none; box-shadow: none; }
+  .review-card { border: 2px solid CanvasText; background-color: Canvas; color: CanvasText; backdrop-filter: none; box-shadow: none; }
   .review-card[data-reinforced] { border-width: 3px; }
   .button-primary,
-  .button-secondary,
-  .utility-panel .text-button,
-  .utility-toggle { border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
+  .button-secondary { border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
   .button-primary { border-width: 2px; }
   .shortcut-hint kbd { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
   .command-text__chip { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
