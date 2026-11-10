@@ -6,6 +6,9 @@ import type { FileMutationService } from "../src/main/files/file-mutation-servic
 import type { FileSearchService } from "../src/main/files/file-search-service";
 import type { FileOrganizationExecutor } from "../src/main/files/file-organization-executor";
 import type { FileOrganizationPlanGenerator } from "../src/main/files/file-organization-plan-generator";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies the legacy file action executor.
+void LEGACY_TEST_MARKER;
 
 const actionId = "11111111-1111-4111-8111-111111111111";
 
