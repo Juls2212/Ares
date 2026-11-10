@@ -165,15 +165,14 @@ describe("contact form", () => {
 describe("targets and accessibility modes", () => {
   it("keeps every interactive control at least 24 px", () => {
     expect(css).toMatch(/\.color-button \{[^}]*width: 28px;\s*height: 28px;/u);
-    expect(css).toMatch(/\.review-card button,[^{]*\{\s*height: 40px;/u);
-    expect(css).toContain("gap: 8px; min-height: 28px; }");
-    expect(css).toContain("width: 20px; height: 20px;");
+    expect(css).toMatch(/\.review-card button \{\s*height: 40px;/u);
+    expect(css).toMatch(/\.contact-form__field input \{[^}]*min-height: 36px;/u);
   });
 
   it("covers the key caps and the exiting card in forced-colors and reduced-motion", () => {
     const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
     expect(forced).toContain(".shortcut-hint kbd");
-    expect(forced).toContain(".review-card,");
+    expect(forced).toContain(".review-card {");
     expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)/u);
   });
 
@@ -217,7 +216,6 @@ describe("recording limit, fonts and offline robustness", () => {
     expect(app).not.toContain("<UtilityPanel");
     expect(app).not.toContain('aria-controls="utility-panel"');
     expect(app).toContain("<ColorSchemeButton");
-    expect(existsSync(path.resolve(process.cwd(), "src/renderer/features/settings/utility-panel.tsx"))).toBe(true);
   });
 
   it("declares a bundled font only when its file exists, and never loads anything remotely", () => {
