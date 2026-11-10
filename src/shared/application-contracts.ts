@@ -168,16 +168,3 @@ export type ApplicationErrorCode =
 
 export type ApplicationOperationResult<T> = OperationResult<T>;
 
-export type ApplicationsApi = {
-  /** Opens a Main-owned native picker for one fixed catalog application only. */
-  registerCatalogApplication: (
-    input: RegisterCatalogApplicationInput
-  ) => Promise<ApplicationOperationResult<CatalogApplicationRegistrationData>>;
-  registerCustomApplication: (
-    input: RegisterCustomApplicationInput
-  ) => Promise<ApplicationOperationResult<CustomApplicationRegistrationData>>;
-  list: (input: ApplicationListInput) => Promise<ApplicationOperationResult<ApplicationListData>>;
-  update: (
-    input: UpdateApplicationInput
-  ) => Promise<ApplicationOperationResult<ApplicationMutationData>>;
-};
