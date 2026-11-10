@@ -5,6 +5,9 @@ import { createFileOrganizationPlanGenerator } from "../src/main/files/file-orga
 import type { ApprovedFileRootResolver } from "../src/main/files/approved-file-roots";
 import type { FileMutationService } from "../src/main/files/file-mutation-service";
 import type { FileOrganizationPlan } from "../src/shared/file-contracts";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies the legacy file organization chain.
+void LEGACY_TEST_MARKER;
 
 const directoryStats = { isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false };
 const fileStats = { isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false };
