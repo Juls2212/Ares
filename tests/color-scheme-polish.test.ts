@@ -291,7 +291,6 @@ describe("mounted renderer", () => {
     expect(app).not.toContain("<UtilityPanel");
     expect(app).not.toMatch(/utilityOpen|setUtilityOpen|Controles técnicos|aria-controls="utility-panel"/u);
     expect(app).not.toContain("utility-toggle");
-    expect(existsSync(path.resolve(process.cwd(), "src/renderer/features/settings/utility-panel.tsx"))).toBe(true);
   });
 
   it("mounts the color button only while no dialog is open, so dialog focus containment is unchanged", () => {
