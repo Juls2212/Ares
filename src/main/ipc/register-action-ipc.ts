@@ -4,11 +4,7 @@ import {
   ACTION_ERROR_CODES,
   type ActionOperationResult
 } from "../../shared/action-contracts";
-import {
-  getActionHistoryService,
-  getActionOrchestrator
-} from "../actions/action-composition";
-import type { ActionHistoryService } from "../actions/action-history-service";
+import { getActionOrchestrator } from "../actions/action-composition";
 import type { ActionOrchestrator } from "../actions/action-orchestrator";
 import { speechService } from "../voice/speech-composition";
 import { composeFinalResponse, preservesDisplaySummary } from "../voice/final-response-composer";
@@ -19,7 +15,6 @@ export type ActionIpcHandlerRegistrar = (channel: string, handler: ActionIpcHand
 type ActionIpcDependencies = {
   registerHandler: ActionIpcHandlerRegistrar;
   getOrchestrator: () => ActionOrchestrator;
-  getHistoryService: () => ActionHistoryService;
   logError: (message: string) => void;
 };
 
@@ -60,10 +55,6 @@ export const createActionIpcRegistration = (dependencies: ActionIpcDependencies)
     dependencies.registerHandler(
       IPC_CHANNELS.actions.cancel,
       createHandler((input) => dependencies.getOrchestrator().cancel(input), dependencies.logError)
-    );
-    dependencies.registerHandler(
-      IPC_CHANNELS.actions.history.list,
-      createHandler((input) => dependencies.getHistoryService().list(input), dependencies.logError)
     );
 
     registered = true;
@@ -126,7 +117,6 @@ const registerElectronHandler: ActionIpcHandlerRegistrar = (channel, handler): v
 export const registerActionIpcHandlers = createActionIpcRegistration({
   registerHandler: registerElectronHandler,
   getOrchestrator: getActionOrchestrator,
-  getHistoryService: getActionHistoryService,
   logError: (message) => {
     console.error(message);
   }
