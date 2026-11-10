@@ -1,6 +1,4 @@
 import type { ActionSubmission } from "../../shared/action-contracts";
-import type { RegisterableCatalogApplication } from "../../shared/application-contracts";
-import type { VoiceShortcutEffectiveStatus } from "../../shared/settings-contracts";
 import type { OrbState } from "../components/orb-visuals";
 
 export type VoiceState = "IDLE" | "RECORDING" | "PROCESSING";
@@ -65,19 +63,6 @@ export const actionLabels: Record<ActionSubmission["action"], string> = {
   EDIT_MESSAGE_DRAFT: "Editar borrador de mensaje",
   DISCARD_MESSAGE_DRAFT: "Descartar borrador de mensaje",
   OPEN_WHATSAPP_CHAT_WITH_DRAFT: "Abrir chat de WhatsApp con el borrador"
-};
-
-export const catalogApplicationLabels: Record<RegisterableCatalogApplication, string> = {
-  GOOGLE_CHROME: "Google Chrome",
-  VISUAL_STUDIO_CODE: "Visual Studio Code",
-  VISUAL_STUDIO: "Visual Studio",
-  SPOTIFY: "Spotify"
-};
-
-export const voiceShortcutStatusLabels: Record<VoiceShortcutEffectiveStatus, string> = {
-  ACTIVE: "Atajo activo",
-  DISABLED: "Atajo desactivado",
-  UNAVAILABLE: "Atajo no disponible"
 };
 
 export const orbStateFor = (voiceState: VoiceState, isInterpreting: boolean): OrbState => {
