@@ -110,10 +110,4 @@ export type AssistantApi = {
   interpret: (
     input: AssistantInterpretRequest
   ) => Promise<AssistantOperationResult<AssistantInterpretation>>;
-  context: {
-    set: (
-      input: AssistantContextSetInput
-    ) => Promise<AssistantOperationResult<AssistantContextData>>;
-    clear: () => Promise<AssistantOperationResult<AssistantContextData>>;
-  };
 };
