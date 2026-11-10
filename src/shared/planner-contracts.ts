@@ -301,51 +301,6 @@ export type WeekScheduleData = {
   reminders: ReminderRecord[];
 };
 
-export type PlannerApi = {
-  categories: {
-    create: (input: CreateCategoryInput) => Promise<PlannerOperationResult<PlannerMutationData<CategoryRecord>>>;
-    list: (input: CategoryListInput) => Promise<PlannerOperationResult<PlannerListData<CategoryRecord>>>;
-    update: (input: UpdateCategoryInput) => Promise<PlannerOperationResult<PlannerMutationData<CategoryRecord>>>;
-  };
-  tasks: {
-    create: (input: CreateTaskInput) => Promise<PlannerOperationResult<PlannerMutationData<TaskRecord>>>;
-    list: (input: TaskListInput) => Promise<PlannerOperationResult<PlannerListData<TaskRecord>>>;
-    update: (input: UpdateTaskInput) => Promise<PlannerOperationResult<PlannerMutationData<TaskRecord>>>;
-    complete: (input: CompleteTaskInput) => Promise<PlannerOperationResult<PlannerMutationData<TaskRecord>>>;
-    requestDeletion: (input: DeleteTaskInput) => Promise<PlannerOperationResult<TaskDeletionRequestData>>;
-    confirmDeletion: (input: TaskDeletionConfirmationInput) => Promise<PlannerOperationResult<DeleteTaskData>>;
-    cancelDeletion: (input: TaskDeletionConfirmationInput) => Promise<PlannerOperationResult<TaskDeletionCancellationData>>;
-  };
-  events: {
-    create: (input: CreateEventInput) => Promise<PlannerOperationResult<PlannerMutationData<EventRecord>>>;
-    list: (input: EventListInput) => Promise<PlannerOperationResult<PlannerListData<EventRecord>>>;
-    update: (input: UpdateEventInput) => Promise<PlannerOperationResult<PlannerMutationData<EventRecord>>>;
-    requestDeletion: (input: DeleteEventInput) => Promise<PlannerOperationResult<EventDeletionRequestData>>;
-    confirmDeletion: (input: EventDeletionConfirmationInput) => Promise<PlannerOperationResult<DeleteEventData>>;
-    cancelDeletion: (input: EventDeletionConfirmationInput) => Promise<PlannerOperationResult<EventDeletionCancellationData>>;
-  };
-  reminders: {
-    create: (input: CreateReminderInput) => Promise<PlannerOperationResult<PlannerMutationData<ReminderRecord>>>;
-    list: (input: ReminderListInput) => Promise<PlannerOperationResult<PlannerListData<ReminderRecord>>>;
-  };
-  weeklyRoutines: {
-    create: (input: CreateWeeklyRoutineInput) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyRoutineRecord>>>;
-    list: (input: WeeklyRoutineListInput) => Promise<PlannerOperationResult<PlannerListData<WeeklyRoutineRecord>>>;
-    update: (input: UpdateWeeklyRoutineInput) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyRoutineRecord>>>;
-    delete: (input: DeleteWeeklyRoutineInput) => Promise<PlannerOperationResult<DeleteWeeklyRoutineData>>;
-  };
-  weeklySchedules: {
-    create: (input: CreateWeeklyScheduleInput) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyScheduleRecord>>>;
-    list: (input: WeeklyScheduleListInput) => Promise<PlannerOperationResult<PlannerListData<WeeklyScheduleRecord>>>;
-    update: (input: UpdateWeeklyScheduleInput) => Promise<PlannerOperationResult<PlannerMutationData<WeeklyScheduleRecord>>>;
-    delete: (input: DeleteWeeklyScheduleInput) => Promise<PlannerOperationResult<DeleteWeeklyScheduleData>>;
-  };
-  schedule: {
-    getToday: (input: GetTodayScheduleInput) => Promise<PlannerOperationResult<TodayScheduleData>>;
-    getWeek: (input: GetWeekScheduleInput) => Promise<PlannerOperationResult<WeekScheduleData>>;
-  };
-};
-
 export const PLANNER_ERROR_CODES = {
   inputInvalid: "PLANNER_INPUT_INVALID",
   unknownField: "PLANNER_UNKNOWN_FIELD",
