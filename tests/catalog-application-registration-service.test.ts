@@ -8,6 +8,9 @@ import type {
   ApplicationRecord,
   RegisterableCatalogApplication
 } from "../src/shared/application-contracts";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.2. Only verifies the older duplicate catalog registration service.
+void LEGACY_TEST_MARKER;
 
 const definitions: Record<
   RegisterableCatalogApplication,
