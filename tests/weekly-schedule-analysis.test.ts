@@ -6,6 +6,9 @@ import {
 } from "../src/main/actions/weekly-schedule-analysis";
 import type { PlannerService } from "../src/main/planner/planner-service";
 import type { TodayScheduleData, WeeklyRoutineRecord, WeeklyScheduleRecord } from "../src/shared/planner-contracts";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies weekly schedule analysis.
+void LEGACY_TEST_MARKER;
 
 const schedule = (id: string, title: string): WeeklyScheduleRecord => ({
   id,
