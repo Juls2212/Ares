@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createWindowsAtomicMove } from "../src/main/files/windows-atomic-move";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies the legacy native move wrapper.
+void LEGACY_TEST_MARKER;
 
 describe("Windows atomic move wrapper", () => {
   it("loads the development bridge lazily and maps a successful native result", () => {
