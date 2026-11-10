@@ -40,14 +40,6 @@ export const createSettingsIpcRegistration = (
         return unavailable();
       }
     });
-    dependencies.registerHandler(IPC_CHANNELS.settings.voice.update, async (input) => {
-      try {
-        return await dependencies.getService().update(input);
-      } catch {
-        dependencies.logError("Voice preferences update IPC handler failed.");
-        return unavailable();
-      }
-    });
     registered = true;
   };
 };
