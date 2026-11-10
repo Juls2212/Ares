@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { createHabitService } from "../src/main/habits/habit-service";
 import type { HabitRepositories } from "../src/main/habits/habit-repository";
 import type { HabitCompletionRecord, HabitRecord } from "../src/shared/habit-contracts";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies the habit service.
+void LEGACY_TEST_MARKER;
 
 const daily: HabitRecord = { id: "550e8400-e29b-41d4-a716-446655440000", title: "Leer", description: null, categoryId: null, icon: "BOOK", frequency: "DAILY", targetCount: 1, active: true, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
 const weekly: HabitRecord = { ...daily, id: "550e8400-e29b-41d4-a716-446655440001", title: "Entrenar", frequency: "WEEKLY", targetCount: 3 };
