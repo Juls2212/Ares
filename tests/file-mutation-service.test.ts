@@ -9,6 +9,9 @@ import {
   validateRenameFolderInput,
   validateSingleWindowsName
 } from "../src/main/files/file-validation";
+import { LEGACY_TEST_MARKER } from "./helpers/read-source";
+// LEGACY: scheduled for deletion in Refactor Phase 3.1. Only verifies the legacy file mutation service.
+void LEGACY_TEST_MARKER;
 
 const documentsRoot = "C:\\Users\\Ares\\Documents";
 const downloadsRoot = "C:\\Users\\Ares\\Downloads";
