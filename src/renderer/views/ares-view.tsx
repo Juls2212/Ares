@@ -11,6 +11,7 @@ import { IdleGuidance } from "../features/assistant/idle-guidance";
 import { responseAreaLabel } from "../features/assistant/response-area";
 import { createResponseCoreReveal } from "../features/assistant/response-core-reveal";
 import type { PlaybackEvent } from "../features/voice/response-playback";
+import { finishCurrentTurn, markCurrentTurn } from "../../shared/turn-timing";
 import { ResponseSpeechControls } from "../features/voice/response-speech-controls";
 
 type AresViewProperties = {
@@ -20,6 +21,8 @@ type AresViewProperties = {
   voiceLabel: string;
   voiceState: "IDLE" | "RECORDING" | "PROCESSING";
   voiceMessage?: string;
+  /** Transient transcript of the last utterance; shown for a few seconds and never persisted. */
+  heardText?: string;
   orbState: OrbState;
   /** Id of the active color scheme; it only selects the orb palette (the CSS follows the same data-theme attribute). */
   scheme?: string;
@@ -78,6 +81,7 @@ export const AresView = ({
   spokenResponse,
   voiceState,
   voiceMessage,
+  heardText,
   orbState,
   scheme,
   colorNotice,
@@ -194,6 +198,8 @@ export const AresView = ({
 
   const handlePlaybackEvent = (event: PlaybackEvent): void => {
     if (event.responseId !== activeResponseId.current) return;
+    if (event.type === "PLAYING") markCurrentTurn("playback_started");
+    finishCurrentTurn();
     if (event.type === "PLAYING") {
       setCoreVisualState("PLAYING");
       responseReveal.current?.handlePlaybackEvent(event);
@@ -246,6 +252,7 @@ export const AresView = ({
       <p>{visibleCoreResponse}<span className="command-response__reserved">{reservedCoreResponse}</span></p>
     </div>}
   </div>
+  {heardText && <p aria-atomic="true" aria-live="polite" className="heard-line" role="status">{`Escuché: «${heardText}»`}</p>}
   {hintVisible && <p className="shortcut-hint" role="note">
     {hintParts.label && <span>{hintParts.label}</span>}
     {hintParts.keys.map((key, index) => <span key={`${key}-${index}`}>{index > 0 && <span aria-hidden="true" className="shortcut-hint__plus">+</span>}<kbd>{key}</kbd></span>)}
