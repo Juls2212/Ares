@@ -1,4 +1,5 @@
-import { normalizeApplicationAlias } from "../applications/known-application-catalog";
+import { POLITE_PREFIX } from "../../shared/phrase-kit";
+import { foldForAlias, trimQuotesAndTrailingPunctuation, unwrapQuotedText } from "../../shared/text-fold";
 
 /**
  * Deterministic classification of contact and message-draft phrases. It only classifies text: it never
@@ -20,21 +21,7 @@ export type MessagingCommand =
   | { kind: "OPEN_CHAT_NAMED" }
   | { kind: "OTHER_CHANNEL_REQUEST" };
 
-const POLITE_PREFIX = "(?:por\\s+favor,?\\s+)?";
 const OTHER_CHANNELS = "discord|correo|e-?mail|sms|telegram|messenger|instagram";
-
-const stripTrailingPunctuation = (value: string): string =>
-  value
-    .trim()
-    .replace(/^[«"“'‘]+/u, "")
-    .replace(/[»"”'’.,;:!?¡¿]+$/u, "")
-    .trim();
-
-const stripBodyQuotes = (value: string): string => {
-  const trimmed = value.trim();
-  const quoted = trimmed.match(/^[«"“](.+)[»"”]$/su);
-  return (quoted ? quoted[1] : trimmed).trim();
-};
 
 const SAVE_PATTERNS: readonly RegExp[] = [
   new RegExp(
@@ -87,11 +74,11 @@ const parseDraftCommand = (text: string): MessagingCommand | undefined => {
   const rest = verb[1].trim();
   const connector = BODY_CONNECTOR.exec(rest);
   const head = (connector ? rest.slice(0, connector.index) : rest).trim();
-  const body = connector ? stripBodyQuotes(rest.slice(connector.index + connector[0].length)) : "";
+  const body = connector ? unwrapQuotedText(rest.slice(connector.index + connector[0].length)) : "";
   const channel: "WHATSAPP" | "UNSUPPORTED" = CHANNEL_WORD.test(head) ? "UNSUPPORTED" : "WHATSAPP";
   const target = head.replace(MESSAGE_NOUN_PHRASE, " ").replace(BY_CHANNEL, " ").replace(/\s+/gu, " ").trim();
   const recipientMatch = target.match(/^(?:a|para)\s+(.+)$/iu);
-  const recipient = recipientMatch ? stripTrailingPunctuation(recipientMatch[1]) : "";
+  const recipient = recipientMatch ? trimQuotesAndTrailingPunctuation(recipientMatch[1]) : "";
   if (recipient.length === 0) return { kind: "DRAFT_INCOMPLETE", missing: "RECIPIENT" };
   if (body.length === 0) return channel === "UNSUPPORTED" ? { kind: "OTHER_CHANNEL_REQUEST" } : { kind: "DRAFT_INCOMPLETE", missing: "BODY" };
   return { kind: "PREPARE_DRAFT", recipient, body, channel };
@@ -135,19 +122,19 @@ export const parseMessagingCommand = (instruction: string): MessagingCommand | u
     const raw = match[1].trim();
     // A number said aloud never reaches the provider or the contact: the form is the only way to enter it.
     if (PHONE_WORDS.test(raw) || raw.replace(/[\s().-]/gu, "").match(/\d{7,}/u)) return { kind: "PHONE_IN_VOICE" };
-    const name = stripTrailingPunctuation(raw);
+    const name = trimQuotesAndTrailingPunctuation(raw);
     if (NOT_A_CONTACT_NAME.test(name)) return undefined;
     return name.length > 0 ? { kind: "SAVE_CONTACT", name } : { kind: "SAVE_CONTACT_INCOMPLETE" };
   }
   for (const pattern of DELETE_PATTERNS) {
     const match = text.match(pattern);
     if (!match) continue;
-    const name = stripTrailingPunctuation(match[1]);
+    const name = trimQuotesAndTrailingPunctuation(match[1]);
     return name.length > 0 ? { kind: "DELETE_CONTACT", name } : undefined;
   }
 
   const bodyText = instruction.trim().replace(/\.+$/u, "").trim();
-  const normalized = normalizeApplicationAlias(text);
+  const normalized = foldForAlias(text);
   if (LIST_PATTERN.test(normalized)) return { kind: "LIST_CONTACTS" };
   if (DISCARD_PATTERN.test(normalized)) return { kind: "DISCARD_DRAFT" };
   if (SEND_OTHER_CHANNEL_PATTERN.test(normalized)) return { kind: "OTHER_CHANNEL_REQUEST" };
@@ -158,7 +145,7 @@ export const parseMessagingCommand = (instruction: string): MessagingCommand | u
   if (EDIT_INCOMPLETE.test(bodyText)) return { kind: "EDIT_INCOMPLETE" };
   const edit = bodyText.match(EDIT_PATTERN);
   if (edit) {
-    const body = stripBodyQuotes(edit[1]);
+    const body = unwrapQuotedText(edit[1]);
     return body.length > 0 ? { kind: "EDIT_DRAFT", body } : { kind: "EDIT_INCOMPLETE" };
   }
 
