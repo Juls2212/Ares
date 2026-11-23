@@ -192,7 +192,7 @@ describe("supervised file action flows", () => {
     if (!proposed.ok || !("confirmationId" in proposed.data)) throw new Error("Expected confirmation.");
     await expect(orchestrator.confirm(proposed.data.confirmationId)).resolves.toMatchObject({
       ok: true,
-      data: { status: "EXECUTION_FAILED", errorCode: "FILES_OPERATION_FAILED", userSummary: "No se pudo completar la operación con archivos." }
+      data: { status: "EXECUTION_FAILED", errorCode: "FILES_OPERATION_FAILED", userSummary: "No pude completar eso con tus archivos." }
     });
   });
 
