@@ -76,6 +76,37 @@ describe("Main-only voice transcription service", () => {
     }
   });
 
+  it("reports an empty transcript as its own closed failure with a bounded Spanish message", async () => {
+    for (const text of ["", "   ", "\n"]) {
+      const logError = vi.fn();
+      const service = serviceFor({ createProvider: () => ({ transcribe: async () => text }), logError });
+      const result = await service.transcribe({ audio, mimeType: "audio/webm", durationMs: 1000 });
+      expect(result).toEqual({ ok: false, error: { code: "VOICE_TRANSCRIPT_EMPTY", userMessage: "No se entendió lo que dijiste. Inténtalo de nuevo." } });
+      expect(logError.mock.calls).toEqual([["Voice transcription failed [VOICE_TRANSCRIPT_EMPTY]."]]);
+    }
+  });
+
+  it("logs one privacy-safe diagnostic line per stage and never the transcript, audio or keys", async () => {
+    const logInfo = vi.fn();
+    const service = serviceFor({ createProvider: () => ({ transcribe: async () => "Crear una tarea privada de Ana" }), logInfo });
+    await service.transcribe({ audio, mimeType: "audio/webm;codecs=opus", durationMs: 2300 });
+    expect(logInfo.mock.calls.map((call) => call[0])).toEqual([
+      "voice-diag side=main stage=transcription_started mime=webm size=<1KB durationMs=2300",
+      "voice-diag side=main stage=transcription_done mime=webm size=<1KB durationMs=2300"
+    ]);
+    expect(JSON.stringify(logInfo.mock.calls)).not.toMatch(/Ana|tarea|private/u);
+
+    const failing = vi.fn();
+    const failingService = serviceFor({ createProvider: () => ({ transcribe: async () => { throw { status: 429, message: "private-detail" }; } }), logInfo: failing });
+    await failingService.transcribe({ audio, mimeType: "audio/webm", durationMs: 1000 });
+    expect(failing.mock.calls.map((call) => call[0]).at(-1)).toBe("voice-diag side=main stage=transcription_started mime=webm size=<1KB durationMs=1000 failure=VOICE_TRANSCRIPTION_FAILED");
+    expect(JSON.stringify(failing.mock.calls)).not.toContain("private");
+
+    const invalid = vi.fn();
+    await serviceFor({ logInfo: invalid }).transcribe({ audio: new ArrayBuffer(0), mimeType: "audio/webm", durationMs: 1000 });
+    expect(invalid.mock.calls).toEqual([["voice-diag side=main stage=ipc_submitted failure=VOICE_CAPTURE_EMPTY_RECORDING"]]);
+  });
+
   it("uses no persistent audio file or filesystem adapter", () => {
     const source = readFileSync(path.resolve(process.cwd(), "src/main/voice/openai-transcription-provider.ts"), "utf8");
     expect(source).not.toMatch(/node:fs|writeFile|mkdtemp|unlink|createReadStream/);
