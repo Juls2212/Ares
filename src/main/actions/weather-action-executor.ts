@@ -1,11 +1,13 @@
+import { failedOutcome, type FailureOutcomeStatus, outcomeIdentity, succeededOutcome } from "../../shared/outcome-kit";
 import type {
   ActionOutcome,
   ActionPolicy,
-  TerminalActionStatus,
   WeatherActionProposal
 } from "../../shared/action-contracts";
 import {
+  WEATHER_ERROR_CODES,
   createWeatherService,
+  weatherUserMessage,
   type WeatherService
 } from "../weather/weather-service";
 
@@ -18,9 +20,16 @@ type WeatherActionExecutorDependencies = {
   logError: (message: string) => void;
 };
 
-const failureStatus = (errorCode: string): TerminalActionStatus =>
-  errorCode === "WEATHER_LOCATION_UNRESOLVED" ? "VALIDATION_FAILED" : "EXECUTION_FAILED";
+/** A bad place or input is the person's to fix; everything else is a provider or network problem. */
+const failureStatus = (errorCode: string): FailureOutcomeStatus =>
+  errorCode === WEATHER_ERROR_CODES.inputInvalid || errorCode === WEATHER_ERROR_CODES.locationNotFound
+    ? "VALIDATION_FAILED"
+    : "EXECUTION_FAILED";
 
+/**
+ * Read-only weather query. The outcome carries only the spoken Spanish summary: no data payload, so neither the place nor
+ * the provider numbers travel anywhere except in the sentence that is spoken and shown to the person.
+ */
 export const createWeatherActionExecutor = (
   overrides: Partial<WeatherActionExecutorDependencies> = {}
 ): WeatherActionExecutor => {
@@ -40,35 +49,16 @@ export const createWeatherActionExecutor = (
 
   return {
     execute: async (proposal, policy) => {
+      const identity = outcomeIdentity(proposal, policy);
       try {
-        const result = await getWeatherService().getTodayWeather();
+        const result = await getWeatherService().getWeather(proposal.input);
         if (!result.ok) {
-          return {
-            actionId: proposal.actionId,
-            action: proposal.action,
-            riskLevel: policy.riskLevel,
-            status: failureStatus(result.error.code),
-            errorCode: result.error.code,
-            userSummary: result.error.userMessage
-          };
+          return failedOutcome(identity, failureStatus(result.error.code), result.error.code, result.error.userMessage);
         }
-        return {
-          actionId: proposal.actionId,
-          action: proposal.action,
-          riskLevel: policy.riskLevel,
-          status: "SUCCEEDED",
-          userSummary: result.data.summary
-        };
+        return succeededOutcome(identity, result.data.summary);
       } catch {
         dependencies.logError("Weather action execution failed.");
-        return {
-          actionId: proposal.actionId,
-          action: proposal.action,
-          riskLevel: policy.riskLevel,
-          status: "EXECUTION_FAILED",
-          errorCode: "WEATHER_UNAVAILABLE",
-          userSummary: "No puedo consultar el clima de Pasto en este momento."
-        };
+        return failedOutcome(identity, "EXECUTION_FAILED", WEATHER_ERROR_CODES.unavailable, weatherUserMessage(WEATHER_ERROR_CODES.unavailable));
       }
     }
   };
