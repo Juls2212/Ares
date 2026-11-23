@@ -382,6 +382,24 @@ body {
 
 .command-response__reserved { color: transparent; }
 
+.heard-line {
+  position: absolute;
+  left: 8cqw;
+  right: 8cqw;
+  bottom: 9cqw;
+  z-index: 2;
+  margin: 0;
+  max-height: 3.2em;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-style: italic;
+  line-height: 16px;
+  text-align: center;
+  text-wrap: balance;
+  pointer-events: none;
+}
+
 .shortcut-hint {
   position: absolute;
   left: 0;
@@ -793,6 +811,7 @@ button:disabled { cursor: progress; }
   .glass-orb__halo { display: none; }
   .review-card { border: 2px solid CanvasText; background-color: Canvas; color: CanvasText; backdrop-filter: none; box-shadow: none; }
   .review-card[data-reinforced] { border-width: 3px; }
+  .heard-line { color: CanvasText; }
   .button-primary,
   .button-secondary { border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
   .button-primary { border-width: 2px; }
