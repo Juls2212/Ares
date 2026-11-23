@@ -1,9 +1,9 @@
+import { clarificationInterpretation } from "../../shared/outcome-kit";
 import {
   SPOTIFY_SEARCH_KINDS,
-  WEB_BROWSERS,
-  WEB_DESTINATIONS,
   type ActionSubmission
 } from "../../shared/action-contracts";
+import { validateWeatherInput } from "../weather/weather-validation";
 import {
   ASSISTANT_CURRENT_CONTEXT_TOKEN,
   ASSISTANT_ERROR_CODES,
@@ -12,7 +12,6 @@ import {
   type AssistantInterpretationReference,
   type AssistantOperationResult
 } from "../../shared/assistant-contracts";
-import type { SafeFileReference } from "../../shared/file-contracts";
 import { validateApplicationAlias, validateCustomApplicationDisplayName } from "../applications/application-validation";
 import { parseFoundFileCommand, type OrdinalReference } from "./found-file-references";
 import { parseFileMutationCommand, type FileMutationCommand, type OrdinalSelection } from "./found-file-mutations";
@@ -28,18 +27,10 @@ import {
 import {
   KNOWN_APPLICATION_CATALOG,
   getKnownApplication,
-  isKnownApplicationCatalogKey,
-  normalizeApplicationAlias
+  isKnownApplicationCatalogKey
 } from "../applications/known-application-catalog";
+import { foldEventTitle, foldForAlias, foldLooseText } from "../../shared/text-fold";
 import { getOpenAiConfiguration, type OpenAiConfiguration } from "../config/openai-environment";
-import {
-  validateCreateFolderInput,
-  validateFileSearchInput,
-  validateMoveFileInput,
-  validateOrganizeFilesInput,
-  validateRenameFileInput,
-  validateRenameFolderInput
-} from "../files/file-validation";
 import {
   validateCompleteTaskInput,
   validateCreateEventInput,
@@ -50,13 +41,8 @@ import {
   validateUpdateEventInput,
   validateUpdateTaskInput,
   validateDeleteEventInput,
-  validateEventListInput,
-  validateCreateWeeklyRoutineInput,
-  validateCreateWeeklyScheduleInput,
-  validateUpdateWeeklyRoutineInput,
-  validateUpdateWeeklyScheduleInput
+  validateEventListInput
 } from "../planner/planner-validation";
-import { WEEKDAYS } from "../../shared/planner-contracts";
 import {
   ASSISTANT_PROVIDER_TIMEOUT_MS,
   createOpenAiStructuredProvider,
@@ -69,15 +55,11 @@ import {
 } from "./planner-temporal-resolution";
 import { isUnsafeAssistantDraftText, isUnsafeAssistantInstruction } from "./assistant-safety";
 import type { ResolvedAssistantContext } from "./assistant-context-service";
-import { normalizeEventTitle, type ResolveEventDeletion } from "./assistant-event-reference";
+import type { ResolveEventDeletion } from "./assistant-event-reference";
 import {
   getAssistantProviderFailureDiagnostic,
   type AssistantProviderFailureDiagnostic
 } from "./provider-failure-category";
-import type { WeeklyScheduleReferenceResolution } from "../actions/weekly-schedule-analysis";
-import type { WeeklyScheduleMutationReferences } from "../actions/weekly-schedule-mutation-references";
-import type { HabitMutationReferences } from "../actions/habit-mutation-references";
-import { validateCreateHabitInput, validateUpdateHabitInput } from "../habits/habit-validation";
 import { isEnabledAssistantAction } from "../actions/capability-registry";
 import { validateApprovedWebActionInput } from "../actions/approved-web-action-executor";
 import { parseMessagingCommand } from "./messaging-phrases";
@@ -96,7 +78,7 @@ import {
 const MAX_INSTRUCTION_LENGTH = 2_000;
 const MAX_DRAFTS = 8;
 const MAX_PROVIDER_OUTPUT_LENGTH = 16_000;
-const READY_SUMMARY = "Preparé los borradores solicitados.";
+const READY_SUMMARY = "Listo, esto es lo que preparé.";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -108,9 +90,6 @@ export type AssistantInterpreterDependencies = {
   timeoutMs?: number;
   logError?: (message: string) => void;
   resolveEventDeletion?: ResolveEventDeletion;
-  resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>;
-  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences;
-  resolveHabitMutationReferences?: HabitMutationReferences;
   /** Count-only view of the last file search, supplied by Main. */
   getActiveFileSearch?: () => { resultCount: number } | undefined;
   /** Main-side matching of a spoken name against the last search; names never reach the provider. */
@@ -176,12 +155,7 @@ const unavailable = (code: (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT
   });
 
 const clarification = (question = "¿Puedes indicar los datos necesarios de forma más específica?"): AssistantOperationResult<AssistantInterpretation> =>
-  success({
-    state: "NEEDS_CLARIFICATION",
-    summary: question,
-    drafts: [],
-    clarifications: [{ question }]
-  });
+  success(clarificationInterpretation(question));
 
 /**
  * A bare application name or alias carries no verb, so it is neither small talk nor an action.
@@ -191,15 +165,15 @@ const getAliasOnlyClarification = (
   instruction: string,
   registeredAliases: readonly string[] | undefined
 ): string | undefined => {
-  const normalized = normalizeApplicationAlias(instruction);
+  const normalized = foldForAlias(instruction);
   if (normalized.length === 0) return undefined;
   const catalogEntry = KNOWN_APPLICATION_CATALOG.find((entry) =>
     [entry.defaultAlias, entry.displayName, ...entry.recognitionAliases].some(
-      (alias) => normalizeApplicationAlias(alias) === normalized
+      (alias) => foldForAlias(alias) === normalized
     )
   );
   if (catalogEntry) return `¿Quieres que abra o que registre ${catalogEntry.displayName}?`;
-  return registeredAliases?.some((alias) => normalizeApplicationAlias(alias) === normalized)
+  return registeredAliases?.some((alias) => foldForAlias(alias) === normalized)
     ? "¿Quieres que abra esa aplicación registrada?"
     : undefined;
 };
@@ -210,10 +184,10 @@ const NON_FILE_NOUN = /\b(?:eventos?|tareas?|recordatorios?|habitos?|horarios?|r
 const DELETE_UNSUPPORTED_QUESTION =
   "Solo puedo enviar un elemento a la Papelera por solicitud, indicando su número. No puedo borrar varios a la vez, de forma permanente ni por ruta.";
 const DELETE_NEEDS_ORDINAL = "Indica el número del resultado que quieres enviar a la Papelera, por ejemplo el tercero.";
-const SELECTION_QUESTION = "Indica qué resultados, por ejemplo «todo» o el primero y el segundo.";
+const SELECTION_QUESTION = "¿Cuáles quieres? Puedes decir «todo» o «el primero y el segundo».";
 const DESTINATION_QUESTION = "Indica el destino: Escritorio, Documentos, Descargas, Imágenes, Música o Videos.";
-const FOLDER_AMBIGUOUS = "Hay varias carpetas con ese nombre. Indica cuál por su número.";
-const FOLDER_UNMATCHED = "No encontré esa carpeta entre los últimos resultados. Indica una ubicación como Documentos o busca primero la carpeta.";
+const FOLDER_AMBIGUOUS = "Hay varias carpetas con ese nombre. ¿Cuál es? Dime su número.";
+const FOLDER_UNMATCHED = "No encontré esa carpeta en los últimos resultados. Dime una ubicación como Documentos, o búscala primero.";
 const INVALID_ITEM_NAME = "Indica un nombre válido para el elemento.";
 
 /**
@@ -229,7 +203,7 @@ const resolveFileMutationCommand = (
 ): AssistantOperationResult<AssistantInterpretation> | undefined => {
   const command: FileMutationCommand | undefined = parseFileMutationCommand(instruction);
   if (!command) return undefined;
-  const normalized = normalizeApplicationAlias(instruction);
+  const normalized = foldForAlias(instruction);
   if (NON_FILE_NOUN.test(normalized)) return undefined;
   if (!activeFileSearch && !FILE_NOUN.test(normalized)) return undefined;
   if (command.kind === "DELETE_UNSUPPORTED") return clarification(DELETE_UNSUPPORTED_QUESTION);
@@ -298,9 +272,9 @@ const resolveFileMutationCommand = (
   }
 };
 
-const FOUND_FILE_NO_SEARCH = "Primero haz una búsqueda de archivos para poder elegir un resultado.";
-const FOUND_FILE_AMBIGUOUS = "Hay varios resultados con ese nombre. Indica cuál por su número, por ejemplo el segundo.";
-const FOUND_FILE_UNMATCHED = "No encontré ese nombre entre los últimos resultados. Indica el número del resultado.";
+const FOUND_FILE_NO_SEARCH = "Primero dime qué archivo buscar y luego eliges uno de los resultados.";
+const FOUND_FILE_AMBIGUOUS = "Hay varios con ese nombre. ¿Cuál es? Dime su número, por ejemplo el segundo.";
+const FOUND_FILE_UNMATCHED = "No encontré ese nombre en los últimos resultados. Dime el número del resultado.";
 
 const outOfRangeQuestion = (resultCount: number): string =>
   resultCount === 1
@@ -340,10 +314,10 @@ const resolveFoundFileCommand = (
   const name = command.target.name;
   const catalogAlias = KNOWN_APPLICATION_CATALOG.some((entry) =>
     [entry.defaultAlias, entry.displayName, ...entry.recognitionAliases].some(
-      (alias) => normalizeApplicationAlias(alias) === name
+      (alias) => foldForAlias(alias) === name
     )
   );
-  const registeredAlias = knownAliases.some((alias) => normalizeApplicationAlias(alias) === name);
+  const registeredAlias = knownAliases.some((alias) => foldForAlias(alias) === name);
   if (catalogAlias || registeredAlias) return undefined;
   const resolution = resolveFoundFileName(name);
   if (resolution.state === "RESOLVED") return readyDraft(resolution.ordinal);
@@ -372,7 +346,7 @@ const PHONE_IN_VOICE_QUESTION =
   "No me dictes el número por voz. Dime solo el nombre del contacto y escribirás el número en un formulario.";
 const SAVE_NEEDS_NAME = "¿Cómo se llama el contacto que quieres guardar?";
 const DRAFT_NEEDS_RECIPIENT = "¿A quién quieres escribirle?";
-const DRAFT_NEEDS_BODY = "¿Qué quieres decirle? Solo prepararé un borrador; no lo enviaré.";
+const DRAFT_NEEDS_BODY = "¿Qué quieres decirle? Solo lo dejo preparado; no lo envío.";
 const EDIT_NEEDS_BODY = "¿Por qué texto quieres cambiar el mensaje?";
 const OPEN_CHAT_NAMED_QUESTION =
   "Solo puedo abrir el chat del mensaje que preparaste. Di «envíalo» para abrirlo en WhatsApp y pulsar enviar tú.";
@@ -637,8 +611,8 @@ const resolveStreamingCommand = async (
     return web ? ready("SEARCH_APPROVED_SITE", web.input) : clarification(WEB_QUERY_QUESTION);
   }
 
-  const siteAlias = normalizeApplicationAlias(command.site);
-  if (knownAliases.some((alias) => normalizeApplicationAlias(alias) === siteAlias)) return undefined;
+  const siteAlias = foldForAlias(command.site);
+  if (knownAliases.some((alias) => foldForAlias(alias) === siteAlias)) return undefined;
   if (command.kind === "WEB_OPEN") return ready("OPEN_APPROVED_PAGE", { site: command.site });
   const web = validateApprovedWebActionInput("SEARCH_APPROVED_SITE", { site: command.site, query: command.query });
   return web ? ready("SEARCH_APPROVED_SITE", web.input) : clarification(WEB_QUERY_QUESTION);
@@ -694,108 +668,6 @@ const hasOnlyKeys = (value: UnknownRecord, allowed: readonly string[]): boolean 
 const isSafeText = (value: unknown, maximumLength: number): value is string =>
   typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximumLength;
 
-const getRequestedAvailabilityTime = (instruction: string): string | undefined => {
-  const explicit = instruction.match(/\b(?:después\s+de\s+las?|a\s+partir\s+de\s+las?)\s+([01]?\d|2[0-3]):([0-5]\d)\b/iu);
-  if (explicit) return `${explicit[1].padStart(2, "0")}:${explicit[2]}`;
-  const named = instruction.match(/\b(?:después\s+de\s+las?|a\s+partir\s+de\s+las?)\s+(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:\s+de\s+la\s+(mañana|tarde|noche))?\b/iu);
-  if (!named) return undefined;
-  const hours: Record<string, number> = { una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12 };
-  const hour = hours[named[1].toLocaleLowerCase("es-CO")];
-  const period = named[2]?.toLocaleLowerCase("es-CO");
-  const normalizedHour = period === "tarde" && hour < 12
-    ? hour + 12
-    : period === "noche" && hour < 12
-      ? hour + 12
-      : period === undefined && hour < 8
-        ? hour + 12
-        : hour;
-  return `${String(normalizedHour).padStart(2, "0")}:00`;
-};
-
-const normalizeScheduleTitle = (value: string): string =>
-  value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase("es-CO");
-
-const INTERNAL_REFERENCE_ID = "00000000-0000-4000-8000-000000000001";
-const isMentioned = (instruction: string, value: string): boolean =>
-  normalizeScheduleTitle(instruction).includes(normalizeScheduleTitle(value));
-
-const explicitlyRequestsRemoval = (instruction: string): boolean =>
-  /\b(?:quita|quitar|elimina|eliminar|borra|borrar|sin)\b/iu.test(instruction);
-
-const isLocalTime = (value: unknown): value is string =>
-  typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-
-/** Accepts only an explicitly supplied local clock value and returns strict HH:mm. */
-const normalizeWeeklyLocalTime = (value: unknown): string | undefined => {
-  if (isLocalTime(value)) return value;
-  if (typeof value !== "string") return undefined;
-  const match = value.trim().match(/^([0-9]|1\d|2[0-3])(?::([0-5]\d))?$/u);
-  if (!match) return undefined;
-  return `${match[1].padStart(2, "0")}:${match[2] ?? "00"}`;
-};
-
-const isWeekday = (value: unknown): value is (typeof WEEKDAYS)[number] =>
-  typeof value === "string" && WEEKDAYS.includes(value as (typeof WEEKDAYS)[number]);
-
-const spanishWeekdayValues: Record<string, (typeof WEEKDAYS)[number]> = {
-  lunes: "MONDAY",
-  martes: "TUESDAY",
-  miercoles: "WEDNESDAY",
-  jueves: "THURSDAY",
-  viernes: "FRIDAY",
-  sabado: "SATURDAY",
-  domingo: "SUNDAY"
-};
-
-const normalizeWeekday = (value: unknown): (typeof WEEKDAYS)[number] | undefined => {
-  if (isWeekday(value)) return value;
-  if (typeof value !== "string") return undefined;
-  const normalized = value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLocaleLowerCase("es-CO");
-  return spanishWeekdayValues[normalized];
-};
-
-const getExplicitWeekdays = (instruction: string): Array<(typeof WEEKDAYS)[number]> => {
-  const normalizedInstruction = instruction
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("es-CO");
-  return WEEKDAYS.filter((weekday) => {
-    const spanishName = Object.entries(spanishWeekdayValues).find(([, value]) => value === weekday)?.[0];
-    return spanishName !== undefined && new RegExp(`\\b${spanishName}\\b`, "u").test(normalizedInstruction);
-  });
-};
-
-const getProviderWeekdays = (input: UnknownRecord): Array<(typeof WEEKDAYS)[number]> | undefined => {
-  const value = input.weekdays ?? input.weekday;
-  const values = Array.isArray(value) ? value : [value];
-  if (values.length === 0 || values.length > WEEKDAYS.length) return undefined;
-  const weekdays = values.map(normalizeWeekday);
-  if (weekdays.some((weekday) => weekday === undefined)) return undefined;
-  const resolved = weekdays as Array<(typeof WEEKDAYS)[number]>;
-  return new Set(resolved).size === resolved.length ? resolved : undefined;
-};
-
-const weeklyReferenceClarification = (
-  state: "MISSING" | "AMBIGUOUS" | "UNAVAILABLE",
-  kind: "schedule" | "routine" | "category"
-): DraftClarification => {
-  const messages = {
-    schedule: state === "MISSING" ? "No encontré ese horario. Indica el nombre exacto de uno existente." : state === "AMBIGUOUS" ? "Encontré varios horarios con ese nombre. Indica uno más específico." : "No se pudieron consultar los horarios. Inténtalo de nuevo.",
-    routine: state === "MISSING" ? "No encontré ese bloque semanal." : state === "AMBIGUOUS" ? "Encontré varios bloques que coinciden. Indica el día u horario exacto." : "No se pudieron consultar los bloques semanales. Inténtalo de nuevo.",
-    category: state === "MISSING" ? "No encontré esa categoría." : state === "AMBIGUOUS" ? "Encontré varias categorías con ese nombre. Indica una más específica." : "No se pudieron consultar las categorías. Inténtalo de nuevo."
-  } as const;
-  return draftClarification(messages[kind]);
-};
-
 const createReference = (
   dependencies: AssistantInterpreterDependencies,
   overrides?: Partial<AssistantInterpretationReference>
@@ -808,47 +680,8 @@ const createReference = (
   ...(overrides?.knownCatalogApplications ? { knownCatalogApplications: overrides.knownCatalogApplications } : {}),
   ...(overrides?.activeFileSearch ? { activeFileSearch: overrides.activeFileSearch } : {}),
   ...(overrides?.knownApplications ? { knownApplications: overrides.knownApplications } : {}),
-  ...(overrides?.knownWeeklyScheduleTitles ? { knownWeeklyScheduleTitles: overrides.knownWeeklyScheduleTitles } : {}),
-  ...(overrides?.knownFileReferences ? { knownFileReferences: overrides.knownFileReferences } : {}),
   ...(overrides?.currentContext ? { currentContext: overrides.currentContext } : {})
 });
-
-const hasKnownReference = (
-  reference: SafeFileReference,
-  knownReferences: readonly SafeFileReference[] | undefined
-): boolean =>
-  !!knownReferences?.some(
-    (known) =>
-      known.rootId === reference.rootId &&
-      known.relativePath.localeCompare(reference.relativePath, undefined, { sensitivity: "accent" }) === 0
-  );
-
-const fileReferencesAreKnown = (
-  action: string,
-  input: UnknownRecord,
-  knownReferences: readonly SafeFileReference[] | undefined
-): boolean => {
-  const references: unknown[] = [];
-  if (action === "CREATE_FOLDER") references.push(input.parentDirectory);
-  if (action === "RENAME_FILE" || action === "RENAME_FOLDER") references.push(input.source);
-  if (action === "MOVE_FILE") references.push(input.source, input.destinationDirectory);
-  if (action === "ORGANIZE_FILES") references.push(input.folder, ...(Array.isArray(input.exclusions) ? input.exclusions : []));
-  if (action === "SEARCH_FILES" && input.relativePath !== undefined) {
-    references.push({ rootId: input.rootId, relativePath: input.relativePath });
-  }
-  return references.every((candidate) => {
-    if (!isRecord(candidate) || typeof candidate.rootId !== "string" || typeof candidate.relativePath !== "string") {
-      return false;
-    }
-    return hasKnownReference(
-      { rootId: candidate.rootId as SafeFileReference["rootId"], relativePath: candidate.relativePath },
-      knownReferences
-    );
-  });
-};
-
-const hasUnsafeFileDraftText = (input: UnknownRecord): boolean =>
-  [input.query, input.name, input.newName].some((value) => isUnsafeAssistantDraftText(value));
 
 type DraftClarification = { kind: "CLARIFICATION"; question: string };
 type DraftValidationResult = ActionSubmission | ActionSubmission[] | DraftClarification | null;
@@ -867,43 +700,35 @@ const resolveCurrentContextToken = (
   if (!isRecord(value)) return { input: value, usedToken: false };
   const hasToken = Object.values(value).some((entry) => entry === ASSISTANT_CURRENT_CONTEXT_TOKEN);
   if (!hasToken) return { input: value, usedToken: false };
-  if (!context) return draftClarification("Necesito una selección actual válida para esa acción.");
+  if (!context) return draftClarification("Primero elige algo en la pantalla para eso.");
   const selection = context.selection;
   const replace = (key: string, kind: string, replacement: unknown): ContextTokenResolution =>
     value[key] === ASSISTANT_CURRENT_CONTEXT_TOKEN && context.providerContext.kind === kind
       ? { input: { ...value, [key]: replacement }, usedToken: true }
-      : draftClarification("La selección actual no corresponde a esa acción.");
+      : draftClarification("Eso no se puede hacer con lo que elegiste.");
   if (action === "UPDATE_TASK" || action === "COMPLETE_TASK") {
-    return selection.section === "PLANNER" ? replace("taskId", "TASK", selection.id) : draftClarification("Selecciona una tarea válida primero.");
+    return selection.section === "PLANNER" ? replace("taskId", "TASK", selection.id) : draftClarification("Elige primero una tarea.");
   }
   if (action === "UPDATE_EVENT" || action === "DELETE_EVENT") {
-    return selection.section === "PLANNER" ? replace("eventId", "EVENT", selection.id) : draftClarification("Selecciona un evento válido primero.");
+    return selection.section === "PLANNER" ? replace("eventId", "EVENT", selection.id) : draftClarification("Elige primero un evento.");
   }
   if (action === "CREATE_REMINDER") {
-    if (selection.section !== "PLANNER") return draftClarification("Selecciona una tarea o evento válida primero.");
+    if (selection.section !== "PLANNER") return draftClarification("Elige primero una tarea o un evento.");
     if (value.taskId === ASSISTANT_CURRENT_CONTEXT_TOKEN && selection.kind === "TASK") return { input: { ...value, taskId: selection.id }, usedToken: true };
     if (value.eventId === ASSISTANT_CURRENT_CONTEXT_TOKEN && selection.kind === "EVENT") return { input: { ...value, eventId: selection.id }, usedToken: true };
     return draftClarification("La selección actual no corresponde al recordatorio.");
   }
   if (action === "OPEN_APPLICATION") {
-    return selection.section === "APPLICATIONS" ? replace("alias", "APPLICATION", selection.alias) : draftClarification("Selecciona una aplicación registrada válida primero.");
+    return selection.section === "APPLICATIONS" ? replace("alias", "APPLICATION", selection.alias) : draftClarification("Elige primero una aplicación registrada.");
   }
-  if (action === "CREATE_FOLDER") return selection.section === "FILES" ? replace("parentDirectory", "FOLDER", selection.reference) : draftClarification("Selecciona una carpeta válida primero.");
-  if (action === "RENAME_FILE") return selection.section === "FILES" ? replace("source", "FILE", selection.reference) : draftClarification("Selecciona un archivo válido primero.");
-  if (action === "RENAME_FOLDER" || action === "ORGANIZE_FILES") return selection.section === "FILES" ? replace(action === "ORGANIZE_FILES" ? "folder" : "source", "FOLDER", selection.reference) : draftClarification("Selecciona una carpeta válida primero.");
-  if (action === "MOVE_FILE") {
-    if (selection.section !== "FILES") return draftClarification("Selecciona un archivo o carpeta válida primero.");
-    if (value.source === ASSISTANT_CURRENT_CONTEXT_TOKEN && selection.kind === "FILE") return { input: { ...value, source: selection.reference }, usedToken: true };
-    if (value.destinationDirectory === ASSISTANT_CURRENT_CONTEXT_TOKEN && selection.kind === "FOLDER") return { input: { ...value, destinationDirectory: selection.reference }, usedToken: true };
-    return draftClarification("La selección actual no corresponde al movimiento.");
-  }
+  if (action === "CREATE_FOLDER") return selection.section === "FILES" ? replace("parentDirectory", "FOLDER", selection.reference) : draftClarification("Elige primero una carpeta.");
   if (action === "SEARCH_FILES") {
     if (selection.section === "FILES" && selection.kind === "FOLDER" && value.relativePath === ASSISTANT_CURRENT_CONTEXT_TOKEN) {
       return { input: { ...value, rootId: selection.reference.rootId, relativePath: selection.reference.relativePath }, usedToken: true };
     }
-    return draftClarification("Selecciona una carpeta válida primero.");
+    return draftClarification("Elige primero una carpeta.");
   }
-  return draftClarification("La selección actual no puede usarse para esa acción.");
+  return draftClarification("Eso no se puede hacer con lo que elegiste.");
 };
 
 const plannerClarification = (
@@ -928,9 +753,6 @@ const validateDraft = async (
   temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
-  resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>,
-  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences,
-  resolveHabitMutationReferences?: HabitMutationReferences,
   instruction = ""
 ): Promise<DraftValidationResult> => {
   if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input"]) || typeof candidate.action !== "string") {
@@ -957,7 +779,7 @@ const validateDraft = async (
       if (!isSafeText(input.eventTitle, 200) || isUnsafeAssistantDraftText(input.eventTitle)) {
         return draftClarification("¿Cuál es el título del evento que quieres eliminar? Necesitará confirmación.");
       }
-      if (!normalizeEventTitle(instruction).includes(normalizeEventTitle(input.eventTitle))) return null;
+      if (!foldEventTitle(instruction).includes(foldEventTitle(input.eventTitle))) return null;
       const range = validateEventListInput(input.startAt === undefined ? {} : { startAt: input.startAt });
       if (!range.ok) return draftClarification("Indica la fecha y hora exactas del evento para distinguirlo.");
       if (range.data.startAt && !instruction.includes(range.data.startAt)) {
@@ -967,7 +789,7 @@ const validateDraft = async (
       const resolution = await resolveEventDeletion({ title: input.eventTitle.trim(), ...range.data });
       if (resolution.state === "AMBIGUOUS") return draftClarification("Hay varios eventos con ese título. Indica su fecha y hora exactas o selecciona uno en el contexto.");
       if (resolution.state === "MISSING") return draftClarification("No encontré ese evento. Indica su título exacto o selecciona un evento existente.");
-      if (resolution.state !== "RESOLVED") return draftClarification("No se pudieron consultar los eventos. Inténtalo de nuevo antes de solicitar la eliminación.");
+      if (resolution.state !== "RESOLVED") return draftClarification("No pude consultar tus eventos. Inténtalo de nuevo.");
       const validated = validateDeleteEventInput({ eventId: resolution.eventId });
       return validated.ok ? { action, input: validated.data } : null;
     }
@@ -1018,195 +840,16 @@ const validateDraft = async (
       return isRecord(input) && hasOnlyKeys(input, []) ? { action, input: {} } : null;
     }
     case "GET_WEATHER": {
-      return isRecord(input) && hasOnlyKeys(input, []) ? { action, input: {} } : null;
-    }
-    case "GET_WEEKLY_SCHEDULE_DETAILS": {
-      if (!isRecord(input)) return null;
-      if (input.allSchedules === true && hasOnlyKeys(input, ["allSchedules"])) {
-        return /\b(todos|todas)\s+(mis\s+)?horarios\b/iu.test(instruction) ? { action, input: { allSchedules: true } } : draftClarification("Indica cuál de tus horarios quieres consultar.");
-      }
-      if (!hasOnlyKeys(input, ["scheduleTitle"]) || !isSafeText(input.scheduleTitle, 160) || !resolveWeeklyScheduleTitle) return draftClarification("¿Cuál de tus horarios quieres consultar?");
-      const resolution = await resolveWeeklyScheduleTitle(input.scheduleTitle);
-      if (resolution.state === "MISSING") return draftClarification("No encontré ese horario. Indica el nombre exacto de uno de tus horarios.");
-      if (resolution.state === "AMBIGUOUS") return draftClarification("Encontré varios horarios con ese nombre. Indica un nombre más específico.");
-      if (resolution.state !== "RESOLVED") return draftClarification("No se pudieron consultar los horarios. Inténtalo de nuevo.");
-      if (!normalizeScheduleTitle(instruction).includes(normalizeScheduleTitle(resolution.title))) {
-        return draftClarification("¿Cuál de tus horarios quieres consultar?");
-      }
-      return { action, input: { scheduleTitle: resolution.title } };
-    }
-    case "ANALYZE_WEEKLY_SCHEDULE": {
-      if (!isRecord(input) || typeof input.analysis !== "string" || !["AVAILABILITY", "BUSIEST_DAY", "OVERLAPS"].includes(input.analysis)) return null;
-      const referenceInput = { ...input }; delete referenceInput.analysis;
-      const detail = await validateDraft(
-        { action: "GET_WEEKLY_SCHEDULE_DETAILS", input: referenceInput },
-        reference,
-        temporalResolver,
-        currentContext,
-        resolveEventDeletion,
-        resolveWeeklyScheduleTitle,
-        resolveWeeklyScheduleMutationReferences,
-        resolveHabitMutationReferences,
-        instruction
-      );
-      if (!detail || Array.isArray(detail) || isDraftClarification(detail) || detail.action !== "GET_WEEKLY_SCHEDULE_DETAILS") return detail;
-      return { action, input: { ...detail.input, analysis: input.analysis as "AVAILABILITY" | "BUSIEST_DAY" | "OVERLAPS" } };
-    }
-    case "GET_TODAY_AVAILABILITY": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["afterTime"])) return null;
-      const requestedTime = getRequestedAvailabilityTime(instruction);
-      if (input.afterTime === undefined) return requestedTime === undefined ? { action, input: {} } : draftClarification("Indica la hora desde la que quieres consultar la disponibilidad de hoy.");
-      if (typeof input.afterTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.afterTime)) return null;
-      if (requestedTime !== input.afterTime) return draftClarification("Indica una hora válida para consultar la disponibilidad de hoy.");
-      return { action, input: { afterTime: input.afterTime } };
-    }
-    case "GET_HABIT_PROGRESS": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["scope", "habitTitle"]) || (input.scope !== "TODAY" && input.scope !== "WEEK")) {
-        return draftClarification("Indica si quieres consultar el progreso de hoy o de esta semana.");
-      }
-      if (input.habitTitle === undefined) return { action, input: { scope: input.scope } };
-      if (!isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences || !isMentioned(instruction, input.habitTitle)) {
-        return draftClarification("Indica el nombre exacto del hábito que quieres consultar.");
-      }
-      const habit = await resolveHabitMutationReferences.resolveHabit(input.habitTitle);
-      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
-      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
-      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos. Inténtalo de nuevo.");
-      return { action, input: { scope: input.scope, habitTitle: habit.habit.title } };
-    }
-    case "CREATE_HABIT": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["title", "description", "frequency", "targetCount", "categoryName", "icon"]) || !resolveHabitMutationReferences) {
-        return draftClarification("Indica el título y la frecuencia del hábito que quieres crear.");
-      }
-      const { categoryName, ...habitInput } = input;
-      const validated = validateCreateHabitInput(habitInput);
-      if (!validated.ok || !isMentioned(instruction, validated.data.title) || (validated.data.description && !isMentioned(instruction, validated.data.description))) {
-        return draftClarification("Indica un título, una frecuencia y una meta válidos para el hábito.");
-      }
-      if (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName))) {
-        return draftClarification("Indica una categoría válida para el hábito.");
-      }
-      if (categoryName !== undefined) {
-        const category = await resolveHabitMutationReferences.resolveCategory(categoryName);
-        if (category.state === "MISSING") return draftClarification("No encontré esa categoría.");
-        if (category.state === "AMBIGUOUS") return draftClarification("Encontré varias categorías con ese nombre. Indica una más específica.");
-        if (category.state !== "RESOLVED") return draftClarification("No se pudieron consultar las categorías.");
-      }
-      return { action, input: { ...validated.data, ...(typeof categoryName === "string" ? { categoryName } : {}) } };
-    }
-    case "UPDATE_HABIT": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["habitTitle", "title", "description", "frequency", "targetCount", "categoryName", "icon"]) || !isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences) {
-        return draftClarification("Indica qué hábito quieres actualizar y los cambios que deseas aplicar.");
-      }
-      const { habitTitle, categoryName, ...changes } = input;
-      const validated = validateUpdateHabitInput({ habitId: INTERNAL_REFERENCE_ID, ...changes });
-      if (!validated.ok || !isMentioned(instruction, habitTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.description === "string" && !isMentioned(instruction, validated.data.description))) {
-        return draftClarification("Indica el hábito y los cambios válidos que quieres aplicar.");
-      }
-      const habit = await resolveHabitMutationReferences.resolveHabit(habitTitle);
-      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
-      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
-      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos.");
-      if (categoryName !== undefined && categoryName !== null) {
-        if (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)) return draftClarification("Indica una categoría válida para el hábito.");
-        const category = await resolveHabitMutationReferences.resolveCategory(categoryName);
-        if (category.state !== "RESOLVED") return draftClarification(category.state === "AMBIGUOUS" ? "Encontré varias categorías con ese nombre. Indica una más específica." : "No encontré esa categoría.");
-      }
-      const { habitId: _habitId, ...validatedChanges } = validated.data;
-      return { action, input: { habitTitle: habit.habit.title, ...validatedChanges, ...(categoryName !== undefined ? { categoryName } : {}) } };
-    }
-    case "COMPLETE_HABIT": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["habitTitle"]) || !isSafeText(input.habitTitle, 240) || !resolveHabitMutationReferences || !isMentioned(instruction, input.habitTitle)) {
-        return draftClarification("Indica el nombre exacto del hábito que quieres completar.");
-      }
-      const habit = await resolveHabitMutationReferences.resolveHabit(input.habitTitle);
-      if (habit.state === "MISSING") return draftClarification("No encontré ese hábito activo. Indica su nombre exacto.");
-      if (habit.state === "AMBIGUOUS") return draftClarification("Encontré varios hábitos con ese nombre. Indica uno más específico.");
-      if (habit.state !== "RESOLVED") return draftClarification("No se pudieron consultar los hábitos.");
-      return { action, input: { habitTitle: habit.habit.title } };
-    }
-    case "CREATE_WEEKLY_SCHEDULE": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["title", "description", "color"])) return null;
-      const validated = validateCreateWeeklyScheduleInput(input);
-      if (!validated.ok || !isMentioned(instruction, validated.data.title) || (validated.data.description && !isMentioned(instruction, validated.data.description)) || (validated.data.color && !instruction.includes(validated.data.color))) {
-        return draftClarification("Indica el nombre del horario y solo los cambios que quieres aplicar.");
-      }
-      if (!resolveWeeklyScheduleMutationReferences) return draftClarification("No se pudieron consultar los horarios. Inténtalo de nuevo.");
-      const existing = await resolveWeeklyScheduleMutationReferences.resolveSchedule(validated.data.title);
-      if (existing.state === "RESOLVED") return draftClarification("Ya existe un horario con ese nombre. Indica otro nombre.");
-      if (existing.state === "UNAVAILABLE") return weeklyReferenceClarification(existing.state, "schedule");
-      return { action, input: validated.data };
-    }
-    case "UPDATE_WEEKLY_SCHEDULE": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "title", "description", "color"]) || !isSafeText(input.scheduleTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica qué horario quieres actualizar.");
-      const { scheduleTitle, ...changes } = input;
-      const validated = validateUpdateWeeklyScheduleInput({ weeklyScheduleId: INTERNAL_REFERENCE_ID, ...changes });
-      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.description === "string" && !isMentioned(instruction, validated.data.description)) || (typeof validated.data.color === "string" && !instruction.includes(validated.data.color)) || ((validated.data.description === null || validated.data.color === null) && !explicitlyRequestsRemoval(instruction))) return draftClarification("Indica el horario y los cambios que quieres aplicar.");
-      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
-      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
-      const { weeklyScheduleId: _weeklyScheduleId, ...validatedChanges } = validated.data;
-      return { action, input: { scheduleTitle: schedule.schedule.title, ...validatedChanges } };
-    }
-    case "CREATE_WEEKLY_ROUTINE": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "title", "weekday", "weekdays", "startTime", "endTime", "location", "categoryName"]) || !isSafeText(input.scheduleTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica el horario, bloque, día y horas que quieres agregar.");
-      const providerWeekdays = getProviderWeekdays(input);
-      const explicitWeekdays = getExplicitWeekdays(instruction);
-      if (!providerWeekdays || explicitWeekdays.length === 0 || providerWeekdays.some((weekday) => !explicitWeekdays.includes(weekday))) return draftClarification("Indica uno o más días válidos para el bloque semanal.");
-      const { scheduleTitle, categoryName, weekday: _weekday, weekdays: _weekdays, ...routine } = input;
-      const startTime = normalizeWeeklyLocalTime(routine.startTime);
-      const endTime = normalizeWeeklyLocalTime(routine.endTime);
-      if (!startTime || !endTime) return draftClarification("Indica las horas de inicio y final del bloque semanal.");
-      const validated = validateCreateWeeklyRoutineInput({ ...routine, weekday: explicitWeekdays[0], startTime, endTime, weeklyScheduleId: INTERNAL_REFERENCE_ID });
-      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || !isMentioned(instruction, validated.data.title) || (validated.data.location && !isMentioned(instruction, validated.data.location)) || (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)))) return draftClarification("Indica el horario, bloque, día y horas válidos que quieres agregar.");
-      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
-      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
-      if (categoryName !== undefined) {
-        const category = await resolveWeeklyScheduleMutationReferences.resolveCategory(categoryName);
-        if (category.state !== "RESOLVED") return weeklyReferenceClarification(category.state, "category");
-      }
-      return explicitWeekdays.map((weekday) => ({
-        action,
-        input: {
-          scheduleTitle: schedule.schedule.title,
-          title: validated.data.title,
-          weekday,
-          startTime: validated.data.startTime,
-          endTime: validated.data.endTime,
-          ...(validated.data.location === undefined ? {} : { location: validated.data.location }),
-          ...(typeof categoryName === "string" ? { categoryName } : {})
+      const result = validateWeatherInput(input);
+      if (!result.ok) return null;
+      const { location } = result.data;
+      if (location !== undefined) {
+        // The place is copied from the person's own words; an invented or injected place is never forwarded.
+        if (isUnsafeAssistantDraftText(location) || !foldLooseText(instruction).includes(foldLooseText(location))) {
+          return draftClarification("¿De qué lugar quieres saber el clima?");
         }
-      }));
-    }
-    case "UPDATE_WEEKLY_ROUTINE": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["scheduleTitle", "routineTitle", "targetWeekday", "targetStartTime", "targetEndTime", "title", "weekday", "startTime", "endTime", "location", "categoryName"]) || !isSafeText(input.scheduleTitle, 240) || !isSafeText(input.routineTitle, 240) || !resolveWeeklyScheduleMutationReferences) return draftClarification("Indica el bloque semanal que quieres actualizar.");
-      const { scheduleTitle, routineTitle, targetWeekday, targetStartTime, targetEndTime, categoryName, ...changes } = input;
-      const validated = validateUpdateWeeklyRoutineInput({ routineId: INTERNAL_REFERENCE_ID, weeklyScheduleId: INTERNAL_REFERENCE_ID, ...changes });
-      if (!validated.ok || !isMentioned(instruction, scheduleTitle) || !isMentioned(instruction, routineTitle) || (validated.data.title && !isMentioned(instruction, validated.data.title)) || (typeof validated.data.location === "string" && !isMentioned(instruction, validated.data.location)) || (validated.data.location === null && !explicitlyRequestsRemoval(instruction)) || (categoryName !== undefined && (!isSafeText(categoryName, 160) || !isMentioned(instruction, categoryName)))) return draftClarification("Indica el bloque y los cambios válidos que quieres aplicar.");
-      const trustedTargetWeekday = isWeekday(targetWeekday) ? targetWeekday : undefined;
-      const trustedTargetStartTime = isLocalTime(targetStartTime) ? targetStartTime : undefined;
-      const trustedTargetEndTime = isLocalTime(targetEndTime) ? targetEndTime : undefined;
-      if ((targetWeekday !== undefined && trustedTargetWeekday === undefined) || (targetStartTime !== undefined && trustedTargetStartTime === undefined) || (targetEndTime !== undefined && trustedTargetEndTime === undefined)) return draftClarification("Indica una referencia de día y hora válida para el bloque.");
-      const schedule = await resolveWeeklyScheduleMutationReferences.resolveSchedule(scheduleTitle);
-      if (schedule.state !== "RESOLVED") return weeklyReferenceClarification(schedule.state, "schedule");
-      const routine = await resolveWeeklyScheduleMutationReferences.resolveRoutine({ scheduleTitle: schedule.schedule.title, routineTitle, ...(trustedTargetWeekday === undefined ? {} : { weekday: trustedTargetWeekday }), ...(trustedTargetStartTime === undefined ? {} : { startTime: trustedTargetStartTime }), ...(trustedTargetEndTime === undefined ? {} : { endTime: trustedTargetEndTime }) });
-      if (routine.state !== "RESOLVED") return weeklyReferenceClarification(routine.state, "routine");
-      if (categoryName !== undefined) {
-        const category = await resolveWeeklyScheduleMutationReferences.resolveCategory(categoryName);
-        if (category.state !== "RESOLVED") return weeklyReferenceClarification(category.state, "category");
       }
-      const { routineId: _routineId, weeklyScheduleId: _weeklyScheduleId, ...validatedChanges } = validated.data;
-      return {
-        action,
-        input: {
-          scheduleTitle: schedule.schedule.title,
-          routineTitle: routine.routine.title,
-          ...(trustedTargetWeekday === undefined ? {} : { targetWeekday: trustedTargetWeekday }),
-          ...(trustedTargetStartTime === undefined ? {} : { targetStartTime: trustedTargetStartTime }),
-          ...(trustedTargetEndTime === undefined ? {} : { targetEndTime: trustedTargetEndTime }),
-          ...validatedChanges,
-          ...(typeof categoryName === "string" ? { categoryName } : {})
-        }
-      };
+      return { action, input: result.data };
     }
     case "OPEN_APPLICATION": {
       const alias = isRecord(input) ? input.alias : undefined;
@@ -1219,7 +862,7 @@ const validateDraft = async (
       );
       return known
         ? { action, input: { alias: result.data } }
-        : draftClarification("Primero debes registrar esa aplicación para poder abrirla.");
+        : draftClarification("Aún no tengo esa aplicación registrada. Pídeme que la registre primero.");
     }
     case "REGISTER_CATALOG_APPLICATION": {
       if (!isRecord(input) || !hasOnlyKeys(input, ["catalogKey", "alias"]) || !isKnownApplicationCatalogKey(input.catalogKey)) {
@@ -1258,24 +901,6 @@ const validateDraft = async (
       }
       return validated;
     }
-    case "OPEN_WEB_PAGE": {
-      if (!isRecord(input) || !hasOnlyKeys(input, ["destination", "browser"])) return null;
-      if (
-        typeof input.destination !== "string" ||
-        typeof input.browser !== "string" ||
-        !WEB_DESTINATIONS.includes(input.destination as (typeof WEB_DESTINATIONS)[number]) ||
-        !WEB_BROWSERS.includes(input.browser as (typeof WEB_BROWSERS)[number])
-      ) {
-        return null;
-      }
-      const hasRegisteredChrome = reference.knownApplicationAliases?.some(
-        (alias) => alias.trim().toLocaleLowerCase("en-US") === "chrome"
-      );
-      if (!hasRegisteredChrome) {
-        return draftClarification("Google Chrome necesita estar registrado y habilitado.");
-      }
-      return { action, input: { destination: "YOUTUBE", browser: "CHROME" } };
-    }
     case "CONNECT_SPOTIFY":
     case "DISCONNECT_SPOTIFY":
     case "GET_SPOTIFY_STATUS":
@@ -1290,7 +915,7 @@ const validateDraft = async (
       const query = validateSpotifySearchQuery(input.query);
       if (!query) return draftClarification(SPOTIFY_QUERY_QUESTION);
       if (input.kind !== undefined && !(SPOTIFY_SEARCH_KINDS as readonly unknown[]).includes(input.kind)) return null;
-      if (!normalizeApplicationAlias(instruction).includes(normalizeApplicationAlias(query))) {
+      if (!foldForAlias(instruction).includes(foldForAlias(query))) {
         return draftClarification(SPOTIFY_QUERY_QUESTION);
       }
       return {
@@ -1316,7 +941,7 @@ const validateDraft = async (
       if (input.kind !== undefined && !(SPOTIFY_SEARCH_KINDS as readonly unknown[]).includes(input.kind)) return null;
       if (input.playRequested !== undefined && typeof input.playRequested !== "boolean") return null;
       // The query must come from what the person said, not from the model.
-      if (!normalizeApplicationAlias(instruction).includes(normalizeApplicationAlias(query))) {
+      if (!foldForAlias(instruction).includes(foldForAlias(query))) {
         return draftClarification(SPOTIFY_QUERY_QUESTION);
       }
       return {
@@ -1413,36 +1038,6 @@ const validateDraft = async (
         }
       };
     }
-    case "RENAME_FILE": {
-      const result = validateRenameFileInput(input);
-      if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return tokenResolution.usedToken || fileReferencesAreKnown(action, input, reference.knownFileReferences)
-        ? { action, input: result.data }
-        : null;
-    }
-    case "RENAME_FOLDER": {
-      const result = validateRenameFolderInput(input);
-      if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return tokenResolution.usedToken || fileReferencesAreKnown(action, input, reference.knownFileReferences)
-        ? { action, input: result.data }
-        : null;
-    }
-    case "MOVE_FILE": {
-      const result = validateMoveFileInput(input);
-      if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return fileReferencesAreKnown(action, input, reference.knownFileReferences)
-        ? { action, input: result.data }
-        : null;
-    }
-    case "ORGANIZE_FILES": {
-      const result = validateOrganizeFilesInput(input);
-      if (!result.ok || !isRecord(input) || hasUnsafeFileDraftText(input)) return null;
-      return tokenResolution.usedToken && (result.data.exclusions?.length ?? 0) === 0
-        ? { action, input: result.data }
-        : fileReferencesAreKnown(action, input, reference.knownFileReferences)
-        ? { action, input: result.data }
-        : null;
-    }
     case "UPDATE_TASK": {
       const result = validateUpdateTaskInput(input);
       return result.ok && tokenResolution.usedToken
@@ -1494,6 +1089,10 @@ const parseCandidateInput = (candidate: UnknownRecord): unknown => {
     // A null or false optional is "not given"; the closed validators then see only what was really supplied.
     return Object.fromEntries(Object.entries(candidate.filesAction).filter(([key, value]) => value !== null && !(key === "all" && value === false)));
   }
+  if (candidate.action === "GET_WEATHER") {
+    if (candidate.input !== null || !isRecord(candidate.weatherQuery)) return undefined;
+    return Object.fromEntries(Object.entries(candidate.weatherQuery).filter(([, value]) => value !== null));
+  }
   if (candidate.action === "SET_SPOTIFY_VOLUME") {
     if (candidate.input !== null || !isRecord(candidate.spotifyControl)) return undefined;
     return Object.fromEntries(Object.entries(candidate.spotifyControl).filter(([, value]) => value !== null));
@@ -1507,46 +1106,6 @@ const parseCandidateInput = (candidate: UnknownRecord): unknown => {
     const { catalogKey, alias } = candidate.catalogApplication;
     return { catalogKey, ...(alias === null ? {} : { alias }) };
   }
-  if (candidate.action === "CREATE_WEEKLY_ROUTINE") {
-    if (candidate.input !== null || !isRecord(candidate.weeklyRoutine)) return undefined;
-    const { location, categoryName, ...weeklyRoutine } = candidate.weeklyRoutine;
-    return {
-      ...weeklyRoutine,
-      ...(location == null ? {} : { location }),
-      ...(categoryName == null ? {} : { categoryName })
-    };
-  }
-
-  if (["GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"].includes(candidate.action as string)) {
-    if (candidate.input !== null || !isRecord(candidate.habitAction)) return undefined;
-    const { habitTitle, title, description, frequency, targetCount, categoryName, icon, scope } = candidate.habitAction;
-    if (candidate.action === "GET_HABIT_PROGRESS") {
-      return { ...(scope === null ? {} : { scope }), ...(habitTitle === null ? {} : { habitTitle }) };
-    }
-    if (candidate.action === "CREATE_HABIT") {
-      return {
-        ...(title === null ? {} : { title }),
-        ...(description === null ? {} : { description }),
-        ...(frequency === null ? {} : { frequency }),
-        ...(targetCount === null ? {} : { targetCount }),
-        ...(categoryName === null ? {} : { categoryName }),
-        ...(icon === null ? {} : { icon })
-      };
-    }
-    if (candidate.action === "UPDATE_HABIT") {
-      return {
-        ...(habitTitle === null ? {} : { habitTitle }),
-        ...(title === null ? {} : { title }),
-        ...(description === null ? {} : { description }),
-        ...(frequency === null ? {} : { frequency }),
-        ...(targetCount === null ? {} : { targetCount }),
-        ...(categoryName === null ? {} : { categoryName }),
-        ...(icon === null ? {} : { icon })
-      };
-    }
-    return { ...(habitTitle === null ? {} : { habitTitle }) };
-  }
-
   if (["OPEN_APPROVED_PAGE", "SEARCH_APPROVED_SITE"].includes(candidate.action as string)) {
     if (candidate.input !== null || !isRecord(candidate.approvedWeb)) return undefined;
     const { site, query } = candidate.approvedWeb;
@@ -1554,17 +1113,19 @@ const parseCandidateInput = (candidate: UnknownRecord): unknown => {
   }
 
   if (
-    (candidate.weeklyRoutine !== undefined && candidate.weeklyRoutine !== null) ||
-    (candidate.habitAction !== undefined && candidate.habitAction !== null) ||
     (candidate.approvedWeb !== undefined && candidate.approvedWeb !== null)
     || (candidate.catalogApplication !== undefined && candidate.catalogApplication !== null)
     || (candidate.filesAction !== undefined && candidate.filesAction !== null)
     || (candidate.messagingAction !== undefined && candidate.messagingAction !== null)
+    || (candidate.weatherQuery !== undefined && candidate.weatherQuery !== null)
     || (candidate.spotifySearch !== undefined && candidate.spotifySearch !== null)
     || (candidate.spotifyControl !== undefined && candidate.spotifyControl !== null)
   ) return undefined;
   return parseDraftInput(candidate.input);
 };
+
+/** Deferred action names carry no input; every other draft does. */
+const draftInput = (draft: ActionSubmission): unknown => ("input" in draft ? draft.input : undefined);
 
 const parseProviderOutput = async (
   raw: unknown,
@@ -1572,9 +1133,6 @@ const parseProviderOutput = async (
   temporalResolver: ReturnType<typeof createPlannerTemporalResolver>,
   currentContext?: ResolvedAssistantContext,
   resolveEventDeletion?: ResolveEventDeletion,
-  resolveWeeklyScheduleTitle?: (title: string) => Promise<WeeklyScheduleReferenceResolution>,
-  resolveWeeklyScheduleMutationReferences?: WeeklyScheduleMutationReferences,
-  resolveHabitMutationReferences?: HabitMutationReferences,
   instruction = "",
   resolveTrustedReference?: TrustedAssistantReferenceResolver,
   resolveFoundFileName?: AssistantInterpreterDependencies["resolveFoundFileName"],
@@ -1649,8 +1207,8 @@ const parseProviderOutput = async (
     }
   }
   const drafts: ActionSubmission[] = [];
-  for (const [index, candidate] of parsed.drafts.entries()) {
-    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "weeklyRoutine", "habitAction", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "spotifySearch", "spotifyControl"])) {
+  for (const candidate of parsed.drafts) {
+    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "weatherQuery", "spotifySearch", "spotifyControl"])) {
       return rejection(ASSISTANT_ERROR_CODES.malformed);
     }
     let effective: UnknownRecord = candidate;
@@ -1662,8 +1220,8 @@ const parseProviderOutput = async (
       const folderName = candidate.filesAction.destinationName;
       if (isUnsafeAssistantDraftText(folderName)) return rejection(ASSISTANT_ERROR_CODES.rejected);
       const folder = resolveFoundFolderName?.(folderName) ?? { state: "NONE" as const };
-      if (folder.state === "AMBIGUOUS") return clarification(`El borrador ${index + 1}: ${FOLDER_AMBIGUOUS}`);
-      if (folder.state !== "RESOLVED") return clarification(`El borrador ${index + 1}: ${FOLDER_UNMATCHED}`);
+      if (folder.state === "AMBIGUOUS") return clarification(FOLDER_AMBIGUOUS);
+      if (folder.state !== "RESOLVED") return clarification(FOLDER_UNMATCHED);
       const { destinationName: _resolved, ...rest } = candidate.filesAction;
       effective = { ...candidate, filesAction: { ...rest, destinationOrdinal: folder.ordinal } };
     }
@@ -1676,8 +1234,8 @@ const parseProviderOutput = async (
       const fileName = candidate.filesAction.fileName;
       if (isUnsafeAssistantDraftText(fileName)) return rejection(ASSISTANT_ERROR_CODES.rejected);
       const resolution = resolveFoundFileName?.(fileName) ?? { state: "NONE" as const };
-      if (resolution.state === "AMBIGUOUS") return clarification(`El borrador ${index + 1}: ${FOUND_FILE_AMBIGUOUS}`);
-      if (resolution.state !== "RESOLVED") return clarification(`El borrador ${index + 1}: ${FOUND_FILE_UNMATCHED}`);
+      if (resolution.state === "AMBIGUOUS") return clarification(FOUND_FILE_AMBIGUOUS);
+      if (resolution.state !== "RESOLVED") return clarification(FOUND_FILE_UNMATCHED);
       effective = { ...candidate, filesAction: { ordinal: resolution.ordinal } };
     }
     const messagingDraft = isMessagingDraftAction(effective.action)
@@ -1689,18 +1247,15 @@ const parseProviderOutput = async (
       temporalResolver,
       trustedContext,
       resolveEventDeletion,
-      resolveWeeklyScheduleTitle,
-      resolveWeeklyScheduleMutationReferences,
-      resolveHabitMutationReferences,
       instruction
     );
-    if (isDraftClarification(draft)) return clarification(`El borrador ${index + 1}: ${draft.question}`);
+    if (isDraftClarification(draft)) return clarification(draft.question);
     if (!draft) return rejection(ASSISTANT_ERROR_CODES.rejected);
     for (const providerDraft of Array.isArray(draft) ? draft : [draft]) {
       const reconciled = await reconcileSpotifyRouting(providerDraft, streamingDependencies);
-      if ("clarification" in reconciled) return clarification(`El borrador ${index + 1}: ${reconciled.clarification}`);
+      if ("clarification" in reconciled) return clarification(reconciled.clarification);
       const expandedDraft = reconciled;
-      if (!drafts.some((existing) => existing.action === expandedDraft.action && JSON.stringify(existing.input) === JSON.stringify(expandedDraft.input))) {
+      if (!drafts.some((existing) => existing.action === expandedDraft.action && JSON.stringify(draftInput(existing)) === JSON.stringify(draftInput(expandedDraft)))) {
         drafts.push(expandedDraft);
       }
     }
@@ -1846,9 +1401,6 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           temporalResolver,
           currentContext,
           dependencies.resolveEventDeletion,
-          dependencies.resolveWeeklyScheduleTitle,
-          dependencies.resolveWeeklyScheduleMutationReferences,
-          dependencies.resolveHabitMutationReferences,
           normalizedInput.instruction,
           resolveTrustedReference,
           dependencies.resolveFoundFileName,
