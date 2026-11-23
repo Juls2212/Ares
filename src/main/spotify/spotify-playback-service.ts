@@ -1,5 +1,5 @@
 import type { SpotifySearchKind } from "../../shared/action-contracts";
-import { normalizeApplicationAlias } from "../applications/known-application-catalog";
+import { foldForAlias } from "../../shared/text-fold";
 import { validateSpotifySearchQuery } from "../applications/spotify-search";
 import type {
   SpotifyApiClient,
@@ -47,8 +47,8 @@ export type SpotifyPlaybackService = {
  * result. The chosen Spotify URI comes from the API response, never from the person or the model.
  */
 export const rankCandidates = (query: string, candidates: readonly SpotifySearchCandidate[]): SpotifySearchCandidate | undefined => {
-  const wanted = normalizeApplicationAlias(query);
-  return candidates.find((candidate) => normalizeApplicationAlias(candidate.name) === wanted) ?? candidates[0];
+  const wanted = foldForAlias(query);
+  return candidates.find((candidate) => foldForAlias(candidate.name) === wanted) ?? candidates[0];
 };
 
 export const createSpotifyPlaybackService = (dependencies: {
