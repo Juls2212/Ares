@@ -9,8 +9,6 @@ type Draft = Record<string, unknown>;
 const fileDraft = (action: string, filesAction: unknown): Draft => ({
   action,
   input: null,
-  weeklyRoutine: null,
-  habitAction: null,
   approvedWeb: null,
   catalogApplication: null,
   filesAction
@@ -141,8 +139,8 @@ describe("model-supplied values are bounded and never become paths", () => {
       ready([fileDraft("SEARCH_FILES", { query: "CV", root: null, kind: null, path: "C:\\x" })]),
       ready([fileDraft("SEARCH_FILES", { query: "CV", root: "SYSTEM", kind: null })]),
       ready([fileDraft("OPEN_FOUND_FILE", { ordinal: 1, path: "C:\\x.exe" })]),
-      ready([{ action: "SEARCH_FILES", input: JSON.stringify({ rootId: "DOCUMENTS", query: "x" }), weeklyRoutine: null, habitAction: null, approvedWeb: null }]),
-      ready([{ action: "CREATE_FOLDER", input: JSON.stringify({ parentDirectory: { rootId: "DOCUMENTS", relativePath: "a" }, name: "b" }), weeklyRoutine: null, habitAction: null, approvedWeb: null }])
+      ready([{ action: "SEARCH_FILES", input: JSON.stringify({ rootId: "DOCUMENTS", query: "x" }), approvedWeb: null }]),
+      ready([{ action: "CREATE_FOLDER", input: JSON.stringify({ parentDirectory: { rootId: "DOCUMENTS", relativePath: "a" }, name: "b" }), approvedWeb: null }])
     ];
     for (const output of outputs) {
       const result = await draftsOf(output, "solicitud segura");
@@ -181,7 +179,7 @@ describe("model-supplied values are bounded and never become paths", () => {
 describe("planner requests and retired legacy file actions", () => {
   it("does not block planner requests that use the same verbs", async () => {
     for (const instruction of ["borra la tarea de hoy", "elimina el evento de mañana", "organiza mi día de mañana"]) {
-      const { interpret, interpreter } = createInterpreter(ready([{ action: "GET_TODAY_SCHEDULE", input: "{}", weeklyRoutine: null, habitAction: null, approvedWeb: null }]));
+      const { interpret, interpreter } = createInterpreter(ready([{ action: "GET_TODAY_SCHEDULE", input: "{}", approvedWeb: null }]));
       await interpreter.interpret({ instruction });
       expect(interpret).toHaveBeenCalledOnce();
     }
@@ -190,7 +188,7 @@ describe("planner requests and retired legacy file actions", () => {
   it("never reaches a model-proposed rename, move or delete draft", async () => {
     for (const action of ["RENAME_FILE", "MOVE_FILE", "DELETE_FILE", "ORGANIZE_FILES"]) {
       const result = await draftsOf(
-        ready([{ action, input: "{}", weeklyRoutine: null, habitAction: null, approvedWeb: null }]),
+        ready([{ action, input: "{}", approvedWeb: null }]),
         "solicitud segura"
       );
       expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
