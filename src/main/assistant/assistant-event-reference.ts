@@ -1,3 +1,4 @@
+import { foldEventTitle } from "../../shared/text-fold";
 import type { PlannerService } from "../planner/planner-service";
 
 export type EventDeletionReference = { title: string; startAt?: string };
@@ -6,9 +7,6 @@ export type EventDeletionResolution =
   | { state: "MISSING" | "AMBIGUOUS" | "UNAVAILABLE" };
 export type ResolveEventDeletion = (reference: EventDeletionReference) => Promise<EventDeletionResolution>;
 
-export const normalizeEventTitle = (title: string): string => title.normalize("NFC").trim().toLocaleLowerCase("es");
-
-/** Resolves exact public titles in Main; no event records or IDs are sent to the provider. */
 export const createEventDeletionResolver = (
   getService: () => Pick<PlannerService, "listEvents">
 ): ResolveEventDeletion => async (reference) => {
@@ -18,7 +16,7 @@ export const createEventDeletionResolver = (
     );
     if (!result.ok) return { state: "UNAVAILABLE" };
     const matches = result.data.items.filter((event) =>
-      normalizeEventTitle(event.title) === normalizeEventTitle(reference.title) &&
+      foldEventTitle(event.title) === foldEventTitle(reference.title) &&
       (!reference.startAt || Date.parse(event.startAt) === Date.parse(reference.startAt))
     );
     if (matches.length === 0) return { state: "MISSING" };
