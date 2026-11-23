@@ -222,7 +222,7 @@ const confirmation = (riskLevel: 2 | 3, action: "DELETE_FOUND_ITEM" | "OPEN_FOUN
 
 const interpretationFor = (action: "DELETE_FOUND_ITEM" | "OPEN_FOUND_FILE"): AssistantInterpretation => ({
   state: "READY",
-  summary: "Preparé los borradores solicitados.",
+  summary: "Listo, esto es lo que preparé.",
   drafts: [{ action, input: { ordinal: 1 } }],
   clarifications: []
 });
