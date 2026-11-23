@@ -17,9 +17,7 @@ import {
   events,
   reminders,
   settings,
-  tasks,
-  weeklyRoutines,
-  weeklySchedules
+  tasks
 } from "../src/main/database/schema";
 import { createPlannerRepositories } from "../src/main/planner/planner-repositories";
 import { createPlannerService, type PlannerClock } from "../src/main/planner/planner-service";
@@ -32,9 +30,7 @@ import type {
   EventRecord,
   PlannerOperationResult,
   ReminderRecord,
-  TaskRecord,
-  WeeklyRoutineRecord,
-  WeeklyScheduleRecord
+  TaskRecord
 } from "../src/shared/planner-contracts";
 import type { ActionHistoryRecord, ActionOperationResult } from "../src/shared/action-contracts";
 import type {
@@ -53,8 +49,6 @@ const createdEventIds: string[] = [];
 const createdReminderIds: string[] = [];
 const createdActionHistoryIds: string[] = [];
 const createdApplicationIds: string[] = [];
-const createdWeeklyRoutineIds: string[] = [];
-const createdWeeklyScheduleIds: string[] = [];
 
 const clock: PlannerClock = {
   getLocalDate: () => "2026-09-17",
@@ -126,16 +120,6 @@ const trackEvent = (record: EventRecord): EventRecord => {
   return record;
 };
 
-const trackWeeklyRoutine = (record: WeeklyRoutineRecord): WeeklyRoutineRecord => {
-  createdWeeklyRoutineIds.push(record.id);
-  return record;
-};
-
-const trackWeeklySchedule = (record: WeeklyScheduleRecord): WeeklyScheduleRecord => {
-  createdWeeklyScheduleIds.push(record.id);
-  return record;
-};
-
 const trackReminder = (record: ReminderRecord): ReminderRecord => {
   createdReminderIds.push(record.id);
   return record;
@@ -152,12 +136,6 @@ const trackApplication = (record: ApplicationRecord): ApplicationRecord => {
 };
 
 afterEach(async () => {
-  if (createdWeeklyRoutineIds.length > 0) {
-    await database.delete(weeklyRoutines).where(inArray(weeklyRoutines.id, createdWeeklyRoutineIds));
-  }
-  if (createdWeeklyScheduleIds.length > 0) {
-    await database.delete(weeklySchedules).where(inArray(weeklySchedules.id, createdWeeklyScheduleIds));
-  }
   if (createdEventIds.length > 0) {
     await database
       .delete(eventNotificationDeliveries)
@@ -187,8 +165,6 @@ afterEach(async () => {
   createdTaskIds.length = 0;
   createdEventIds.length = 0;
   createdCategoryIds.length = 0;
-  createdWeeklyRoutineIds.length = 0;
-  createdWeeklyScheduleIds.length = 0;
   createdApplicationIds.length = 0;
 });
 
