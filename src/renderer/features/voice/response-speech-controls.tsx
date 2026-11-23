@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { markCurrentTurn } from "../../../shared/turn-timing";
 import type { SpokenResponse } from "../../../shared/speech-contracts";
 import { createResponsePlayback, type PlaybackEvent, type PlaybackState } from "./response-playback";
 import { shouldAutomaticallySpeak } from "./speech-eligibility";
@@ -20,7 +21,7 @@ export const ResponseSpeechControls = ({ response, blocked, onPlaybackEvent, onP
   playbackState.current = onPlaybackState;
   useEffect(() => {
     const controller = createResponsePlayback({
-      speak: (input) => window.ares.speech.speak(input), createUrl: (blob) => URL.createObjectURL(blob),
+      speak: async (input) => { const spoken = await window.ares.speech.speak(input); markCurrentTurn("tts_first_audio"); return spoken; }, createUrl: (blob) => URL.createObjectURL(blob),
       revokeUrl: (url) => URL.revokeObjectURL(url), createAudio: (url) => new Audio(url), onState: (nextState) => { setState(nextState); playbackState.current?.(nextState); },
       onFailure: (category) => { if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) console.error(`Response playback failed [${category}].`); },
       onDiagnostic: (category) => { if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) console.info(`Response playback event [${category}].`); },
