@@ -59,3 +59,15 @@ export const getOpenAiTranscriptionConfiguration = (
     transcriptionModel: requiredValue(environment, "OPENAI_TRANSCRIPTION_MODEL", "transcription")
   };
 };
+
+/** Reads the optional ElevenLabs speech settings. Both names must be set; otherwise speech stays on OpenAI. */
+export const getElevenLabsSpeechConfiguration = (
+  environment: NodeJS.ProcessEnv = process.env
+): { apiKey: string; voiceId: string } | undefined => {
+  if (environment === process.env) {
+    dotenv.config({ quiet: true });
+  }
+  const apiKey = environment.ELEVENLABS_API_KEY?.trim();
+  const voiceId = environment.ELEVENLABS_VOICE_ID?.trim();
+  return apiKey && voiceId ? { apiKey, voiceId } : undefined;
+};
