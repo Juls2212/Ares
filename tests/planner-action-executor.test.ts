@@ -15,14 +15,7 @@ const createPlannerService = (): PlannerService =>
     updateEvent: vi.fn(async () => success),
     deleteEvent: vi.fn(async () => ({ ok: true, data: { deleted: true } })),
     createReminder: vi.fn(async () => success),
-    createWeeklyRoutine: vi.fn(async () => success),
-    updateWeeklyRoutine: vi.fn(async () => success),
-    deleteWeeklyRoutine: vi.fn(async () => ({ ok: true, data: { deleted: true } })),
-    createWeeklySchedule: vi.fn(async () => success),
-    updateWeeklySchedule: vi.fn(async () => success),
     listCategories: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
-    listWeeklySchedules: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
-    listWeeklyRoutines: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
     getTodaySchedule: vi.fn(async () => ({ ok: true, data: { localDate: "2026-09-17", tasks: [], events: [], reminders: [] } })),
     getWeekSchedule: vi.fn(async () => ({
       ok: true,
@@ -58,6 +51,30 @@ describe("planner action executor", () => {
       expect(outcome.status).toBe("SUCCEEDED");
       expect(vi.mocked(plannerService[item.method] as never)).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it("returns a controlled failure, never undefined, for an action name the executor does not handle", async () => {
+    const plannerService = createPlannerService();
+    const logError = vi.fn();
+    const executor = createPlannerActionExecutor({ plannerService, logError });
+
+    for (const action of ["CREATE_WEEKLY_SCHEDULE", "GET_TODAY_AVAILABILITY", "COMPLETE_HABIT", "SEARCH_FILES", "NOT_AN_ACTION"]) {
+      const outcome = await executor.execute(
+        { actionId: "11111111-1111-4111-8111-111111111111", action, input: { title: "private title" } } as never,
+        getActionPolicy("GET_TODAY_SCHEDULE")
+      );
+      expect(outcome, action).toEqual({
+        actionId: "11111111-1111-4111-8111-111111111111",
+        action,
+        riskLevel: 1,
+        status: "VALIDATION_FAILED",
+        errorCode: "ACTION_UNSUPPORTED",
+        userSummary: "No puedo hacer eso."
+      });
+      expect(JSON.stringify(outcome)).not.toContain("private title");
+    }
+    expect(logError).not.toHaveBeenCalled();
+    for (const method of Object.values(plannerService)) expect(vi.mocked(method as never)).not.toHaveBeenCalled();
   });
 
   it("maps a controlled planner failure without changing its Spanish message", async () => {
