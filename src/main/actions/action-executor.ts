@@ -1,18 +1,18 @@
+import { failedOutcome, outcomeIdentity } from "../../shared/outcome-kit";
 import type {
   ActionOutcome,
   ActionPolicy,
   ApprovedWebActionProposal,
   ExecutableActionProposal,
-  FileActionProposal,
   MessagingActionProposal,
   OpenApplicationActionProposal,
   RegisterCatalogApplicationActionProposal,
   RequestCustomApplicationRegistrationActionProposal,
   SearchSpotifyAppActionProposal,
   SpotifyMusicActionProposal,
-  SupervisedFilesActionProposal
+  SupervisedFilesActionProposal,
+  WeatherActionProposal
 } from "../../shared/action-contracts";
-import type { FileOperationResult, FileOrganizationPlan } from "../../shared/file-contracts";
 import {
   createApplicationActionExecutor,
   type ApplicationActionExecutor
@@ -33,12 +33,10 @@ import {
 import type { MessagingResult } from "../messaging/messaging-failures";
 import { createSpotifyActionExecutor, type SpotifyActionExecutor } from "./spotify-action-executor";
 import { createPlannerActionExecutor, type PlannerActionExecutor } from "./planner-action-executor";
+import { createWeatherActionExecutor, type WeatherActionExecutor } from "./weather-action-executor";
 
 export type ActionExecutor = {
   execute: (proposal: ExecutableActionProposal, policy: ActionPolicy) => Promise<ActionOutcome>;
-  prepareOrganization?: (
-    proposal: Extract<FileActionProposal, { action: "ORGANIZE_FILES" }>
-  ) => Promise<FileOperationResult<FileOrganizationPlan>>;
   prepareCatalogRegistration?: (
     proposal: RegisterCatalogApplicationActionProposal
   ) => ReturnType<NonNullable<ApplicationActionExecutor["prepareCatalogRegistration"]>>;
@@ -58,6 +56,7 @@ type ActionExecutorDependencies = {
   filesExecutor?: SupervisedFileActionExecutor;
   messagingExecutor?: MessagingActionExecutor;
   spotifyExecutor?: SpotifyActionExecutor;
+  weatherExecutor?: WeatherActionExecutor;
 };
 
 const isApplicationAction = (
@@ -116,17 +115,14 @@ const SPOTIFY_MUSIC_ACTIONS = [
 const isSpotifyMusicProposal = (proposal: ExecutableActionProposal): proposal is SpotifyMusicActionProposal =>
   (SPOTIFY_MUSIC_ACTIONS as readonly string[]).includes(proposal.action);
 
+const isWeatherProposal = (proposal: ExecutableActionProposal): proposal is WeatherActionProposal =>
+  proposal.action === "GET_WEATHER";
+
 const unsupportedOutcome = (
   proposal: ExecutableActionProposal,
   policy: ActionPolicy
-): ActionOutcome => ({
-  actionId: proposal.actionId,
-  action: proposal.action,
-  riskLevel: policy.riskLevel,
-  status: "VALIDATION_FAILED",
-  errorCode: "ACTION_UNSUPPORTED",
-  userSummary: "No puedo realizar esa acción."
-});
+): ActionOutcome =>
+  failedOutcome(outcomeIdentity(proposal, policy), "VALIDATION_FAILED", "ACTION_UNSUPPORTED", "No puedo hacer eso.");
 
 /** Routes only enabled registry entries to their fixed Main-owned executors. */
 export const createActionExecutor = (
@@ -138,6 +134,7 @@ export const createActionExecutor = (
   const filesExecutor = overrides.filesExecutor ?? createSupervisedFileActionExecutor();
   const messagingExecutor = overrides.messagingExecutor ?? createMessagingActionExecutor();
   const spotifyExecutor = overrides.spotifyExecutor ?? createSpotifyActionExecutor();
+  const weatherExecutor = overrides.weatherExecutor ?? createWeatherActionExecutor();
 
   return {
     execute: (proposal, policy) => {
@@ -159,6 +156,11 @@ export const createActionExecutor = (
           ? spotifyExecutor.execute(proposal, policy)
           : Promise.resolve(unsupportedOutcome(proposal, policy));
       }
+      if (capability.executor === "WEATHER") {
+        return isWeatherProposal(proposal)
+          ? weatherExecutor.execute(proposal, policy)
+          : Promise.resolve(unsupportedOutcome(proposal, policy));
+      }
       if (capability.executor === "MESSAGING") {
         return isMessagingProposal(proposal)
           ? messagingExecutor.execute(proposal, policy)
@@ -170,7 +172,7 @@ export const createActionExecutor = (
       if (!getEnabledAssistantCapability(proposal.action) || !applicationExecutor.prepareCatalogRegistration) {
         return Promise.resolve({
           ok: false as const,
-          error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." }
+          error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo hacer eso." }
         });
       }
       return applicationExecutor.prepareCatalogRegistration(proposal);
@@ -184,7 +186,7 @@ export const createActionExecutor = (
       if (!getEnabledAssistantCapability(proposal.action) || !applicationExecutor.prepareCustomRegistration) {
         return Promise.resolve({
           ok: false as const,
-          error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." }
+          error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo hacer eso." }
         });
       }
       return applicationExecutor.prepareCustomRegistration(proposal);
