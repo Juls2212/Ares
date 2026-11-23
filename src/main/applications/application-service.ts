@@ -3,8 +3,7 @@ import {
   type ApplicationErrorCode,
   type ApplicationListData,
   type ApplicationMutationData,
-  type ApplicationOperationResult,
-  type ApplicationRecord
+  type ApplicationOperationResult
 } from "../../shared/application-contracts";
 import {
   validateApplicationAlias,
@@ -52,7 +51,7 @@ const serviceMessages: Record<ApplicationErrorCode, string> = {
   APPLICATION_EXECUTABLE_NOT_FOUND: "No se encontró el ejecutable de la aplicación registrada.",
   APPLICATION_EXECUTABLE_NOT_FILE: "El ejecutable registrado no es un archivo válido.",
   APPLICATION_EXECUTABLE_EXTENSION_INVALID: "El archivo registrado no es un ejecutable válido.",
-  APPLICATION_LAUNCH_FAILED: "No se pudo abrir la aplicación registrada.",
+  APPLICATION_LAUNCH_FAILED: "No pude abrir esa aplicación. Revisa que esté instalada.",
   APPLICATION_DUPLICATE_ALIAS: "Los alias de la aplicación no pueden repetirse.",
   APPLICATION_UPDATE_EMPTY: "Debes indicar al menos un cambio para actualizar.",
   APPLICATION_NOT_FOUND: "No se encontró la aplicación solicitada.",
