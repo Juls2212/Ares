@@ -1,3 +1,4 @@
+import { cancelledOutcome, failedOutcome, outcomeIdentity, succeededOutcome } from "../../shared/outcome-kit";
 import type { ActionOutcome, ActionPolicy, SpotifyMusicActionProposal } from "../../shared/action-contracts";
 import { getSpotifyAuthService, getSpotifyPlaybackService } from "../spotify/spotify-composition";
 import type { SpotifyAuthService } from "../spotify/spotify-auth-service";
@@ -30,24 +31,20 @@ export const createSpotifyActionExecutor = (overrides: Partial<Dependencies> = {
   const auth = (): SpotifyAuthService => overrides.auth ?? getSpotifyAuthService();
   const playback = (): SpotifyPlaybackService => overrides.playback ?? getSpotifyPlaybackService();
 
-  const failure = (proposal: SpotifyMusicActionProposal, policy: ActionPolicy, code: SpotifyFailureCode): ActionOutcome => ({
-    actionId: proposal.actionId,
-    action: proposal.action,
-    riskLevel: policy.riskLevel,
-    status: code === "SPOTIFY_CONNECT_CANCELLED"
-      ? "CANCELLED"
-      : SPOTIFY_EXECUTION_FAILURE_CODES.includes(code) ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
-    errorCode: code,
-    userSummary: SPOTIFY_FAILURES[code]
-  });
+  const failure = (proposal: SpotifyMusicActionProposal, policy: ActionPolicy, code: SpotifyFailureCode): ActionOutcome => {
+    const identity = outcomeIdentity(proposal, policy);
+    return code === "SPOTIFY_CONNECT_CANCELLED"
+      ? cancelledOutcome(identity, SPOTIFY_FAILURES[code], code)
+      : failedOutcome(
+          identity,
+          SPOTIFY_EXECUTION_FAILURE_CODES.includes(code) ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
+          code,
+          SPOTIFY_FAILURES[code]
+        );
+  };
 
-  const success = (proposal: SpotifyMusicActionProposal, policy: ActionPolicy, userSummary: string): ActionOutcome => ({
-    actionId: proposal.actionId,
-    action: proposal.action,
-    riskLevel: policy.riskLevel,
-    status: "SUCCEEDED",
-    userSummary
-  });
+  const success = (proposal: SpotifyMusicActionProposal, policy: ActionPolicy, userSummary: string): ActionOutcome =>
+    succeededOutcome(outcomeIdentity(proposal, policy), userSummary);
 
   return {
     execute: async (proposal, policy) => {
