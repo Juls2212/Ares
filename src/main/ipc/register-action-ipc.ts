@@ -8,6 +8,7 @@ import { getActionOrchestrator } from "../actions/action-composition";
 import type { ActionOrchestrator } from "../actions/action-orchestrator";
 import { speechService } from "../voice/speech-composition";
 import { composeFinalResponse, preservesDisplaySummary } from "../voice/final-response-composer";
+import { createRotatingPicker, firstVariant, type VariantPicker } from "../../shared/phrase-variation";
 
 export type ActionIpcHandler = (input: unknown) => Promise<OperationResult<unknown>>;
 export type ActionIpcHandlerRegistrar = (channel: string, handler: ActionIpcHandler) => void;
@@ -62,6 +63,8 @@ export const createActionIpcRegistration = (dependencies: ActionIpcDependencies)
 };
 
 const speechWindows = new WeakSet<Electron.WebContents>();
+/** Rotates between equivalent success phrasings; the seed only decides where the rotation starts. */
+const successPhrasePicker = createRotatingPicker(Date.now() % 97);
 type SpeechResponseStore = Pick<typeof speechService, "clear" | "remember">;
 
 const isSilentConfirmationFailure = (code: string): boolean =>
@@ -77,7 +80,8 @@ const isAwaitingConfirmation = (value: unknown): value is import("../../shared/a
 export const attachSpokenActionResponse = (
   windowId: number,
   result: ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult>,
-  responses: SpeechResponseStore = speechService
+  responses: SpeechResponseStore = speechService,
+  pick: VariantPicker = firstVariant
 ): ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult> => {
   responses.clear(windowId);
   if (!result.ok) {
@@ -89,7 +93,7 @@ export const attachSpokenActionResponse = (
   if (isAwaitingConfirmation(result.data) || !isTerminalActionOutcome(result.data) || result.data.status === "CANCELLED") {
     return result;
   }
-  const composed = composeFinalResponse(result.data);
+  const composed = composeFinalResponse(result.data, pick);
   const text = composed ?? result.data.userSummary;
   if (composed && !preservesDisplaySummary(result.data.action)) result.data.userSummary = composed;
   result.data.spokenResponse = responses.remember(windowId, text);
@@ -107,7 +111,9 @@ const registerElectronHandler: ActionIpcHandlerRegistrar = (channel, handler): v
     if ([IPC_CHANNELS.actions.propose, IPC_CHANNELS.actions.confirm, IPC_CHANNELS.actions.cancel].includes(channel as never)) {
       return attachSpokenActionResponse(
         event.sender.id,
-        result as ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult>
+        result as ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult>,
+        speechService,
+        successPhrasePicker
       );
     }
     return result;
