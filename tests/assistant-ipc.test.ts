@@ -48,7 +48,7 @@ describe("assistant IPC registration", () => {
       ok: true,
       data: {
         state: "READY",
-        summary: "Preparé los borradores solicitados.",
+        summary: "Listo, esto es lo que preparé.",
         drafts: [{ action: "CREATE_TASK", input: { title: "Informe" } }],
         clarifications: []
       }
