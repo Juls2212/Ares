@@ -58,14 +58,14 @@ describe("action executor routing", () => {
     expect(approvedWebExecutor.execute).toHaveBeenCalledOnce();
   });
 
-  it("does not dispatch legacy web, file, weather, or habit actions", async () => {
+  it("does not dispatch an action name that is not in the catalog", async () => {
     const plannerExecutor: PlannerActionExecutor = { execute: vi.fn() };
     const applicationExecutor: ApplicationActionExecutor = { execute: vi.fn() };
     const executor = createActionExecutor({ plannerExecutor, applicationExecutor });
 
     const result = await executor.execute(
-      { actionId, action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } },
-      getActionPolicy("OPEN_WEB_PAGE")
+      { actionId, action: "OPEN_WEB_PAGE", input: { destination: "YOUTUBE", browser: "CHROME" } } as never,
+      getActionPolicy("GET_TODAY_SCHEDULE")
     );
 
     expect(result).toMatchObject({ status: "VALIDATION_FAILED", errorCode: "ACTION_UNSUPPORTED" });
