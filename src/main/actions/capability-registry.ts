@@ -6,15 +6,16 @@ export const CAPABILITY_DOMAINS = [
   "WEB",
   "FILES",
   "MESSAGING",
-  "MUSIC"
+  "MUSIC",
+  "WEATHER"
 ] as const;
 
 export type CapabilityDomain = (typeof CAPABILITY_DOMAINS)[number];
-export type CapabilityExecutorCategory = "PLANNER" | "APPLICATION" | "WEB" | "FILES" | "MESSAGING" | "MUSIC";
+export type CapabilityExecutorCategory = "PLANNER" | "APPLICATION" | "WEB" | "FILES" | "MESSAGING" | "MUSIC" | "WEATHER";
 
 export type AssistantCapability = {
   action: ActionName;
-  domain: Extract<CapabilityDomain, "INTERNAL_MEMORY" | "APPLICATIONS" | "WEB" | "FILES" | "MESSAGING" | "MUSIC">;
+  domain: CapabilityDomain;
   approval: ActionApprovalClass;
   enabled: true;
   executor: CapabilityExecutorCategory;
@@ -32,18 +33,7 @@ const internalMemoryCapabilities = [
   ["CREATE_REMINDER", "DIRECT", "Crear recordatorio"],
   ["GET_TODAY_SCHEDULE", "DIRECT", "Consultar agenda de hoy"],
   ["GET_WEEK_SCHEDULE", "DIRECT", "Consultar agenda semanal"],
-  ["GET_WEEKLY_SCHEDULE_DETAILS", "DIRECT", "Consultar horario semanal"],
-  ["ANALYZE_WEEKLY_SCHEDULE", "DIRECT", "Analizar horario semanal"],
-  ["GET_TODAY_AVAILABILITY", "DIRECT", "Consultar disponibilidad de hoy"],
-  ["CREATE_WEEKLY_SCHEDULE", "CONFIRMATION_REQUIRED", "Crear horario semanal"],
-  ["UPDATE_WEEKLY_SCHEDULE", "CONFIRMATION_REQUIRED", "Actualizar horario semanal"],
-  ["CREATE_WEEKLY_ROUTINE", "CONFIRMATION_REQUIRED", "Crear bloque semanal"],
-  ["UPDATE_WEEKLY_ROUTINE", "CONFIRMATION_REQUIRED", "Actualizar bloque semanal"],
-  ["GET_CURRENT_DATE_TIME", "DIRECT", "Consultar fecha y hora"],
-  ["GET_HABIT_PROGRESS", "DIRECT", "Consultar progreso de hábitos"],
-  ["CREATE_HABIT", "CONFIRMATION_REQUIRED", "Crear hábito"],
-  ["UPDATE_HABIT", "CONFIRMATION_REQUIRED", "Actualizar hábito"],
-  ["COMPLETE_HABIT", "CONFIRMATION_REQUIRED", "Completar hábito"]
+  ["GET_CURRENT_DATE_TIME", "DIRECT", "Consultar fecha y hora"]
 ] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
 
 const applicationCapabilities = [
@@ -101,6 +91,14 @@ const musicCapabilities = [
   ["WHAT_IS_PLAYING", "DIRECT", "Consultar qué está sonando"]
 ] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
 
+/**
+ * The WEATHER domain is its own read-only entry, not part of WEB: WEB opens approved sites in the person's browser, while
+ * this domain makes one bounded Main-side request to the weather provider and only speaks the answer. It changes no state.
+ */
+const weatherCapabilities = [
+  ["GET_WEATHER", "DIRECT", "Consultar el clima"]
+] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
+
 const createCapability = (
   action: ActionName,
   domain: AssistantCapability["domain"],
@@ -125,7 +123,9 @@ export const ENABLED_ASSISTANT_CAPABILITIES: readonly AssistantCapability[] = Ob
   ...messagingCapabilities.map(([action, approval, label]) =>
     createCapability(action, "MESSAGING", approval, label, "MESSAGING")),
   ...musicCapabilities.map(([action, approval, label]) =>
-    createCapability(action, "MUSIC", approval, label, "MUSIC"))
+    createCapability(action, "MUSIC", approval, label, "MUSIC")),
+  ...weatherCapabilities.map(([action, approval, label]) =>
+    createCapability(action, "WEATHER", approval, label, "WEATHER"))
 ]);
 
 const capabilitiesByAction = new Map(
