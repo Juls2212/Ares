@@ -22,6 +22,8 @@ export type SystemStatusData = {
   applicationVersion: string;
   runtimePlatform: NodeJS.Platform;
   readiness: SystemReadiness;
+  /** The operating system's microphone access status for Ares: a closed enum, present only when Main could read it. */
+  microphoneAccess?: "granted" | "denied" | "restricted" | "not-determined" | "unknown";
 };
 
 export type SystemCapabilities = {
