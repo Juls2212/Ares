@@ -629,8 +629,6 @@ describe("voice routing", () => {
     const providerDraft = (action: string, extra: Record<string, unknown>) => ({
       action,
       input: null,
-      weeklyRoutine: null,
-      habitAction: null,
       approvedWeb: null,
       catalogApplication: null,
       filesAction: null,
