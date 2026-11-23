@@ -64,6 +64,13 @@
       "when": 1792500000000,
       "tag": "0008_messaging_contacts",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0009_remove_habits_and_weekly_schedules",
+      "breakpoints": true
     }
   ]
 }
