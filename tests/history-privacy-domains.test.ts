@@ -8,11 +8,14 @@ import type { ActionHistoryService } from "../src/main/actions/action-history-se
 import { createApplicationActionExecutor } from "../src/main/actions/application-action-executor";
 import { createApprovedWebActionExecutor } from "../src/main/actions/approved-web-action-executor";
 import { createPlannerActionExecutor } from "../src/main/actions/planner-action-executor";
+import { createWeatherActionExecutor } from "../src/main/actions/weather-action-executor";
+import { createWeatherService } from "../src/main/weather/weather-service";
 import type { ApplicationLauncher } from "../src/main/applications/application-launcher";
 import type { PlannerService } from "../src/main/planner/planner-service";
 
 /**
- * History and log privacy for the domains without their own test: planner (memory), applications and web.
+ * History and log privacy for the domains without their own test: planner (INTERNAL_MEMORY: tasks, events, reminders, schedule
+ * queries, date/time), applications, web and the read-only weather query.
  * Already covered elsewhere and not repeated here:
  *  - messaging: tests/messaging-actions.test.ts, messaging-storage.test.ts, whatsapp-chat-launch.test.ts
  *  - files: tests/supervised-file-actions.test.ts, supervised-file-mutation-actions.test.ts, found-file-open-voice.test.ts
@@ -20,11 +23,16 @@ import type { PlannerService } from "../src/main/planner/planner-service";
  *  - custom application registration: tests/custom-application-voice-registration.test.ts
  */
 
-const LEAK = /Cumpleaños de Sofía|3001234567|573001234567|contraseña secreta|mi secreto|C:\\|\.exe|https?:\/\/|google\.com|youtube\.com/iu;
+const LEAK = /Cumpleaños de Sofía|Reunión con Marta|3001234567|573001234567|contraseña secreta|mi secreto|C:\\|\.exe|https?:\/\/|google\.com|youtube\.com|Cali|Bogot|latitude|3\.43|°C/iu;
 
 const unused = { execute: vi.fn() } as never;
 
-const flow = (options: { plannerService?: PlannerService; launcher?: ApplicationLauncher; openExternal?: (url: string) => Promise<void> }) => {
+const flow = (options: {
+  plannerService?: PlannerService;
+  launcher?: ApplicationLauncher;
+  openExternal?: (url: string) => Promise<void>;
+  weatherFetch?: Parameters<typeof createWeatherService>[0] extends infer D ? (D extends { fetch?: infer F } ? F : never) : never;
+}) => {
   const recordTerminal = vi.fn(async (_input: unknown) => ({ ok: true as const, data: {} as never }));
   const logs = vi.fn();
   let counter = 0;
@@ -39,7 +47,10 @@ const flow = (options: { plannerService?: PlannerService; launcher?: Application
     approvedWebExecutor: options.openExternal ? createApprovedWebActionExecutor({ openExternal: options.openExternal, logError: logs }) : unused,
     filesExecutor: unused,
     messagingExecutor: unused,
-    spotifyExecutor: unused
+    spotifyExecutor: unused,
+    weatherExecutor: options.weatherFetch
+      ? createWeatherActionExecutor({ weatherService: createWeatherService({ fetch: options.weatherFetch }), logError: logs })
+      : unused
   });
   const orchestrator = createActionOrchestrator({
     executor,
@@ -95,17 +106,104 @@ describe("planner (memory) history privacy", () => {
     expect(metadata).not.toMatch(LEAK);
   });
 
-  /**
-   * KNOWN DEFECT (reported, not fixed in this task): the history summary of GET_TODAY_SCHEDULE is the spoken
-   * agenda text, which embeds task and event titles, because the orchestrator only replaces the summary for
-   * files, messaging and music actions. This test records the current behavior; when the summary is made
-   * category-only, this test must be flipped to expect no title in history.
-   */
-  it("KNOWN DEFECT: stores the agenda text, with task titles, as the history summary of GET_TODAY_SCHEDULE", async () => {
+  it("persists only a generic fixed sentence for a schedule query, with no title, time or count", async () => {
     const run = flow({ plannerService: plannerService() });
-    await run.orchestrator.propose({ action: "GET_TODAY_SCHEDULE", input: {} });
+    const outcome = await run.orchestrator.propose({ action: "GET_TODAY_SCHEDULE", input: {} });
+    // The person still hears and sees the real agenda text; only the persisted summary is generic.
+    expect(outcome).toMatchObject({ ok: true, data: { userSummary: expect.stringContaining("Cumpleaños de Sofía") } });
     const summaries = run.recordTerminal.mock.calls.map((call) => (call[0] as { userSummary: string }).userSummary);
-    expect(summaries.some((summary) => summary.includes("Cumpleaños de Sofía"))).toBe(true);
+    expect(summaries).toEqual(["Se consultó la agenda de hoy."]);
+    expect(run.recorded()).not.toMatch(LEAK);
+  });
+
+  it("persists a generic sentence for every planner action and for failures, never the outcome text", async () => {
+    const titled = { ...success, data: { record: { title: "Reunión con Marta 3001234567" } } };
+    const run = flow({
+      plannerService: plannerService({
+        createTask: vi.fn(async () => titled),
+        updateTask: vi.fn(async () => titled),
+        completeTask: vi.fn(async () => titled),
+        createEvent: vi.fn(async () => titled),
+        updateEvent: vi.fn(async () => titled),
+        createReminder: vi.fn(async () => titled),
+        getWeekSchedule: vi.fn(async () => ({ ok: true, data: { weekStart: "2026-09-14", weekEnd: "2026-09-20", tasks: [{ title: "Reunión con Marta" }], events: [], reminders: [] } }))
+      })
+    });
+    const id = "550e8400-e29b-41d4-a716-446655440000";
+    for (const submission of [
+      { action: "CREATE_TASK", input: { title: "Reunión con Marta 3001234567" } },
+      { action: "UPDATE_TASK", input: { taskId: id, title: "Reunión con Marta" } },
+      { action: "COMPLETE_TASK", input: { taskId: id } },
+      { action: "CREATE_EVENT", input: { title: "Reunión con Marta", startAt: "2026-09-17T10:00:00Z" } },
+      { action: "UPDATE_EVENT", input: { eventId: id, title: "Reunión con Marta" } },
+      { action: "CREATE_REMINDER", input: { title: "Reunión con Marta", remindAt: "2026-09-17T10:00:00Z" } },
+      { action: "GET_WEEK_SCHEDULE", input: {} },
+      { action: "GET_CURRENT_DATE_TIME", input: {} }
+    ]) await run.orchestrator.propose(submission);
+    const summaries = run.recordTerminal.mock.calls.map((call) => (call[0] as { userSummary: string }).userSummary);
+    expect(summaries).toEqual([
+      "Se creó una tarea.", "Se actualizó una tarea.", "Se completó una tarea.", "Se creó un evento.",
+      "Se actualizó un evento.", "Se creó un recordatorio.", "Se consultó la agenda de la semana.", "Se consultó la fecha y la hora."
+    ]);
+    for (const summary of summaries) expect(summary).not.toMatch(/\d/u);
+    expect(run.recorded()).not.toMatch(LEAK);
+    expect(run.logs).not.toHaveBeenCalled();
+  });
+});
+
+describe("weather history privacy", () => {
+  const providerFetch = (calls: string[] = []) => vi.fn(async (url: string) => {
+    calls.push(url);
+    const body = url.includes("geocoding-api")
+      ? { results: [{ name: "Cali", country_code: "CO", latitude: 3.4372, longitude: -76.5225, timezone: "America/Bogota" }] }
+      : {
+          current: { temperature_2m: 24, apparent_temperature: 26, weather_code: 2 },
+          daily: { weather_code: [2, 61], temperature_2m_min: [19, 18], temperature_2m_max: [29, 27], precipitation_probability_max: [30, 70] }
+        };
+    return { ok: true, text: async () => JSON.stringify(body) };
+  });
+
+  it("answers the person with the place and numbers, but persists and logs only a generic sentence", async () => {
+    const run = flow({ weatherFetch: providerFetch() as never });
+    const outcome = await run.orchestrator.propose({ action: "GET_WEATHER", input: { location: "Cali" } });
+    expect(outcome).toMatchObject({ ok: true, data: { status: "SUCCEEDED", userSummary: expect.stringMatching(/Cali.*24 grados/u) } });
+    expect(run.recordTerminal).toHaveBeenCalledOnce();
+    expect(run.recordTerminal.mock.calls[0]?.[0]).toMatchObject({
+      action: "GET_WEATHER",
+      status: "SUCCEEDED",
+      userSummary: "Se respondió una consulta del clima."
+    });
+    expect(run.recorded()).not.toMatch(LEAK);
+    expect(run.recorded()).not.toMatch(/\d+(?:[.,]\d+)? ?(?:°|%)/u);
+    expect(run.logs).not.toHaveBeenCalled();
+  });
+
+  it("persists a generic failure sentence, with no place, when the place is unknown or the provider fails", async () => {
+    const unknown = vi.fn(async () => ({ ok: true, text: async () => JSON.stringify({}) }));
+    const failing = flow({ weatherFetch: unknown as never });
+    const outcome = await failing.orchestrator.propose({ action: "GET_WEATHER", input: { location: "Cali" } });
+    expect(outcome).toMatchObject({ ok: true, data: { status: "VALIDATION_FAILED", errorCode: "WEATHER_LOCATION_NOT_FOUND" } });
+    expect(failing.recordTerminal.mock.calls[0]?.[0]).toMatchObject({ userSummary: "La consulta del clima no se completó.", errorCode: "WEATHER_LOCATION_NOT_FOUND" });
+    expect(failing.recorded()).not.toMatch(LEAK);
+
+    const down = flow({ weatherFetch: (async () => { throw new Error("private Cali 3.43"); }) as never });
+    await down.orchestrator.propose({ action: "GET_WEATHER", input: { location: "Cali" } });
+    expect(down.recorded()).not.toMatch(LEAK);
+    expect(down.recorded()).not.toMatch(/private/u);
+  });
+
+  it("needs no confirmation, makes at most the two bounded provider requests, and rejects invalid input before any request", async () => {
+    const calls: string[] = [];
+    const run = flow({ weatherFetch: providerFetch(calls) as never });
+    const outcome = await run.orchestrator.propose({ action: "GET_WEATHER", input: { location: "Cali", dayOffset: 1 } });
+    expect(outcome).toMatchObject({ ok: true, data: { status: "SUCCEEDED", riskLevel: 1 } });
+    expect(calls).toHaveLength(2);
+    for (const url of calls) expect(new URL(url).host).toMatch(/^(?:geocoding-api|api)\.open-meteo\.com$/u);
+
+    for (const input of [{ location: "https://evil.example" }, { dayOffset: 99 }, { location: "Cali", extra: 1 }, "Cali"]) {
+      await expect(run.orchestrator.propose({ action: "GET_WEATHER", input }), JSON.stringify(input)).resolves.toMatchObject({ ok: false });
+    }
+    expect(calls).toHaveLength(2);
   });
 });
 
