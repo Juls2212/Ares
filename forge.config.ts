@@ -4,8 +4,7 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
-    extraResource: ["native/atomic-no-replace/build/Release/ares_atomic_no_replace.node"]
+    asar: true
   },
   makers: [new MakerZIP({}, ["win32"])],
   plugins: [
