@@ -17,18 +17,7 @@ const EXPECTED_CATALOG: ReadonlyArray<readonly [string, string, string, string, 
   ["CREATE_REMINDER", "INTERNAL_MEMORY", "DIRECT", "PLANNER", true],
   ["GET_TODAY_SCHEDULE", "INTERNAL_MEMORY", "DIRECT", "PLANNER", true],
   ["GET_WEEK_SCHEDULE", "INTERNAL_MEMORY", "DIRECT", "PLANNER", true],
-  ["GET_WEEKLY_SCHEDULE_DETAILS", "INTERNAL_MEMORY", "DIRECT", "PLANNER", true],
-  ["ANALYZE_WEEKLY_SCHEDULE", "INTERNAL_MEMORY", "DIRECT", "PLANNER", true],
-  ["GET_TODAY_AVAILABILITY", "INTERNAL_MEMORY", "DIRECT", "PLANNER", true],
-  ["CREATE_WEEKLY_SCHEDULE", "INTERNAL_MEMORY", "CONFIRMATION_REQUIRED", "PLANNER", true],
-  ["UPDATE_WEEKLY_SCHEDULE", "INTERNAL_MEMORY", "CONFIRMATION_REQUIRED", "PLANNER", true],
-  ["CREATE_WEEKLY_ROUTINE", "INTERNAL_MEMORY", "CONFIRMATION_REQUIRED", "PLANNER", true],
-  ["UPDATE_WEEKLY_ROUTINE", "INTERNAL_MEMORY", "CONFIRMATION_REQUIRED", "PLANNER", true],
   ["GET_CURRENT_DATE_TIME", "INTERNAL_MEMORY", "DIRECT", "PLANNER", true],
-  ["GET_HABIT_PROGRESS", "INTERNAL_MEMORY", "DIRECT", "PLANNER", true],
-  ["CREATE_HABIT", "INTERNAL_MEMORY", "CONFIRMATION_REQUIRED", "PLANNER", true],
-  ["UPDATE_HABIT", "INTERNAL_MEMORY", "CONFIRMATION_REQUIRED", "PLANNER", true],
-  ["COMPLETE_HABIT", "INTERNAL_MEMORY", "CONFIRMATION_REQUIRED", "PLANNER", true],
   ["OPEN_APPLICATION", "APPLICATIONS", "DIRECT", "APPLICATION", true],
   ["SEARCH_SPOTIFY_APP", "APPLICATIONS", "DIRECT", "APPLICATION", true],
   ["REGISTER_CATALOG_APPLICATION", "APPLICATIONS", "CONFIRMATION_REQUIRED", "APPLICATION", true],
@@ -59,7 +48,8 @@ const EXPECTED_CATALOG: ReadonlyArray<readonly [string, string, string, string, 
   ["NEXT_SPOTIFY_TRACK", "MUSIC", "DIRECT", "MUSIC", true],
   ["PREVIOUS_SPOTIFY_TRACK", "MUSIC", "DIRECT", "MUSIC", true],
   ["SET_SPOTIFY_VOLUME", "MUSIC", "DIRECT", "MUSIC", true],
-  ["WHAT_IS_PLAYING", "MUSIC", "DIRECT", "MUSIC", true]
+  ["WHAT_IS_PLAYING", "MUSIC", "DIRECT", "MUSIC", true],
+  ["GET_WEATHER", "WEATHER", "DIRECT", "WEATHER", true]
 ];
 
 describe("action catalog snapshot", () => {
@@ -78,6 +68,7 @@ describe("action catalog snapshot", () => {
       "INTERNAL_MEMORY:PLANNER",
       "MESSAGING:MESSAGING",
       "MUSIC:MUSIC",
+      "WEATHER:WEATHER",
       "WEB:WEB"
     ]);
   });
@@ -90,8 +81,18 @@ describe("action catalog snapshot", () => {
           ENABLED_ASSISTANT_CAPABILITIES.filter((entry) => entry[key] === value).length
         ])
       );
-    expect(count("domain")).toEqual({"APPLICATIONS":4,"FILES":8,"INTERNAL_MEMORY":22,"MESSAGING":7,"MUSIC":10,"WEB":2});
-    expect(count("approval")).toEqual({"CONFIRMATION_REQUIRED":18,"DIRECT":31,"REINFORCED_CONFIRMATION_REQUIRED":4});
+    expect(count("domain")).toEqual({"APPLICATIONS":4,"FILES":8,"INTERNAL_MEMORY":11,"MESSAGING":7,"MUSIC":10,"WEATHER":1,"WEB":2});
+    expect(count("approval")).toEqual({"CONFIRMATION_REQUIRED":11,"DIRECT":28,"REINFORCED_CONFIRMATION_REQUIRED":4});
+  });
+
+  it("registers 43 actions (the 42 of Refactor 3.1 plus the read-only weather query) and none of the removed habit or weekly-schedule actions", () => {
+    expect(ENABLED_ASSISTANT_CAPABILITIES).toHaveLength(43);
+    const names = ENABLED_ASSISTANT_CAPABILITIES.map((entry) => entry.action as string);
+    for (const removed of [
+      "GET_WEEKLY_SCHEDULE_DETAILS", "ANALYZE_WEEKLY_SCHEDULE", "GET_TODAY_AVAILABILITY", "CREATE_WEEKLY_SCHEDULE",
+      "UPDATE_WEEKLY_SCHEDULE", "CREATE_WEEKLY_ROUTINE", "UPDATE_WEEKLY_ROUTINE",
+      "GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"
+    ]) expect(names, removed).not.toContain(removed);
   });
 
   it("enables every entry", () => {
