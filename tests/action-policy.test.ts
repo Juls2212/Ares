@@ -30,11 +30,7 @@ const expectedRiskLevels: Record<ActionKind, ActionRiskLevel> = {
   REQUEST_CUSTOM_APPLICATION_REGISTRATION: 2,
   OPEN_APPROVED_PAGE: 1,
   SEARCH_APPROVED_SITE: 1,
-  OPEN_WEB_PAGE: 1,
   CREATE_FOLDER: 2,
-  RENAME_FILE: 2,
-  RENAME_FOLDER: 2,
-  MOVE_FILE: 2,
   SEARCH_FILES: 1,
   REVEAL_FOUND_FILE: 1,
   OPEN_FOUND_FILE: 2,
@@ -49,7 +45,6 @@ const expectedRiskLevels: Record<ActionKind, ActionRiskLevel> = {
   EDIT_MESSAGE_DRAFT: 1,
   DISCARD_MESSAGE_DRAFT: 1,
   OPEN_WHATSAPP_CHAT_WITH_DRAFT: 2,
-  ORGANIZE_FILES: 2,
   CREATE_TASK: 1,
   UPDATE_TASK: 1,
   COMPLETE_TASK: 1,
@@ -58,19 +53,8 @@ const expectedRiskLevels: Record<ActionKind, ActionRiskLevel> = {
   CREATE_REMINDER: 1,
   GET_TODAY_SCHEDULE: 1,
   GET_WEEK_SCHEDULE: 1,
-  GET_WEEKLY_SCHEDULE_DETAILS: 1,
-  ANALYZE_WEEKLY_SCHEDULE: 1,
-  GET_TODAY_AVAILABILITY: 1,
-  CREATE_WEEKLY_SCHEDULE: 2,
-  UPDATE_WEEKLY_SCHEDULE: 2,
-  CREATE_WEEKLY_ROUTINE: 2,
-  UPDATE_WEEKLY_ROUTINE: 2,
   GET_CURRENT_DATE_TIME: 1,
   GET_WEATHER: 1,
-  GET_HABIT_PROGRESS: 1,
-  CREATE_HABIT: 2,
-  UPDATE_HABIT: 2,
-  COMPLETE_HABIT: 2,
   OPEN_REGISTERED_APPLICATION: 1,
   OPEN_REGISTERED_PAGE: 1,
   MOVE_FOLDER: 2,
@@ -96,11 +80,7 @@ describe("action policy", () => {
       "REQUEST_CUSTOM_APPLICATION_REGISTRATION",
       "OPEN_APPROVED_PAGE",
       "SEARCH_APPROVED_SITE",
-      "OPEN_WEB_PAGE",
       "CREATE_FOLDER",
-      "RENAME_FILE",
-      "RENAME_FOLDER",
-      "MOVE_FILE",
       "SEARCH_FILES",
       "REVEAL_FOUND_FILE",
       "OPEN_FOUND_FILE",
@@ -108,7 +88,6 @@ describe("action policy", () => {
       "MOVE_FOUND_ITEMS",
       "ORGANIZE_FOUND_ITEMS",
       "DELETE_FOUND_ITEM",
-      "ORGANIZE_FILES",
       "CREATE_TASK",
       "UPDATE_TASK",
       "COMPLETE_TASK",
@@ -117,19 +96,8 @@ describe("action policy", () => {
       "CREATE_REMINDER",
       "GET_TODAY_SCHEDULE",
       "GET_WEEK_SCHEDULE",
-      "GET_WEEKLY_SCHEDULE_DETAILS",
-      "ANALYZE_WEEKLY_SCHEDULE",
-      "GET_TODAY_AVAILABILITY",
-      "CREATE_WEEKLY_SCHEDULE",
-      "UPDATE_WEEKLY_SCHEDULE",
-      "CREATE_WEEKLY_ROUTINE",
-      "UPDATE_WEEKLY_ROUTINE",
       "GET_CURRENT_DATE_TIME",
       "GET_WEATHER",
-      "GET_HABIT_PROGRESS",
-      "CREATE_HABIT",
-      "UPDATE_HABIT",
-      "COMPLETE_HABIT",
       "DELETE_EVENT",
       "DELETE_TASK",
       "SAVE_CONTACT",
@@ -175,22 +143,13 @@ describe("action policy", () => {
   it("keeps existing internal-memory and application classifications available through the policy", () => {
     expect(getActionPolicy("CREATE_TASK").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("GET_WEEK_SCHEDULE").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("GET_WEEKLY_SCHEDULE_DETAILS").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("ANALYZE_WEEKLY_SCHEDULE").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("GET_TODAY_AVAILABILITY").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("OPEN_APPLICATION").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("REGISTER_CATALOG_APPLICATION")).toMatchObject({ availability: "IMPLEMENTED", approval: "CONFIRMATION_REQUIRED" });
     expect(getActionPolicy("OPEN_APPROVED_PAGE").availability).toBe("IMPLEMENTED");
     expect(getActionPolicy("SEARCH_APPROVED_SITE").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("OPEN_WEB_PAGE").availability).toBe("DEFERRED");
     expect(getActionPolicy("SEARCH_FILES").availability).toBe("IMPLEMENTED");
-    expect(getActionPolicy("RENAME_FILE").availability).toBe("DEFERRED");
-    expect(evaluateActionProposal({ action: "OPEN_WEB_PAGE" })).toMatchObject({
-      ok: false,
-      error: { code: "ACTION_UNSUPPORTED" }
-    });
     expect(evaluateActionProposal({ action: "SEARCH_FILES" })).toMatchObject({ ok: true });
-    for (const action of ["RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES", "DELETE_FILE", "DELETE_FOLDER"]) {
+    for (const action of ["OPEN_WEB_PAGE", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES", "DELETE_FILE", "DELETE_FOLDER"]) {
       expect(evaluateActionProposal({ action })).toMatchObject({ ok: false, error: { code: "ACTION_UNSUPPORTED" } });
     }
   });
@@ -203,7 +162,7 @@ describe("action policy", () => {
 
     expect(unknown).toEqual({
       ok: false,
-      error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." }
+      error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo hacer eso." }
     });
     expect(JSON.stringify(unknown)).not.toContain("Remove-Item");
     expect(lookupActionPolicy("RUN_SHELL")).toEqual(unknown);
@@ -223,9 +182,6 @@ describe("action policy", () => {
 
     expect(requiresActionConfirmation(createTask)).toBe(false);
     expect(requiresActionConfirmation(completeTask)).toBe(false);
-    expect(requiresActionConfirmation({ actionId: "proposal-7", action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Universidad" } })).toBe(false);
-    expect(requiresActionConfirmation({ actionId: "proposal-8", action: "ANALYZE_WEEKLY_SCHEDULE", input: { scheduleTitle: "Universidad", analysis: "OVERLAPS" } })).toBe(false);
-    expect(requiresActionConfirmation({ actionId: "proposal-9", action: "GET_TODAY_AVAILABILITY", input: {} })).toBe(false);
   });
 
   it("defines OPEN_APPLICATION with an alias-only structured payload", () => {
@@ -252,11 +208,6 @@ describe("action policy", () => {
       actionId: "proposal-5",
       action: "CREATE_FOLDER",
       input: { folderName: "Archive", root: "DOCUMENTS" }
-    })).toBe(true);
-    expect(requiresActionConfirmation({
-      actionId: "proposal-6",
-      action: "ORGANIZE_FILES",
-      input: { folder: { rootId: "DOCUMENTS", relativePath: "Inbox" } }
     })).toBe(true);
     expect(evaluateActionProposal({ action: "ORGANIZE_FILES" })).toMatchObject({
       ok: false,
