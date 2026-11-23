@@ -1,3 +1,4 @@
+import { collapseAndTrim } from "../../shared/text-fold";
 import {
   createReminderDeliveryRepository,
   type ReminderDeliveryRepository
@@ -43,7 +44,7 @@ export type ReminderDeliveryService = {
 };
 
 const normalizeNotificationBody = (title: string): string => {
-  const normalized = title.replace(/\s+/gu, " ").trim();
+  const normalized = collapseAndTrim(title);
   return normalized.length > 0 && normalized.length <= 240 ? normalized : FALLBACK_NOTIFICATION_BODY;
 };
 
