@@ -18,6 +18,8 @@ import {
 } from "./voice/microphone-permission";
 import { createGlobalVoiceShortcutLifecycle } from "./voice/global-voice-shortcut";
 import { configureVoicePreferencesService } from "./settings/voice-preferences-composition";
+import { getApplicationService } from "./applications/application-composition";
+import { seedKnownApplications } from "./applications/known-application-seeder";
 import { removeFullScreenMenuCommand } from "./compact-window-menu";
 import { getWindowAppearance } from "./window-appearance";
 import { formatShortcutForDisplay } from "../shared/settings-contracts";
@@ -236,6 +238,8 @@ app.whenReady().then(async () => {
   if (!voicePreferences.ok) {
     console.error("Voice preferences startup initialization failed.");
   }
+  // Bundled first-run data from the trusted catalog; it never throws and is not reachable from IPC or the interpreter.
+  await seedKnownApplications({ applicationService: getApplicationService() });
   backgroundLifecycle.createTray();
   await createMainWindow();
 
