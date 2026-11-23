@@ -5,26 +5,17 @@ import {
   validateCreateEventInput,
   validateCreateReminderInput,
   validateCreateTaskInput,
-  validateCreateWeeklyRoutineInput,
-  validateCreateWeeklyScheduleInput,
-  validateDeleteWeeklyRoutineInput,
-  validateDeleteWeeklyScheduleInput,
   validateGetWeekScheduleInput,
   validateReminderListInput,
   validateUpdateCategoryInput,
   validateUpdateEventInput,
   validateUpdateTaskInput
-  , validateUpdateWeeklyRoutineInput
-  , validateWeeklyRoutineListInput
-  , validateUpdateWeeklyScheduleInput
-  , validateWeeklyScheduleListInput
 } from "../src/main/planner/planner-validation";
 import type { PlannerOperationResult } from "../src/shared/planner-contracts";
 
 const categoryId = "550e8400-e29b-41d4-a716-446655440000";
 const taskId = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
 const eventId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
-const weeklyScheduleId = "21ae1498-1a4e-4f85-86ae-0db35afc8921";
 const dateTime = "2026-09-17T09:30:00-05:00";
 
 const expectFailureCode = <T>(result: PlannerOperationResult<T>, code: string): void => {
