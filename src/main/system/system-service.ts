@@ -19,16 +19,24 @@ const createOperationFailure = (code: string, userMessage: string): OperationFai
 });
 
 export const getSystemStatusResult = (
-  getMetadata: () => SystemMetadata
+  getMetadata: () => SystemMetadata,
+  readMicrophoneAccess?: () => SystemStatusData["microphoneAccess"]
 ): OperationResult<SystemStatusData> => {
   try {
     const metadata = getMetadata();
+    let microphoneAccess: SystemStatusData["microphoneAccess"];
+    try {
+      microphoneAccess = readMicrophoneAccess?.();
+    } catch {
+      microphoneAccess = "unknown";
+    }
 
     return {
       ok: true,
       data: {
         ...metadata,
-        readiness: "READY"
+        readiness: "READY",
+        ...(microphoneAccess === undefined ? {} : { microphoneAccess })
       }
     };
   } catch {
