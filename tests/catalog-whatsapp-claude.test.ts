@@ -5,9 +5,9 @@ import { createCatalogApplicationRegistrationService } from "../src/main/applica
 import {
   KNOWN_APPLICATION_CATALOG,
   getKnownApplication,
-  normalizeApplicationAlias,
   toWindowsLaunchCandidate
 } from "../src/main/applications/known-application-catalog";
+import { foldForAlias } from "../src/shared/text-fold";
 import { APPLICATION_CATALOG_KEYS, type ApplicationRecord } from "../src/shared/application-contracts";
 
 const directories = {
@@ -287,7 +287,7 @@ describe("declarative catalog", () => {
   it("never lets one normalized alias belong to two applications", () => {
     const owners = new Map<string, string>();
     for (const entry of KNOWN_APPLICATION_CATALOG) {
-      for (const alias of new Set([entry.defaultAlias, ...entry.recognitionAliases].map(normalizeApplicationAlias))) {
+      for (const alias of new Set([entry.defaultAlias, ...entry.recognitionAliases].map(foldForAlias))) {
         expect(owners.get(alias) ?? entry.key).toBe(entry.key);
         owners.set(alias, entry.key);
       }
