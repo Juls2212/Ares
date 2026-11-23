@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { OperationResult } from "../../shared/contracts";
 import { SPEECH_LIMITS, type SpeechAudio, type SpokenResponse } from "../../shared/speech-contracts";
+import { capSpokenText } from "./spoken-text-cap";
 import { MainConfigurationError } from "../config/database-environment";
 
 export type SpeechProvider = (text: string, signal: AbortSignal) => Promise<SpeechAudio>;
@@ -32,7 +33,7 @@ export const createSpeechService = (provider: () => SpeechProvider, clock = Date
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const audio = await Promise.race([
-          provider()(entry.response.text, abort.signal),
+          provider()(capSpokenText(entry.response.text), abort.signal),
           new Promise<never>((_, reject) => { timer = setTimeout(() => { abort.abort(); reject(new Error("TIMEOUT")); }, timeoutMs); })
         ]);
         if (abort.signal.aborted || responses.get(windowId) !== entry) return failure("SPEECH_RESPONSE_INVALID");
