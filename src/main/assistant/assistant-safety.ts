@@ -2,12 +2,6 @@
  * The interpreter accepts natural-language data, not authority to alter its
  * fixed policy. These checks intentionally run before a provider request.
  */
-const normalizeForSafetyCheck = (value: string): string =>
-  value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLocaleLowerCase("en-US");
-
 const instructionInjectionPatterns = [
   /\b(?:ignore|ignora|omite|omitir|olvida|anula)\b.{0,80}\b(?:instruccion(?:es)?|regla|sistema|desarrollador|confirmacion|seguridad)\b/u,
   /\b(?:system\s*prompt|prompt\s+del\s+sistema|developer\s*instruction|instruccion(?:es)?\s+del\s+desarrollador)\b/u,
@@ -22,7 +16,7 @@ const unsafeDraftTextPattern =
 
 /** Rejects attempts to obtain or override privileged interpreter behavior. */
 export const isUnsafeAssistantInstruction = (instruction: string): boolean => {
-  const normalized = normalizeForSafetyCheck(instruction);
+  const normalized = foldCaseAndDiacritics(instruction);
   return instructionInjectionPatterns.some((pattern) => pattern.test(normalized));
 };
 
@@ -31,4 +25,5 @@ export const isUnsafeAssistantInstruction = (instruction: string): boolean => {
  * interpreter boundary in addition to the action-specific trusted validators.
  */
 export const isUnsafeAssistantDraftText = (value: unknown): boolean =>
-  typeof value === "string" && unsafeDraftTextPattern.test(normalizeForSafetyCheck(value));
+  typeof value === "string" && unsafeDraftTextPattern.test(foldCaseAndDiacritics(value));import { foldCaseAndDiacritics } from "../../shared/text-fold";
+
