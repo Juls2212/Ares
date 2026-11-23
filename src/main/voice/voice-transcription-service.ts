@@ -8,6 +8,7 @@ import {
   type VoiceTranscriptionData,
   type VoiceTranscriptionInput
 } from "../../shared/voice-contracts";
+import { VOICE_CAPTURE_FAILURES, failureCodeForTranscription, formatVoiceDiagnostic } from "../../shared/voice-diagnostics";
 import {
   getOpenAiTranscriptionConfiguration,
   type OpenAiTranscriptionConfiguration
@@ -24,6 +25,8 @@ type VoiceTranscriptionServiceDependencies = {
   createProvider: (configuration: OpenAiTranscriptionConfiguration) => OpenAiTranscriptionProvider;
   timeoutMs: number;
   logError: (message: string) => void;
+  /** Receives the privacy-safe diagnostic lines (fixed enums and bounded numbers only). */
+  logInfo: (message: string) => void;
 };
 
 export type VoiceTranscriptionService = {
@@ -49,6 +52,8 @@ const providerMessage = (code: string): string => {
       return "La transcripción tardó demasiado. Puedes escribir tu instrucción.";
     case VOICE_ERROR_CODES.busy:
       return "Ya hay una transcripción en curso. Espera a que termine.";
+    case VOICE_ERROR_CODES.transcriptEmpty:
+      return VOICE_CAPTURE_FAILURES.messageFor("VOICE_TRANSCRIPT_EMPTY");
     default:
       return "La transcripción no está disponible en este momento.";
   }
@@ -97,14 +102,26 @@ export const createVoiceTranscriptionService = (
     getConfiguration: overrides.getConfiguration ?? getOpenAiTranscriptionConfiguration,
     createProvider: overrides.createProvider ?? createOpenAiTranscriptionProvider,
     timeoutMs: overrides.timeoutMs ?? 20_000,
-    logError: overrides.logError ?? ((message) => console.error(message))
+    logError: overrides.logError ?? ((message) => console.error(message)),
+    logInfo: overrides.logInfo ?? ((message) => console.info(message))
+  };
+  const diagnostic = (facts: Parameters<typeof formatVoiceDiagnostic>[0]): void => {
+    try {
+      dependencies.logInfo(formatVoiceDiagnostic({ side: "main", ...facts }));
+    } catch {
+      // Diagnostics must never affect transcription.
+    }
   };
   let inFlight = false;
 
   return {
     async transcribe(input): Promise<VoiceOperationResult<VoiceTranscriptionData>> {
       const validated = validateInput(input);
-      if (isFailure(validated)) return validated;
+      if (isFailure(validated)) {
+        diagnostic({ stage: "ipc_submitted", failure: failureCodeForTranscription(validated.ok ? undefined : validated.error.code) });
+        return validated;
+      }
+      const facts = { mime: validated.mimeType, bytes: validated.audio.byteLength, durationMs: validated.durationMs };
       if (inFlight) return failure(VOICE_ERROR_CODES.busy, providerMessage(VOICE_ERROR_CODES.busy));
       let provider: OpenAiTranscriptionProvider;
       try {
@@ -115,20 +132,29 @@ export const createVoiceTranscriptionService = (
       }
       const controller = new AbortController();
       inFlight = true;
+      diagnostic({ stage: "transcription_started", ...facts });
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => { controller.abort(); reject(new Error("TRANSCRIPTION_TIMEOUT")); }, dependencies.timeoutMs);
       });
       try {
         const text = (await Promise.race([provider.transcribe({ ...validated, signal: controller.signal }), timeout])).trim();
-        if (!text || text.length > maximumTranscriptLength) {
+        if (!text) {
+          dependencies.logError(`Voice transcription failed [${VOICE_ERROR_CODES.transcriptEmpty}].`);
+          diagnostic({ stage: "transcription_started", ...facts, failure: "VOICE_TRANSCRIPT_EMPTY" });
+          return failure(VOICE_ERROR_CODES.transcriptEmpty, providerMessage(VOICE_ERROR_CODES.transcriptEmpty));
+        }
+        if (text.length > maximumTranscriptLength) {
           dependencies.logError(`Voice transcription failed [${VOICE_ERROR_CODES.provider}].`);
+          diagnostic({ stage: "transcription_started", ...facts, failure: "VOICE_TRANSCRIPTION_FAILED" });
           return failure(VOICE_ERROR_CODES.provider, providerMessage(VOICE_ERROR_CODES.provider));
         }
+        diagnostic({ stage: "transcription_done", ...facts });
         return { ok: true, data: { text } };
       } catch (error) {
         const code = controller.signal.aborted ? VOICE_ERROR_CODES.timeout : errorCode(error);
         dependencies.logError(`Voice transcription failed [${code}].`);
+        diagnostic({ stage: "transcription_started", ...facts, failure: failureCodeForTranscription(code) });
         return failure(code, providerMessage(code));
       } finally {
         clearTimeout(timer);
