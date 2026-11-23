@@ -163,15 +163,6 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       scopeSummary: "Búsqueda aprobada"
     }
   },
-  OPEN_WEB_PAGE: {
-    approval: "DIRECT",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se abrirá YouTube en el navegador Chrome registrado.",
-      affectedItemCount: 1,
-      scopeSummary: "Página web autorizada"
-    }
-  },
   CREATE_FOLDER: {
     approval: "CONFIRMATION_REQUIRED",
     availability: "IMPLEMENTED",
@@ -235,33 +226,6 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       scopeSummary: "Resultado de búsqueda"
     }
   },
-  RENAME_FILE: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se cambiará el nombre de 1 archivo.",
-      affectedItemCount: 1,
-      scopeSummary: "Archivo autorizado"
-    }
-  },
-  RENAME_FOLDER: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se cambiará el nombre de 1 carpeta.",
-      affectedItemCount: 1,
-      scopeSummary: "Carpeta autorizada"
-    }
-  },
-  MOVE_FILE: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se moverá 1 archivo autorizado.",
-      affectedItemCount: 1,
-      scopeSummary: "Archivo y destino autorizados"
-    }
-  },
   SEARCH_FILES: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
@@ -269,15 +233,6 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       summary: "Se buscarán archivos en ubicaciones autorizadas.",
       affectedItemCount: null,
       scopeSummary: "Ubicaciones autorizadas"
-    }
-  },
-  ORGANIZE_FILES: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se organizarán archivos autorizados tras revisar la vista previa.",
-      affectedItemCount: null,
-      scopeSummary: "Carpeta autorizada"
     }
   },
   CREATE_TASK: {
@@ -352,41 +307,6 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       scopeSummary: "Agenda local de la semana"
     }
   },
-  GET_WEEKLY_SCHEDULE_DETAILS: {
-    approval: "DIRECT",
-    availability: "IMPLEMENTED",
-    confirmation: { summary: "Se consultará un horario semanal existente.", affectedItemCount: null, scopeSummary: "Horario semanal existente" }
-  },
-  ANALYZE_WEEKLY_SCHEDULE: {
-    approval: "DIRECT",
-    availability: "IMPLEMENTED",
-    confirmation: { summary: "Se analizará un horario semanal existente.", affectedItemCount: null, scopeSummary: "Horario semanal existente" }
-  },
-  GET_TODAY_AVAILABILITY: {
-    approval: "DIRECT",
-    availability: "IMPLEMENTED",
-    confirmation: { summary: "Se consultará la disponibilidad estimada de hoy.", affectedItemCount: null, scopeSummary: "Agenda local de hoy" }
-  },
-  CREATE_WEEKLY_SCHEDULE: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: { summary: "Se creará un horario semanal.", affectedItemCount: 1, scopeSummary: "Horario semanal nuevo" }
-  },
-  UPDATE_WEEKLY_SCHEDULE: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: { summary: "Se actualizará un horario semanal.", affectedItemCount: 1, scopeSummary: "Horario semanal existente" }
-  },
-  CREATE_WEEKLY_ROUTINE: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: { summary: "Se agregará un bloque semanal.", affectedItemCount: 1, scopeSummary: "Bloque semanal nuevo" }
-  },
-  UPDATE_WEEKLY_ROUTINE: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: { summary: "Se actualizará un bloque semanal.", affectedItemCount: 1, scopeSummary: "Bloque semanal existente" }
-  },
   GET_CURRENT_DATE_TIME: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
@@ -400,45 +320,9 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
     confirmation: {
-      summary: "Se consultará el clima actual de Pasto.",
+      summary: "Se consultará el clima.",
       affectedItemCount: null,
-      scopeSummary: "Clima actual de Pasto"
-    }
-  },
-  GET_HABIT_PROGRESS: {
-    approval: "DIRECT",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se consultará el progreso de hábitos.",
-      affectedItemCount: null,
-      scopeSummary: "Progreso de hábitos"
-    }
-  },
-  CREATE_HABIT: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se creará un hábito.",
-      affectedItemCount: 1,
-      scopeSummary: "Hábito nuevo"
-    }
-  },
-  UPDATE_HABIT: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se actualizará un hábito existente.",
-      affectedItemCount: 1,
-      scopeSummary: "Hábito existente"
-    }
-  },
-  COMPLETE_HABIT: {
-    approval: "CONFIRMATION_REQUIRED",
-    availability: "IMPLEMENTED",
-    confirmation: {
-      summary: "Se marcará un hábito como completado hoy.",
-      affectedItemCount: 1,
-      scopeSummary: "Hábito existente"
+      scopeSummary: "Consulta de clima"
     }
   },
   SAVE_CONTACT: {
@@ -472,34 +356,34 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
     confirmation: {
-      summary: "Se preparará un borrador de mensaje. No se enviará.",
+      summary: "Se preparará el mensaje. No se enviará.",
       affectedItemCount: 1,
-      scopeSummary: "Borrador local"
+      scopeSummary: "Mensaje local"
     }
   },
   EDIT_MESSAGE_DRAFT: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
     confirmation: {
-      summary: "Se cambiará el texto del borrador. No se enviará.",
+      summary: "Se cambiará el texto del mensaje. No se enviará.",
       affectedItemCount: 1,
-      scopeSummary: "Borrador local"
+      scopeSummary: "Mensaje local"
     }
   },
   DISCARD_MESSAGE_DRAFT: {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
     confirmation: {
-      summary: "Se descartará el borrador de mensaje.",
+      summary: "Se descartará el mensaje preparado.",
       affectedItemCount: 1,
-      scopeSummary: "Borrador local"
+      scopeSummary: "Mensaje local"
     }
   },
   OPEN_WHATSAPP_CHAT_WITH_DRAFT: {
     approval: "CONFIRMATION_REQUIRED",
     availability: "IMPLEMENTED",
     confirmation: {
-      summary: "Se abrirá WhatsApp con el borrador. Tú pulsas enviar; Ares no envía nada.",
+      summary: "Se abrirá WhatsApp con el mensaje. Tú pulsas enviar; Ares no envía nada.",
       affectedItemCount: 1,
       scopeSummary: "Chat de WhatsApp"
     }
@@ -558,9 +442,9 @@ const riskLevelByApproval: Record<ActionApprovalClass, ActionRiskLevel> = {
 };
 
 const failureMessages = {
-  [ACTION_ERROR_CODES.unsupported]: "No puedo realizar esa acción.",
-  [ACTION_ERROR_CODES.deferred]: "Esta acción todavía no está disponible.",
-  [ACTION_ERROR_CODES.proposalInvalid]: "La propuesta de acción no es válida."
+  [ACTION_ERROR_CODES.unsupported]: "No puedo hacer eso.",
+  [ACTION_ERROR_CODES.deferred]: "Eso todavía no lo sé hacer.",
+  [ACTION_ERROR_CODES.proposalInvalid]: "No pude entender esa petición. Inténtalo de nuevo."
 } as const;
 
 const isActionKind = (value: unknown): value is ActionKind =>
