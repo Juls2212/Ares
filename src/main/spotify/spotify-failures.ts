@@ -1,8 +1,10 @@
+import { defineFailureTaxonomy, type TaxonomyFailure, type TaxonomyResult } from "../../shared/failure-taxonomy";
+
 /**
  * Closed failure taxonomy for the Spotify Web API integration. Every message is a fixed Spanish sentence: it
  * never contains a token, an authorization code, a URL, a response body, a status text or a raw exception.
  */
-export const SPOTIFY_FAILURES = {
+const taxonomy = defineFailureTaxonomy({
   SPOTIFY_NOT_CONNECTED: "Spotify no está conectado. Di «conecta Spotify» para conectarlo.",
   SPOTIFY_NOT_CONFIGURED: "La conexión con Spotify no está configurada en este equipo.",
   SPOTIFY_AUTH_EXPIRED: "La conexión con Spotify caducó. Di «conecta Spotify» para conectarla de nuevo.",
@@ -21,7 +23,9 @@ export const SPOTIFY_FAILURES = {
   SPOTIFY_SECURE_STORAGE_UNAVAILABLE:
     "Este equipo no permite guardar la conexión de Spotify de forma segura, así que no la guardaré.",
   SPOTIFY_INVALID_REQUEST: "Indica qué quieres que reproduzca, o un volumen entre 0 y 100."
-} as const;
+});
+
+export const SPOTIFY_FAILURES = taxonomy.messages;
 
 export type SpotifyFailureCode = keyof typeof SPOTIFY_FAILURES;
 
@@ -35,12 +39,9 @@ export const SPOTIFY_EXECUTION_FAILURE_CODES: readonly string[] = [
   "SPOTIFY_BROWSER_UNAVAILABLE"
 ];
 
-export type SpotifyFailure = { ok: false; error: { code: SpotifyFailureCode; userMessage: string } };
-export type SpotifyResult<T> = { ok: true; data: T } | SpotifyFailure;
+export type SpotifyFailure = TaxonomyFailure<SpotifyFailureCode>;
+export type SpotifyResult<T> = TaxonomyResult<T, SpotifyFailureCode>;
 
-export const spotifyFailure = (code: SpotifyFailureCode): SpotifyFailure => ({
-  ok: false,
-  error: { code, userMessage: SPOTIFY_FAILURES[code] }
-});
+export const spotifyFailure = (code: SpotifyFailureCode): SpotifyFailure => taxonomy.failure(code);
 
-export const spotifySuccess = <T>(data: T): SpotifyResult<T> => ({ ok: true, data });
+export const spotifySuccess = <T>(data: T): SpotifyResult<T> => taxonomy.success(data);
