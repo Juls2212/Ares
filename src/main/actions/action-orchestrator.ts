@@ -1,3 +1,4 @@
+import { cancelledOutcome, failedOutcome, historySentences, outcomeIdentity } from "../../shared/outcome-kit";
 import { randomUUID } from "node:crypto";
 import {
   ACTION_ERROR_CODES,
@@ -10,12 +11,7 @@ import {
   type ApprovedWebActionProposal,
   type AwaitingActionConfirmation,
   type ExecutableActionProposal,
-  type FileActionProposal,
-  type FileActionData,
-  type HabitActionProposal,
-  type LegacyFileActionProposal,
   type MessagingActionProposal,
-  type OpenWebPageActionProposal,
   type PlannerActionProposal,
   type RegisterCatalogApplicationActionProposal,
   type RequestCustomApplicationRegistrationActionProposal,
@@ -34,6 +30,7 @@ import { isFoundOrdinal, isFileSearchKind, isSupervisedFileRoot, parseSelection 
 import type { SupervisedFileMutationData, SupervisedFileSearchData } from "../../shared/supervised-file-contracts";
 import { validateSpotifySearchQuery } from "../applications/spotify-search";
 import { isKnownApplicationCatalogKey } from "../applications/known-application-catalog";
+import { validateWeatherInput } from "../weather/weather-validation";
 import { catalogRegistrationFailure } from "../applications/catalog-registration-failures";
 
 import { MESSAGING_EXECUTION_FAILURE_CODES } from "../messaging/messaging-failures";
@@ -69,10 +66,10 @@ export type ActionOrchestrator = {
 };
 
 const messages = {
-  [ACTION_ERROR_CODES.proposalInvalid]: "La propuesta de acción no es válida.",
-  [ACTION_ERROR_CODES.confirmationInvalid]: "La confirmación de la acción no es válida.",
+  [ACTION_ERROR_CODES.proposalInvalid]: "No pude entender esa petición. Inténtalo de nuevo.",
+  [ACTION_ERROR_CODES.confirmationInvalid]: "No pude confirmar eso. Vuelve a pedírmelo.",
   [ACTION_ERROR_CODES.confirmationUnavailable]: "La confirmación ya no está disponible.",
-  [ACTION_ERROR_CODES.executionUnavailable]: "No se pudo completar la acción solicitada."
+  [ACTION_ERROR_CODES.executionUnavailable]: "No pude hacer eso. Inténtalo de nuevo."
 } as const;
 
 type OrchestratorErrorCode = keyof typeof messages;
@@ -101,20 +98,10 @@ const isPlannerAction = (action: ActionSubmission["action"]): action is PlannerA
     "CREATE_REMINDER",
     "GET_TODAY_SCHEDULE",
     "GET_WEEK_SCHEDULE",
-    "GET_WEEKLY_SCHEDULE_DETAILS",
-    "ANALYZE_WEEKLY_SCHEDULE",
-    "GET_TODAY_AVAILABILITY",
-    "CREATE_WEEKLY_SCHEDULE",
-    "UPDATE_WEEKLY_SCHEDULE",
-    "CREATE_WEEKLY_ROUTINE",
-    "UPDATE_WEEKLY_ROUTINE",
     "GET_CURRENT_DATE_TIME",
     "DELETE_EVENT",
     "DELETE_TASK"
   ].includes(action as PlannerActionProposal["action"]);
-
-const isHabitAction = (action: ActionSubmission["action"]): action is HabitActionProposal["action"] =>
-  ["GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"].includes(action as HabitActionProposal["action"]);
 
 const isOpenApplicationSubmission = (
   submission: Record<string, unknown>
@@ -140,8 +127,10 @@ const isSearchSpotifyAppSubmission = (
   (submission.input.playRequested === undefined || typeof submission.input.playRequested === "boolean");
 
 /** History keeps only the outcome category for the Spotify app search; the query never reaches it. */
-const safeSpotifySearchHistorySummary = (outcome: ActionOutcome): string =>
-  outcome.status === "SUCCEEDED" ? "La búsqueda en Spotify se completó." : "La búsqueda en Spotify no se completó.";
+const spotifySearchHistorySentence = historySentences({
+  succeeded: "La búsqueda en Spotify se completó.",
+  failed: "La búsqueda en Spotify no se completó."
+});
 
 const SPOTIFY_MUSIC_ACTIONS = [
   "CONNECT_SPOTIFY",
@@ -182,10 +171,11 @@ const isSpotifyMusicSubmission = (submission: Record<string, unknown>): boolean 
 };
 
 /** History keeps only the outcome category for the Spotify actions; titles, artists and queries never reach it. */
-const safeSpotifyMusicHistorySummary = (outcome: ActionOutcome): string =>
-  outcome.status === "SUCCEEDED"
-    ? "La acción de música se completó."
-    : outcome.status === "CANCELLED" ? "La acción de música fue cancelada." : "La acción de música no se completó.";
+const spotifyMusicHistorySentence = historySentences({
+  succeeded: "La acción de música se completó.",
+  cancelled: "La acción de música fue cancelada.",
+  failed: "La acción de música no se completó."
+});
 
 const isRegisterCatalogApplicationSubmission = (
   submission: Record<string, unknown>
@@ -203,15 +193,6 @@ const isRequestCustomApplicationRegistrationSubmission = (
   isRecord(submission.input) &&
   Object.keys(submission.input).every((key) => key === "displayName") &&
   (submission.input.displayName === undefined || typeof submission.input.displayName === "string");
-
-const isOpenWebPageSubmission = (
-  submission: Record<string, unknown>
-): submission is { action: "OPEN_WEB_PAGE"; input: { destination: "YOUTUBE"; browser: "CHROME" } } =>
-  submission.action === "OPEN_WEB_PAGE" &&
-  isRecord(submission.input) &&
-  Object.keys(submission.input).length === 2 &&
-  submission.input.destination === "YOUTUBE" &&
-  submission.input.browser === "CHROME";
 
 const isApprovedWebActionSubmission = (
   submission: Record<string, unknown>
@@ -231,128 +212,24 @@ const isApprovedWebActionSubmission = (
 };
 
 const isApplicationAction = (action: ActionSubmission["action"]): boolean =>
-  action === "OPEN_APPLICATION" || action === "SEARCH_SPOTIFY_APP" || action === "OPEN_WEB_PAGE" || action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
+  action === "OPEN_APPLICATION" || action === "SEARCH_SPOTIFY_APP" || action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION";
 
 const isApprovedWebAction = (action: ActionSubmission["action"]): boolean =>
   action === "OPEN_APPROVED_PAGE" || action === "SEARCH_APPROVED_SITE";
+
+/** The validated, normalized weather fields; a failed validation cannot reach this point. */
+const weatherProposalInput = (value: unknown): WeatherActionProposal["input"] => {
+  const result = validateWeatherInput(value);
+  return result.ok ? result.data : {};
+};
 
 const isWeatherAction = (action: ActionSubmission["action"]): action is WeatherActionProposal["action"] =>
   action === "GET_WEATHER";
 
 const isWeatherActionSubmission = (
   submission: Record<string, unknown>
-): submission is { action: "GET_WEATHER"; input: Record<string, never> } =>
-  submission.action === "GET_WEATHER" && isRecord(submission.input) && Object.keys(submission.input).length === 0;
-
-const isWeeklyScheduleReference = (input: Record<string, unknown>): boolean =>
-  (Object.keys(input).length === 1 && input.allSchedules === true) ||
-  (Object.keys(input).length === 1 && typeof input.scheduleTitle === "string" && input.scheduleTitle.trim().length > 0 && input.scheduleTitle.length <= 160);
-
-const isWeeklyScheduleSubmission = (submission: Record<string, unknown>): boolean => {
-  if (!isRecord(submission.input)) return false;
-  if (submission.action === "GET_WEEKLY_SCHEDULE_DETAILS") return isWeeklyScheduleReference(submission.input);
-  if (submission.action === "ANALYZE_WEEKLY_SCHEDULE") {
-    const { analysis, ...reference } = submission.input;
-    return ["AVAILABILITY", "BUSIEST_DAY", "OVERLAPS"].includes(analysis as string) && isWeeklyScheduleReference(reference);
-  }
-  if (submission.action === "GET_TODAY_AVAILABILITY") return Object.keys(submission.input).length === 0 || (Object.keys(submission.input).length === 1 && typeof submission.input.afterTime === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(submission.input.afterTime));
-  return false;
-};
-
-const isLocalTime = (value: unknown): value is string =>
-  typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-
-const isWeeklyMutationText = (value: unknown, maximumLength: number): value is string =>
-  typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximumLength;
-
-const isWeekday = (value: unknown): boolean =>
-  ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"].includes(value as string);
-
-const isWeeklyMutationSubmission = (submission: Record<string, unknown>): boolean => {
-  if (!isRecord(submission.input)) return false;
-  const input = submission.input;
-  if (submission.action === "CREATE_WEEKLY_SCHEDULE") {
-    return Object.keys(input).every((key) => ["title", "description", "color"].includes(key)) &&
-      isWeeklyMutationText(input.title, 240) &&
-      (input.description === undefined || isWeeklyMutationText(input.description, 4000)) &&
-      (input.color === undefined || (typeof input.color === "string" && /^#[0-9a-f]{6}$/iu.test(input.color)));
-  }
-  if (submission.action === "UPDATE_WEEKLY_SCHEDULE") {
-    const changes = [input.title, input.description, input.color].filter((value) => value !== undefined);
-    return Object.keys(input).every((key) => ["scheduleTitle", "title", "description", "color"].includes(key)) &&
-      isWeeklyMutationText(input.scheduleTitle, 240) && changes.length > 0 &&
-      (input.title === undefined || isWeeklyMutationText(input.title, 240)) &&
-      (input.description === undefined || input.description === null || isWeeklyMutationText(input.description, 4000)) &&
-      (input.color === undefined || input.color === null || (typeof input.color === "string" && /^#[0-9a-f]{6}$/iu.test(input.color)));
-  }
-  if (submission.action === "CREATE_WEEKLY_ROUTINE") {
-    return Object.keys(input).every((key) => ["scheduleTitle", "title", "weekday", "startTime", "endTime", "location", "categoryName"].includes(key)) &&
-      isWeeklyMutationText(input.scheduleTitle, 240) && isWeeklyMutationText(input.title, 240) && isWeekday(input.weekday) &&
-      isLocalTime(input.startTime) && isLocalTime(input.endTime) && input.endTime > input.startTime &&
-      (input.location === undefined || input.location === null || isWeeklyMutationText(input.location, 500)) &&
-      (input.categoryName === undefined || isWeeklyMutationText(input.categoryName, 160));
-  }
-  if (submission.action === "UPDATE_WEEKLY_ROUTINE") {
-    const changes = [input.title, input.weekday, input.startTime, input.endTime, input.location, input.categoryName].filter((value) => value !== undefined);
-    return Object.keys(input).every((key) => ["scheduleTitle", "routineTitle", "targetWeekday", "targetStartTime", "targetEndTime", "title", "weekday", "startTime", "endTime", "location", "categoryName"].includes(key)) &&
-      isWeeklyMutationText(input.scheduleTitle, 240) && isWeeklyMutationText(input.routineTitle, 240) && changes.length > 0 &&
-      (input.targetWeekday === undefined || isWeekday(input.targetWeekday)) &&
-      (input.targetStartTime === undefined || isLocalTime(input.targetStartTime)) &&
-      (input.targetEndTime === undefined || isLocalTime(input.targetEndTime)) &&
-      (input.title === undefined || isWeeklyMutationText(input.title, 240)) &&
-      (input.weekday === undefined || isWeekday(input.weekday)) &&
-      (input.startTime === undefined || isLocalTime(input.startTime)) &&
-      (input.endTime === undefined || isLocalTime(input.endTime)) &&
-      (input.location === undefined || isWeeklyMutationText(input.location, 500)) &&
-      (input.categoryName === undefined || isWeeklyMutationText(input.categoryName, 160));
-  }
-  return false;
-};
-
-const isHabitText = (value: unknown, maximumLength: number): value is string =>
-  typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximumLength;
-
-const isHabitActionSubmission = (submission: Record<string, unknown>): boolean => {
-  if (!isRecord(submission.input)) return false;
-  const input = submission.input;
-  if (submission.action === "GET_HABIT_PROGRESS") {
-    return Object.keys(input).every((key) => key === "scope" || key === "habitTitle") &&
-      (input.scope === "TODAY" || input.scope === "WEEK") &&
-      (input.habitTitle === undefined || isHabitText(input.habitTitle, 240));
-  }
-  if (submission.action === "CREATE_HABIT") {
-    return Object.keys(input).every((key) => ["title", "description", "frequency", "targetCount", "categoryName", "icon"].includes(key)) &&
-      isHabitText(input.title, 240) && ["DAILY", "WEEKLY"].includes(input.frequency as string) &&
-      typeof input.targetCount === "number" && Number.isInteger(input.targetCount) && input.targetCount >= 1 && input.targetCount <= 7 &&
-      (input.description === undefined || isHabitText(input.description, 4000)) &&
-      (input.categoryName === undefined || isHabitText(input.categoryName, 160)) &&
-      (input.icon === undefined || ["SPARK", "BOOK", "DUMBBELL", "HOME", "HEART", "WATER", "RUNNING", "BRAIN", "LEAF"].includes(input.icon as string));
-  }
-  if (submission.action === "UPDATE_HABIT") {
-    const changes = [input.title, input.description, input.frequency, input.targetCount, input.categoryName, input.icon].filter((value) => value !== undefined);
-    return Object.keys(input).every((key) => ["habitTitle", "title", "description", "frequency", "targetCount", "categoryName", "icon"].includes(key)) &&
-      isHabitText(input.habitTitle, 240) && changes.length > 0 &&
-      (input.title === undefined || isHabitText(input.title, 240)) &&
-      (input.description === undefined || input.description === null || isHabitText(input.description, 4000)) &&
-      (input.frequency === undefined || input.frequency === "DAILY" || input.frequency === "WEEKLY") &&
-      (input.targetCount === undefined || (typeof input.targetCount === "number" && Number.isInteger(input.targetCount) && input.targetCount >= 1 && input.targetCount <= 7)) &&
-      (input.categoryName === undefined || input.categoryName === null || isHabitText(input.categoryName, 160)) &&
-      (input.icon === undefined || ["SPARK", "BOOK", "DUMBBELL", "HOME", "HEART", "WATER", "RUNNING", "BRAIN", "LEAF"].includes(input.icon as string));
-  }
-  return submission.action === "COMPLETE_HABIT" && Object.keys(input).length === 1 && isHabitText(input.habitTitle, 240);
-};
-
-const isFileAction = (action: ActionSubmission["action"]): action is FileActionProposal["action"] =>
-  ["SEARCH_FILES", "CREATE_FOLDER", "RENAME_FILE", "RENAME_FOLDER", "MOVE_FILE", "ORGANIZE_FILES"].includes(
-    action as FileActionProposal["action"]
-  );
-
-const isFileActionSubmission = (
-  submission: Record<string, unknown>
-): submission is { action: FileActionProposal["action"]; input: Record<string, unknown> } =>
-  isFileAction(submission.action as ActionSubmission["action"]) &&
-  !isSupervisedFilesAction(submission.action as ActionSubmission["action"]) &&
-  isRecord(submission.input);
+): submission is { action: "GET_WEATHER"; input: WeatherActionProposal["input"] } =>
+  submission.action === "GET_WEATHER" && validateWeatherInput(submission.input).ok;
 
 const SUPERVISED_FILES_ACTIONS = [
   "SEARCH_FILES",
@@ -456,20 +333,53 @@ const isMessagingSubmission = (submission: Record<string, unknown>): boolean => 
 };
 
 /** History keeps only the outcome category for MESSAGING actions; names, numbers and texts never reach it. */
-const safeMessagingHistorySummary = (outcome: ActionOutcome): string =>
-  outcome.status === "SUCCEEDED"
-    ? "La acción de mensajería se completó."
-    : outcome.status === "CANCELLED"
-      ? "La acción de mensajería fue cancelada."
-      : "La acción de mensajería no se completó.";
+const messagingHistorySentence = historySentences({
+  succeeded: "La acción de mensajería se completó.",
+  cancelled: "La acción de mensajería fue cancelada.",
+  failed: "La acción de mensajería no se completó."
+});
 
 /** History keeps only the outcome category for FILES actions; names, queries and results never reach it. */
-const safeFilesHistorySummary = (outcome: ActionOutcome): string =>
+const filesHistorySentence = historySentences({
+  succeeded: "La acción de archivos se completó.",
+  cancelled: "La acción de archivos fue cancelada.",
+  failed: "La acción de archivos no se completó."
+});
+
+/**
+ * History keeps only a generic, fixed sentence per planner action: no titles, names, times, counts or free text.
+ * The spoken and on-screen answer is not affected; only what is persisted.
+ */
+const PLANNER_HISTORY_SUMMARIES: Record<PlannerActionProposal["action"], string> = {
+  CREATE_TASK: "Se creó una tarea.",
+  UPDATE_TASK: "Se actualizó una tarea.",
+  COMPLETE_TASK: "Se completó una tarea.",
+  DELETE_TASK: "Se eliminó una tarea.",
+  CREATE_EVENT: "Se creó un evento.",
+  UPDATE_EVENT: "Se actualizó un evento.",
+  DELETE_EVENT: "Se eliminó un evento.",
+  CREATE_REMINDER: "Se creó un recordatorio.",
+  GET_TODAY_SCHEDULE: "Se consultó la agenda de hoy.",
+  GET_WEEK_SCHEDULE: "Se consultó la agenda de la semana.",
+  GET_CURRENT_DATE_TIME: "Se consultó la fecha y la hora."
+};
+
+const plannerUnsuccessfulSentence = historySentences({
+  succeeded: "",
+  cancelled: "La acción del planificador fue cancelada.",
+  failed: "La acción del planificador no se completó."
+});
+
+const safePlannerHistorySummary = (outcome: ActionOutcome): string =>
   outcome.status === "SUCCEEDED"
-    ? "La acción de archivos se completó."
-    : outcome.status === "CANCELLED"
-      ? "La acción de archivos fue cancelada."
-      : "La acción de archivos no se completó.";
+    ? PLANNER_HISTORY_SUMMARIES[outcome.action as PlannerActionProposal["action"]]
+    : plannerUnsuccessfulSentence(outcome.status);
+
+/** History keeps only the outcome category for the weather query; the place, coordinates and numbers never reach it. */
+const weatherHistorySentence = historySentences({
+  succeeded: "Se respondió una consulta del clima.",
+  failed: "La consulta del clima no se completó."
+});
 
 const isOpaqueIdentifier = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
@@ -480,19 +390,16 @@ const toAwaitingConfirmation = (pending: PendingProposal): AwaitingActionConfirm
   action: pending.proposal.action,
   riskLevel: pending.policy.riskLevel,
   confirmationId: pending.confirmationId,
-  confirmation: pending.policy.confirmation,
-  ...(pending.proposal.action === "ORGANIZE_FILES" && pending.proposal.plan
-    ? { preview: pending.proposal.plan }
-    : {})
+  confirmation: pending.policy.confirmation
 });
 
 const historyFailureOutcome = (outcome: ActionOutcome): ActionOutcome => {
   const userSummary =
     outcome.status === "SUCCEEDED"
-      ? "La acción se completó, pero no se pudo registrar en el historial."
+      ? "Listo, pero no pude guardarlo en el historial."
       : outcome.status === "CANCELLED"
-        ? "La acción fue cancelada, pero no se pudo registrar en el historial."
-        : "La acción no se completó y no se pudo registrar en el historial.";
+        ? "Lo cancelé, pero no pude guardarlo en el historial."
+        : "No pude hacerlo y tampoco guardarlo en el historial.";
 
   return {
     ...outcome,
@@ -512,11 +419,9 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
           ? "WEB"
         : isWeatherAction(outcome.action)
           ? "WEATHER"
-          : isHabitAction(outcome.action)
-            ? "HABIT"
           : isMessagingAction(outcome.action)
           ? "MESSAGING"
-          : isFileAction(outcome.action) || isSupervisedFilesAction(outcome.action)
+          : isSupervisedFilesAction(outcome.action)
           ? "FILES"
           : "PLANNER",
     resultKind: outcome.status
@@ -547,28 +452,6 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
       metadata.movedCount = mutation.movedCount;
       metadata.failedCount = mutation.failedCount;
     }
-  } else if (isFileAction(outcome.action) && outcome.status === "SUCCEEDED" && outcome.data !== undefined) {
-    if ("items" in outcome.data && Array.isArray(outcome.data.items)) {
-      metadata.itemCount = outcome.data.items.length;
-      const legacySearch = outcome.data as { skippedEntryCount: number; truncated: boolean };
-      metadata.skippedCount = legacySearch.skippedEntryCount;
-      metadata.partial = legacySearch.truncated;
-    } else if ("operation" in outcome.data) {
-      metadata.itemCount = 1;
-    } else if ("plannedCount" in outcome.data) {
-      const organization = outcome.data as Extract<FileActionData, { plannedCount: number }>;
-      metadata.plannedCount = organization.plannedCount;
-      metadata.movedCount = organization.movedCount;
-      metadata.skippedCount = organization.skippedCount;
-      metadata.conflictCount = organization.conflictCount;
-      metadata.partial = organization.partial;
-      metadata.documentsCount = organization.categoryCounts.DOCUMENTS;
-      metadata.imagesCount = organization.categoryCounts.IMAGES;
-      metadata.audioCount = organization.categoryCounts.AUDIO;
-      metadata.videosCount = organization.categoryCounts.VIDEOS;
-      metadata.archivesCount = organization.categoryCounts.ARCHIVES;
-      metadata.otherCount = organization.categoryCounts.OTHER;
-    }
   }
   return metadata;
 };
@@ -597,14 +480,18 @@ export const createActionOrchestrator = (
         riskLevel: outcome.riskLevel,
         status: outcome.status,
         userSummary: isSupervisedFilesAction(outcome.action)
-          ? safeFilesHistorySummary(outcome)
+          ? filesHistorySentence(outcome.status)
           : isMessagingAction(outcome.action)
-            ? safeMessagingHistorySummary(outcome)
+            ? messagingHistorySentence(outcome.status)
             : outcome.action === "SEARCH_SPOTIFY_APP"
-              ? safeSpotifySearchHistorySummary(outcome)
+              ? spotifySearchHistorySentence(outcome.status)
               : isSpotifyMusicAction(outcome.action)
-                ? safeSpotifyMusicHistorySummary(outcome)
-                : outcome.userSummary,
+                ? spotifyMusicHistorySentence(outcome.status)
+                : isWeatherAction(outcome.action)
+                  ? weatherHistorySentence(outcome.status)
+                  : isPlannerAction(outcome.action)
+                    ? safePlannerHistorySummary(outcome)
+                    : outcome.userSummary,
         ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
         metadata: getHistoryMetadata(outcome),
         startedAt: startedAt.toISOString(),
@@ -625,14 +512,15 @@ export const createActionOrchestrator = (
     approvedByConfirmation = false
   ): Promise<ActionOutcome> => {
     if (policy.approval !== "DIRECT" && !approvedByConfirmation) {
-      return recordTerminalOutcome({
-        actionId: proposal.actionId,
-        action: proposal.action,
-        riskLevel: policy.riskLevel,
-        status: "VALIDATION_FAILED",
-        errorCode: ACTION_ERROR_CODES.confirmationUnavailable,
-        userSummary: messages[ACTION_ERROR_CODES.confirmationUnavailable]
-      }, startedAt);
+      return recordTerminalOutcome(
+        failedOutcome(
+          outcomeIdentity(proposal, policy),
+          "VALIDATION_FAILED",
+          ACTION_ERROR_CODES.confirmationUnavailable,
+          messages[ACTION_ERROR_CODES.confirmationUnavailable]
+        ),
+        startedAt
+      );
     }
 
     let outcome: ActionOutcome;
@@ -641,14 +529,12 @@ export const createActionOrchestrator = (
       outcome = { ...executed, actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel };
     } catch {
       dependencies.logError("Action executor threw unexpectedly.");
-      outcome = {
-        actionId: proposal.actionId,
-        action: proposal.action,
-        riskLevel: policy.riskLevel,
-        status: "EXECUTION_FAILED",
-        errorCode: ACTION_ERROR_CODES.executionUnavailable,
-        userSummary: messages[ACTION_ERROR_CODES.executionUnavailable]
-      };
+      outcome = failedOutcome(
+        outcomeIdentity(proposal, policy),
+        "EXECUTION_FAILED",
+        ACTION_ERROR_CODES.executionUnavailable,
+        messages[ACTION_ERROR_CODES.executionUnavailable]
+      );
     }
 
     return recordTerminalOutcome(outcome, startedAt);
@@ -657,13 +543,7 @@ export const createActionOrchestrator = (
   const recordExpiredProposal = async (pending: PendingProposal): Promise<void> => {
     dependencies.executor.releasePrepared?.(pending.proposal);
     await recordTerminalOutcome(
-      {
-        actionId: pending.proposal.actionId,
-        action: pending.proposal.action,
-        riskLevel: pending.policy.riskLevel,
-        status: "CANCELLED",
-        userSummary: "La confirmación de la acción expiró."
-      },
+      cancelledOutcome(outcomeIdentity(pending.proposal, pending.policy), "La confirmación de la acción expiró."),
       pending.startedAt
     );
   };
@@ -682,7 +562,6 @@ export const createActionOrchestrator = (
       }
       if (
         !isPlannerAction(submission.action) &&
-        !isHabitActionSubmission(submission) &&
         !isOpenApplicationSubmission(submission) &&
         !isSearchSpotifyAppSubmission(submission) &&
         !isSpotifyMusicSubmission(submission) &&
@@ -691,11 +570,7 @@ export const createActionOrchestrator = (
         !isSupervisedFilesSubmission(submission) &&
         !isMessagingSubmission(submission) &&
         !isApprovedWebActionSubmission(submission) &&
-        !isOpenWebPageSubmission(submission) &&
-        !isWeatherActionSubmission(submission) &&
-        !isWeeklyScheduleSubmission(submission) &&
-        !isWeeklyMutationSubmission(submission) &&
-        !isFileActionSubmission(submission)
+        !isWeatherActionSubmission(submission)
       ) {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
       }
@@ -735,30 +610,13 @@ export const createActionOrchestrator = (
           ? submission.action === "OPEN_APPROVED_PAGE"
             ? { actionId, action: "OPEN_APPROVED_PAGE", input: { site: submission.input.site } } as ApprovedWebActionProposal
             : { actionId, action: "SEARCH_APPROVED_SITE", input: { site: submission.input.site, query: submission.input.query } } as ApprovedWebActionProposal
-        : isOpenWebPageSubmission(submission)
+        : isWeatherActionSubmission(submission)
           ? {
               actionId,
-              action: "OPEN_WEB_PAGE",
-              input: { destination: "YOUTUBE", browser: "CHROME" }
-            } as OpenWebPageActionProposal
-        : isFileActionSubmission(submission)
-          ? {
-              actionId,
-              action: submission.action,
-              input: submission.input as FileActionProposal["input"]
-            } as LegacyFileActionProposal
-          : isWeatherActionSubmission(submission)
-            ? {
-                actionId,
-                action: "GET_WEATHER",
-                input: {}
-              } as WeatherActionProposal
-          : isHabitAction(submission.action)
-            ? {
-                actionId,
-                action: submission.action,
-                input: submission.input as HabitActionProposal["input"]
-              } as HabitActionProposal
+              action: "GET_WEATHER",
+              // Only the validated, normalized fields travel on; nothing else the caller sent.
+              input: weatherProposalInput(submission.input)
+            } as WeatherActionProposal
           : {
               actionId,
               action: submission.action as PlannerActionProposal["action"],
@@ -779,14 +637,10 @@ export const createActionOrchestrator = (
         if (!prepared.ok) {
           return {
             ok: true,
-            data: await recordTerminalOutcome({
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: "VALIDATION_FAILED",
-              errorCode: prepared.error.code,
-              userSummary: prepared.error.userMessage
-            }, startedAt)
+            data: await recordTerminalOutcome(
+              failedOutcome(outcomeIdentity(proposal, policy), "VALIDATION_FAILED", prepared.error.code, prepared.error.userMessage),
+              startedAt
+            )
           };
         }
         proposal = { ...proposal, input: { catalogKey: prepared.data.catalogKey, alias: prepared.data.alias } };
@@ -806,25 +660,23 @@ export const createActionOrchestrator = (
         try {
           prepared = dependencies.executor.prepareCustomRegistration
             ? await dependencies.executor.prepareCustomRegistration(proposal)
-            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." } };
+            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo hacer eso." } };
         } catch {
           dependencies.logError("Custom application selection preparation failed.");
           prepared = {
             ok: false as const,
-            error: { code: "APPLICATION_CUSTOM_PICKER_UNAVAILABLE", userMessage: "No se pudo abrir el selector de aplicaciones." }
+            error: { code: "APPLICATION_CUSTOM_PICKER_UNAVAILABLE", userMessage: "No pude abrir el selector de aplicaciones." }
           };
         }
         if (!prepared.ok) {
           return {
             ok: true,
-            data: await recordTerminalOutcome({
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: prepared.error.code === "APPLICATION_CUSTOM_REGISTRATION_CANCELLED" ? "CANCELLED" : "VALIDATION_FAILED",
-              ...(prepared.error.code === "APPLICATION_CUSTOM_REGISTRATION_CANCELLED" ? {} : { errorCode: prepared.error.code }),
-              userSummary: prepared.error.userMessage
-            }, startedAt)
+            data: await recordTerminalOutcome(
+              prepared.error.code === "APPLICATION_CUSTOM_REGISTRATION_CANCELLED"
+                ? cancelledOutcome(outcomeIdentity(proposal, policy), prepared.error.userMessage)
+                : failedOutcome(outcomeIdentity(proposal, policy), "VALIDATION_FAILED", prepared.error.code, prepared.error.userMessage),
+              startedAt
+            )
           };
         }
         proposal = { ...proposal, input: { displayName: prepared.data.displayName, selectionId: prepared.data.selectionId } };
@@ -851,25 +703,26 @@ export const createActionOrchestrator = (
         try {
           preparedFiles = dependencies.executor.prepareFilesAction
             ? await dependencies.executor.prepareFilesAction(proposal)
-            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." } };
+            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo hacer eso." } };
         } catch {
           dependencies.logError("Supervised file proposal preparation failed.");
           preparedFiles = {
             ok: false as const,
-            error: { code: "FILES_OPERATION_FAILED", userMessage: "No se pudo completar la operación con archivos." }
+            error: { code: "FILES_OPERATION_FAILED", userMessage: "No pude completar eso con tus archivos." }
           };
         }
         if (!preparedFiles.ok) {
           return {
             ok: true,
-            data: await recordTerminalOutcome({
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: preparedFiles.error.code === "FILES_OPERATION_FAILED" ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
-              errorCode: preparedFiles.error.code,
-              userSummary: preparedFiles.error.userMessage
-            }, startedAt)
+            data: await recordTerminalOutcome(
+              failedOutcome(
+                outcomeIdentity(proposal, policy),
+                preparedFiles.error.code === "FILES_OPERATION_FAILED" ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
+                preparedFiles.error.code,
+                preparedFiles.error.userMessage
+              ),
+              startedAt
+            )
           };
         }
         proposal = { ...proposal, input: preparedFiles.data.input } as SupervisedFilesActionProposal;
@@ -890,29 +743,28 @@ export const createActionOrchestrator = (
         try {
           preparedMessaging = dependencies.executor.prepareMessagingAction
             ? await dependencies.executor.prepareMessagingAction(proposal)
-            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo realizar esa acción." } };
+            : { ok: false as const, error: { code: "ACTION_UNSUPPORTED", userMessage: "No puedo hacer eso." } };
         } catch {
           dependencies.logError("Messaging proposal preparation failed.");
           preparedMessaging = {
             ok: false as const,
-            error: { code: "MESSAGING_OPERATION_FAILED", userMessage: "No se pudo completar la operación con contactos." }
+            error: { code: "MESSAGING_OPERATION_FAILED", userMessage: "No pude completar eso con tus contactos." }
           };
         }
         if (!preparedMessaging.ok) {
           return {
             ok: true,
-            data: await recordTerminalOutcome({
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: preparedMessaging.error.code === "MESSAGING_FORM_CANCELLED"
-                ? "CANCELLED"
-                : MESSAGING_EXECUTION_FAILURE_CODES.includes(preparedMessaging.error.code)
-                  ? "EXECUTION_FAILED"
-                  : "VALIDATION_FAILED",
-              errorCode: preparedMessaging.error.code,
-              userSummary: preparedMessaging.error.userMessage
-            }, startedAt)
+            data: await recordTerminalOutcome(
+              preparedMessaging.error.code === "MESSAGING_FORM_CANCELLED"
+                ? cancelledOutcome(outcomeIdentity(proposal, policy), preparedMessaging.error.userMessage, preparedMessaging.error.code)
+                : failedOutcome(
+                    outcomeIdentity(proposal, policy),
+                    MESSAGING_EXECUTION_FAILURE_CODES.includes(preparedMessaging.error.code) ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
+                    preparedMessaging.error.code,
+                    preparedMessaging.error.userMessage
+                  ),
+              startedAt
+            )
           };
         }
         proposal = { ...proposal, input: preparedMessaging.data.input } as MessagingActionProposal;
@@ -924,47 +776,6 @@ export const createActionOrchestrator = (
             scopeSummary: preparedMessaging.data.scopeSummary
           }
         };
-      }
-
-      if (proposal.action === "ORGANIZE_FILES") {
-        let planResult;
-        try {
-          planResult = dependencies.executor.prepareOrganization
-            ? await dependencies.executor.prepareOrganization(proposal)
-            : {
-                ok: false as const,
-                error: {
-                  code: "FILE_ORGANIZATION_UNAVAILABLE",
-                  userMessage: "No se pudo analizar la carpeta autorizada."
-                }
-              };
-        } catch {
-          dependencies.logError("File organization proposal preparation failed.");
-          planResult = {
-            ok: false as const,
-            error: {
-              code: "FILE_ORGANIZATION_UNAVAILABLE",
-              userMessage: "No se pudo analizar la carpeta autorizada."
-            }
-          };
-        }
-        if (!planResult.ok) {
-          return {
-            ok: true,
-            data: await recordTerminalOutcome(
-              {
-                actionId: proposal.actionId,
-                action: proposal.action,
-                riskLevel: policy.riskLevel,
-                status: "VALIDATION_FAILED",
-                errorCode: planResult.error.code,
-                userSummary: planResult.error.userMessage
-              },
-              startedAt
-            )
-          };
-        }
-        proposal = { ...proposal, plan: planResult.data };
       }
 
       if (!policy.confirmation.required) {
@@ -1022,13 +833,10 @@ export const createActionOrchestrator = (
 
       pendingProposals.delete(confirmationId);
       dependencies.executor.releasePrepared?.(pending.proposal);
-      const outcome: ActionOutcome = {
-        actionId: pending.proposal.actionId,
-        action: pending.proposal.action,
-        riskLevel: pending.policy.riskLevel,
-        status: "CANCELLED",
-        userSummary: "Se canceló la acción solicitada."
-      };
+      const outcome: ActionOutcome = cancelledOutcome(
+        outcomeIdentity(pending.proposal, pending.policy),
+        "Se canceló la acción solicitada."
+      );
       return { ok: true, data: await recordTerminalOutcome(outcome, pending.startedAt) };
     },
     confirmEventDeletion: async (eventId, confirmationId) => {
