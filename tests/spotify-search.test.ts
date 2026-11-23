@@ -188,7 +188,7 @@ describe("launcher precondition", () => {
     const { launcher, openSearch } = createLauncher(records as ApplicationRecord[]);
     await expect(launcher.searchSpotifyApp("Despacito")).resolves.toEqual({
       ok: false,
-      error: { code: "APPLICATION_SPOTIFY_NOT_REGISTERED", userMessage: "Primero debes registrar esa aplicación para poder abrirla." }
+      error: { code: "APPLICATION_SPOTIFY_NOT_REGISTERED", userMessage: "Aún no tengo esa aplicación registrada. Pídeme que la registre primero." }
     });
     expect(openSearch).not.toHaveBeenCalled();
   });
@@ -269,7 +269,7 @@ describe("action execution, history and speech", () => {
     const missing = createFlow([]);
     await expect(missing.orchestrator.propose({ action: "SEARCH_SPOTIFY_APP", input: { query: "Despacito" } })).resolves.toMatchObject({
       ok: true,
-      data: { status: "VALIDATION_FAILED", errorCode: "APPLICATION_SPOTIFY_NOT_REGISTERED", userSummary: "Primero debes registrar esa aplicación para poder abrirla." }
+      data: { status: "VALIDATION_FAILED", errorCode: "APPLICATION_SPOTIFY_NOT_REGISTERED", userSummary: "Aún no tengo esa aplicación registrada. Pídeme que la registre primero." }
     });
     const failing = createFlow([spotifyRecord()], vi.fn(async () => ({ ok: false as const, error: { ...CATALOG_LAUNCH_FAILURE } })) as never);
     const failed = await failing.orchestrator.propose({ action: "SEARCH_SPOTIFY_APP", input: { query: "Despacito" } });
@@ -411,8 +411,6 @@ describe("voice routing matrix", () => {
     const providerDraft = (action: string, extra: Record<string, unknown>) => ({
       action,
       input: null,
-      weeklyRoutine: null,
-      habitAction: null,
       approvedWeb: null,
       catalogApplication: null,
       filesAction: null,
