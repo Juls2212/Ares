@@ -117,7 +117,7 @@ describe("opening a found file by voice (the three real utterances)", () => {
     const { run, interpret } = createInterpreter();
     const result = await run("abre el segundo archivo");
     expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
-    expect(result.ok && result.data.summary).toBe("Primero haz una búsqueda de archivos para poder elegir un resultado.");
+    expect(result.ok && result.data.summary).toBe("Primero dime qué archivo buscar y luego eliges uno de los resultados.");
     expect(JSON.stringify(result)).not.toContain("registrar");
     expect(interpret).not.toHaveBeenCalled();
   });
@@ -176,7 +176,7 @@ describe("application aliases still win over file names", () => {
 
 describe("a name returned by the model is resolved in Main", () => {
   const fileNameDraft = (action: string, fileName: unknown) => ({
-    action, input: null, weeklyRoutine: null, habitAction: null, approvedWeb: null, catalogApplication: null, filesAction: { fileName }
+    action, input: null, approvedWeb: null, catalogApplication: null, filesAction: { fileName }
   });
 
   it("converts a unique name into an ordinal before validation", async () => {
