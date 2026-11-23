@@ -1,0 +1,779 @@
+{
+ "messagingTable": {
+  "MESSAGING_CONTACT_NOT_FOUND": "No encontré ese contacto. Indica el nombre de uno de tus contactos guardados.",
+  "MESSAGING_CONTACT_AMBIGUOUS": "Hay varios contactos que coinciden. Indica el nombre completo de uno de ellos.",
+  "MESSAGING_CONTACT_EXISTS": "Ya tienes un contacto con ese nombre.",
+  "MESSAGING_ALIAS_EXISTS": "Ese apodo ya lo usa otro contacto.",
+  "MESSAGING_INVALID_NAME": "Indica un nombre válido para el contacto: hasta 40 caracteres, sin números de teléfono ni nombres de aplicaciones.",
+  "MESSAGING_INVALID_PHONE": "El número no es válido. Escríbelo con el código de país, por ejemplo +57 300 123 4567, o con 10 dígitos si es un celular colombiano.",
+  "MESSAGING_INVALID_BODY": "El mensaje debe tener entre 1 y 1000 caracteres.",
+  "MESSAGING_NO_DRAFT": "No hay ningún mensaje preparado. Dime a quién quieres escribirle y qué decirle.",
+  "MESSAGING_FORM_CANCELLED": "Se canceló el guardado del contacto.",
+  "MESSAGING_PENDING_EXPIRED": "El contacto pendiente expiró. Vuelve a pedirme que lo guarde.",
+  "MESSAGING_UNSUPPORTED_CHANNEL": "Por ahora solo puedo preparar mensajes para WhatsApp.",
+  "MESSAGING_OPEN_FAILED": "No pude abrir WhatsApp. Revisa que esté instalado.",
+  "MESSAGING_DRAFT_CHANGED": "El mensaje cambió después de la revisión, así que no abrí nada. Vuelve a pedirme que abra el chat.",
+  "MESSAGING_BODY_TOO_LONG_FOR_LINK": "El mensaje es demasiado largo para abrirlo en WhatsApp desde Ares. Acórtalo con «cámbialo por …».",
+  "MESSAGING_NO_CONTACTS": "Aún no tienes contactos guardados.",
+  "MESSAGING_STORAGE_UNAVAILABLE": "No pude acceder a tus contactos. Revisa que la base de datos esté actualizada.",
+  "MESSAGING_OPERATION_FAILED": "No pude completar eso con tus contactos."
+ },
+ "spotifyTable": {
+  "SPOTIFY_NOT_CONNECTED": "Spotify no está conectado. Di «conecta Spotify» para conectarlo.",
+  "SPOTIFY_NOT_CONFIGURED": "La conexión con Spotify no está configurada en este equipo.",
+  "SPOTIFY_AUTH_EXPIRED": "La conexión con Spotify caducó. Di «conecta Spotify» para conectarla de nuevo.",
+  "SPOTIFY_PREMIUM_REQUIRED": "Controlar la reproducción requiere Spotify Premium.",
+  "SPOTIFY_NOT_ALLOWLISTED": "Esta cuenta de Spotify no está autorizada para la app de Ares. Agrégala en el panel de desarrolladores de Spotify.",
+  "SPOTIFY_NO_ACTIVE_DEVICE": "Abre Spotify en tu computador y vuelve a intentarlo.",
+  "SPOTIFY_NO_RESULTS": "No encontré resultados en Spotify para esa búsqueda.",
+  "SPOTIFY_RATE_LIMITED": "Spotify está recibiendo muchas solicitudes. Intenta de nuevo en un momento.",
+  "SPOTIFY_NETWORK_ERROR": "No pude comunicarme con Spotify. Revisa tu conexión e inténtalo de nuevo.",
+  "SPOTIFY_UNEXPECTED_RESPONSE": "Spotify respondió algo inesperado. Inténtalo de nuevo.",
+  "SPOTIFY_CONNECT_CANCELLED": "Se canceló la conexión con Spotify.",
+  "SPOTIFY_CONNECT_TIMEOUT": "La conexión con Spotify tardó demasiado y se canceló. Inténtalo de nuevo.",
+  "SPOTIFY_CONNECT_PORT_BUSY": "No pude iniciar la conexión con Spotify porque el puerto local 8888 está ocupado.",
+  "SPOTIFY_BROWSER_UNAVAILABLE": "No pude abrir el navegador para conectar Spotify.",
+  "SPOTIFY_SECURE_STORAGE_UNAVAILABLE": "Este equipo no permite guardar la conexión de Spotify de forma segura, así que no la guardaré.",
+  "SPOTIFY_INVALID_REQUEST": "Indica qué quieres que reproduzca, o un volumen entre 0 y 100."
+ },
+ "filesTable": {
+  "FILES_NO_RESULTS": "No encontré archivos que coincidan con tu búsqueda.",
+  "FILES_SEARCH_PARTIAL": "Los resultados pueden ser parciales.",
+  "FILES_STALE_SELECTION": "Esa selección ya no está disponible. Haz una nueva búsqueda.",
+  "FILES_TARGET_NOT_FOUND": "Ese elemento ya no existe. Haz una nueva búsqueda.",
+  "FILES_TYPE_BLOCKED": "No puedo abrir ese tipo de archivo.",
+  "FILES_ALREADY_EXISTS": "Ya existe un elemento con ese nombre. No se cambió nada.",
+  "FILES_INVALID_NAME": "El nombre no es válido.",
+  "FILES_INVALID_QUERY": "La búsqueda no es válida.",
+  "FILES_OUT_OF_SCOPE": "Esa ubicación no está permitida.",
+  "FILES_DESTINATION_INVALID": "El destino no es válido o no está permitido. No se movió nada.",
+  "FILES_RECYCLE_UNAVAILABLE": "No pude enviar el elemento a la Papelera. No se eliminó nada.",
+  "FILES_PARTIAL_COMPLETION": "La operación se detuvo antes de terminar. Haz una nueva búsqueda para revisar el resultado.",
+  "FILES_OPERATION_FAILED": "No pude completar eso con tus archivos."
+ },
+ "catalogRegistrationTable": {
+  "UNKNOWN_CATALOG_KEY": {
+   "code": "APPLICATION_CATALOG_KEY_INVALID",
+   "userMessage": "Esa aplicación no está en el catálogo aprobado."
+  },
+  "UNSUPPORTED_PLATFORM": {
+   "code": "APPLICATION_CATALOG_UNSUPPORTED_PLATFORM",
+   "userMessage": "Este sistema todavía no permite registrar aplicaciones aprobadas."
+  },
+  "NOT_AVAILABLE": {
+   "code": "APPLICATION_CATALOG_UNAVAILABLE",
+   "userMessage": "No encontré esa aplicación disponible en este equipo."
+  },
+  "ALREADY_REGISTERED": {
+   "code": "APPLICATION_CATALOG_ALREADY_REGISTERED",
+   "userMessage": "Esa aplicación ya está registrada."
+  },
+  "ALIAS_CONFLICT": {
+   "code": "APPLICATION_CONFLICT",
+   "userMessage": "Ya existe una aplicación o alias con esos datos."
+  },
+  "PREPARATION_FAILED": {
+   "code": "APPLICATION_CATALOG_PREPARATION_FAILED",
+   "userMessage": "No pude preparar el registro de la aplicación."
+  },
+  "PERSISTENCE_FAILED": {
+   "code": "APPLICATION_CATALOG_PERSISTENCE_FAILED",
+   "userMessage": "No pude guardar el registro de la aplicación."
+  }
+ },
+ "catalogLaunchFailure": {
+  "code": "APPLICATION_CATALOG_LAUNCH_FAILED",
+  "userMessage": "No pude abrir esa aplicación. Revisa que esté instalada."
+ },
+ "weatherTable": {
+  "WEATHER_INPUT_INVALID": "No pude entender el lugar o el día para consultar el clima.",
+  "WEATHER_LOCATION_NOT_FOUND": "No encontré ese lugar para consultar el clima.",
+  "WEATHER_UNAVAILABLE": "No puedo consultar el clima en este momento.",
+  "WEATHER_TIMEOUT": "La consulta del clima tardó demasiado. Inténtalo de nuevo más tarde.",
+  "WEATHER_RESPONSE_INVALID": "No pude verificar los datos del clima en este momento.",
+  "WEATHER_CONDITION_UNSUPPORTED": "No pude verificar las condiciones del clima."
+ },
+ "elevenLabsTable": {
+  "ELEVENLABS_NOT_CONFIGURED": "La voz de ElevenLabs no está configurada.",
+  "ELEVENLABS_UNAUTHORIZED": "ElevenLabs no aceptó la clave de acceso.",
+  "ELEVENLABS_QUOTA_EXCEEDED": "Se agotó el cupo de voz de ElevenLabs.",
+  "ELEVENLABS_VOICE_NOT_FOUND": "ElevenLabs no encontró la voz elegida.",
+  "ELEVENLABS_UNAVAILABLE": "ElevenLabs no está disponible ahora.",
+  "ELEVENLABS_TIMEOUT": "ElevenLabs tardó demasiado en responder.",
+  "ELEVENLABS_RESPONSE_INVALID": "ElevenLabs envió un audio que no se puede usar."
+ },
+ "plannerCodes": {
+  "inputInvalid": "PLANNER_INPUT_INVALID",
+  "unknownField": "PLANNER_UNKNOWN_FIELD",
+  "requiredFieldMissing": "PLANNER_REQUIRED_FIELD_MISSING",
+  "fieldTypeInvalid": "PLANNER_FIELD_TYPE_INVALID",
+  "textInvalid": "PLANNER_TEXT_INVALID",
+  "textTooLong": "PLANNER_TEXT_TOO_LONG",
+  "identifierInvalid": "PLANNER_IDENTIFIER_INVALID",
+  "colorInvalid": "PLANNER_COLOR_INVALID",
+  "enumInvalid": "PLANNER_ENUM_INVALID",
+  "dateInvalid": "PLANNER_DATE_INVALID",
+  "timeInvalid": "PLANNER_TIME_INVALID",
+  "dateTimeInvalid": "PLANNER_DATE_TIME_INVALID",
+  "taskDueTimeRequiresDate": "PLANNER_TASK_DUE_TIME_REQUIRES_DATE",
+  "taskCompletionStateInvalid": "PLANNER_TASK_COMPLETION_STATE_INVALID",
+  "eventTimeRangeInvalid": "PLANNER_EVENT_TIME_RANGE_INVALID",
+  "reminderAssociationInvalid": "PLANNER_REMINDER_ASSOCIATION_INVALID",
+  "reminderDeliveryStateInvalid": "PLANNER_REMINDER_DELIVERY_STATE_INVALID",
+  "updateEmpty": "PLANNER_UPDATE_EMPTY",
+  "notFound": "PLANNER_NOT_FOUND",
+  "referenceNotFound": "PLANNER_REFERENCE_NOT_FOUND",
+  "conflict": "PLANNER_CONFLICT",
+  "databaseUnavailable": "PLANNER_DATABASE_UNAVAILABLE",
+  "taskAlreadyCompleted": "PLANNER_TASK_ALREADY_COMPLETED",
+  "confirmationUnavailable": "PLANNER_CONFIRMATION_UNAVAILABLE",
+  "ipcUnavailable": "PLANNER_IPC_UNAVAILABLE"
+ },
+ "actionErrorCodes": {
+  "unknown": "ACTION_UNKNOWN",
+  "unsupported": "ACTION_UNSUPPORTED",
+  "deferred": "ACTION_DEFERRED",
+  "proposalInvalid": "ACTION_PROPOSAL_INVALID",
+  "historyInvalid": "ACTION_HISTORY_INVALID",
+  "historyUnavailable": "ACTION_HISTORY_UNAVAILABLE",
+  "confirmationInvalid": "ACTION_CONFIRMATION_INVALID",
+  "confirmationUnavailable": "ACTION_CONFIRMATION_UNAVAILABLE",
+  "executionUnavailable": "ACTION_EXECUTION_UNAVAILABLE",
+  "historyNotRecorded": "ACTION_HISTORY_NOT_RECORDED",
+  "ipcUnavailable": "ACTION_IPC_UNAVAILABLE"
+ },
+ "executionCodes": {
+  "messaging": [
+   "MESSAGING_OPERATION_FAILED",
+   "MESSAGING_OPEN_FAILED",
+   "MESSAGING_STORAGE_UNAVAILABLE"
+  ],
+  "spotify": [
+   "SPOTIFY_RATE_LIMITED",
+   "SPOTIFY_NETWORK_ERROR",
+   "SPOTIFY_UNEXPECTED_RESPONSE",
+   "SPOTIFY_CONNECT_TIMEOUT",
+   "SPOTIFY_CONNECT_PORT_BUSY",
+   "SPOTIFY_BROWSER_UNAVAILABLE"
+  ],
+  "files": [
+   "FILES_OPERATION_FAILED",
+   "FILES_RECYCLE_UNAVAILABLE",
+   "FILES_PARTIAL_COMPLETION"
+  ],
+  "catalog": [
+   "APPLICATION_CATALOG_PREPARATION_FAILED",
+   "APPLICATION_CATALOG_PERSISTENCE_FAILED",
+   "APPLICATION_CATALOG_LAUNCH_FAILED"
+  ]
+ },
+ "messagingBuilders": {
+  "failures": [
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_CONTACT_NOT_FOUND",
+     "userMessage": "No encontré ese contacto. Indica el nombre de uno de tus contactos guardados."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_CONTACT_AMBIGUOUS",
+     "userMessage": "Hay varios contactos que coinciden. Indica el nombre completo de uno de ellos."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_CONTACT_EXISTS",
+     "userMessage": "Ya tienes un contacto con ese nombre."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_ALIAS_EXISTS",
+     "userMessage": "Ese apodo ya lo usa otro contacto."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_INVALID_NAME",
+     "userMessage": "Indica un nombre válido para el contacto: hasta 40 caracteres, sin números de teléfono ni nombres de aplicaciones."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_INVALID_PHONE",
+     "userMessage": "El número no es válido. Escríbelo con el código de país, por ejemplo +57 300 123 4567, o con 10 dígitos si es un celular colombiano."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_INVALID_BODY",
+     "userMessage": "El mensaje debe tener entre 1 y 1000 caracteres."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_NO_DRAFT",
+     "userMessage": "No hay ningún mensaje preparado. Dime a quién quieres escribirle y qué decirle."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_FORM_CANCELLED",
+     "userMessage": "Se canceló el guardado del contacto."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_PENDING_EXPIRED",
+     "userMessage": "El contacto pendiente expiró. Vuelve a pedirme que lo guarde."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_UNSUPPORTED_CHANNEL",
+     "userMessage": "Por ahora solo puedo preparar mensajes para WhatsApp."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_OPEN_FAILED",
+     "userMessage": "No pude abrir WhatsApp. Revisa que esté instalado."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_DRAFT_CHANGED",
+     "userMessage": "El mensaje cambió después de la revisión, así que no abrí nada. Vuelve a pedirme que abra el chat."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_BODY_TOO_LONG_FOR_LINK",
+     "userMessage": "El mensaje es demasiado largo para abrirlo en WhatsApp desde Ares. Acórtalo con «cámbialo por …»."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_NO_CONTACTS",
+     "userMessage": "Aún no tienes contactos guardados."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_STORAGE_UNAVAILABLE",
+     "userMessage": "No pude acceder a tus contactos. Revisa que la base de datos esté actualizada."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "MESSAGING_OPERATION_FAILED",
+     "userMessage": "No pude completar eso con tus contactos."
+    }
+   }
+  ],
+  "success": {
+   "ok": true,
+   "data": {
+    "value": 1
+   }
+  }
+ },
+ "spotifyBuilders": {
+  "failures": [
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_NOT_CONNECTED",
+     "userMessage": "Spotify no está conectado. Di «conecta Spotify» para conectarlo."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_NOT_CONFIGURED",
+     "userMessage": "La conexión con Spotify no está configurada en este equipo."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_AUTH_EXPIRED",
+     "userMessage": "La conexión con Spotify caducó. Di «conecta Spotify» para conectarla de nuevo."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_PREMIUM_REQUIRED",
+     "userMessage": "Controlar la reproducción requiere Spotify Premium."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_NOT_ALLOWLISTED",
+     "userMessage": "Esta cuenta de Spotify no está autorizada para la app de Ares. Agrégala en el panel de desarrolladores de Spotify."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_NO_ACTIVE_DEVICE",
+     "userMessage": "Abre Spotify en tu computador y vuelve a intentarlo."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_NO_RESULTS",
+     "userMessage": "No encontré resultados en Spotify para esa búsqueda."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_RATE_LIMITED",
+     "userMessage": "Spotify está recibiendo muchas solicitudes. Intenta de nuevo en un momento."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_NETWORK_ERROR",
+     "userMessage": "No pude comunicarme con Spotify. Revisa tu conexión e inténtalo de nuevo."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_UNEXPECTED_RESPONSE",
+     "userMessage": "Spotify respondió algo inesperado. Inténtalo de nuevo."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_CONNECT_CANCELLED",
+     "userMessage": "Se canceló la conexión con Spotify."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_CONNECT_TIMEOUT",
+     "userMessage": "La conexión con Spotify tardó demasiado y se canceló. Inténtalo de nuevo."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_CONNECT_PORT_BUSY",
+     "userMessage": "No pude iniciar la conexión con Spotify porque el puerto local 8888 está ocupado."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_BROWSER_UNAVAILABLE",
+     "userMessage": "No pude abrir el navegador para conectar Spotify."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_SECURE_STORAGE_UNAVAILABLE",
+     "userMessage": "Este equipo no permite guardar la conexión de Spotify de forma segura, así que no la guardaré."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "SPOTIFY_INVALID_REQUEST",
+     "userMessage": "Indica qué quieres que reproduzca, o un volumen entre 0 y 100."
+    }
+   }
+  ],
+  "success": {
+   "ok": true,
+   "data": {
+    "value": 1
+   }
+  }
+ },
+ "filesBuilders": {
+  "failures": [
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_NO_RESULTS",
+     "userMessage": "No encontré archivos que coincidan con tu búsqueda."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_SEARCH_PARTIAL",
+     "userMessage": "Los resultados pueden ser parciales."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_STALE_SELECTION",
+     "userMessage": "Esa selección ya no está disponible. Haz una nueva búsqueda."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_TARGET_NOT_FOUND",
+     "userMessage": "Ese elemento ya no existe. Haz una nueva búsqueda."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_TYPE_BLOCKED",
+     "userMessage": "No puedo abrir ese tipo de archivo."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_ALREADY_EXISTS",
+     "userMessage": "Ya existe un elemento con ese nombre. No se cambió nada."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_INVALID_NAME",
+     "userMessage": "El nombre no es válido."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_INVALID_QUERY",
+     "userMessage": "La búsqueda no es válida."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_OUT_OF_SCOPE",
+     "userMessage": "Esa ubicación no está permitida."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_DESTINATION_INVALID",
+     "userMessage": "El destino no es válido o no está permitido. No se movió nada."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_RECYCLE_UNAVAILABLE",
+     "userMessage": "No pude enviar el elemento a la Papelera. No se eliminó nada."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_PARTIAL_COMPLETION",
+     "userMessage": "La operación se detuvo antes de terminar. Haz una nueva búsqueda para revisar el resultado."
+    }
+   },
+   {
+    "ok": false,
+    "error": {
+     "code": "FILES_OPERATION_FAILED",
+     "userMessage": "No pude completar eso con tus archivos."
+    }
+   }
+  ],
+  "withCounts": {
+   "ok": false,
+   "error": {
+    "code": "FILES_PARTIAL_COMPLETION",
+    "userMessage": "La operación se detuvo antes de terminar. Haz una nueva búsqueda para revisar el resultado.",
+    "counts": {
+     "moved": 2,
+     "failed": 1
+    }
+   }
+  },
+  "success": {
+   "ok": true,
+   "data": {
+    "value": 1
+   }
+  }
+ },
+ "catalogBuilders": [
+  {
+   "ok": false,
+   "error": {
+    "code": "APPLICATION_CATALOG_KEY_INVALID",
+    "userMessage": "Esa aplicación no está en el catálogo aprobado."
+   }
+  },
+  {
+   "ok": false,
+   "error": {
+    "code": "APPLICATION_CATALOG_UNSUPPORTED_PLATFORM",
+    "userMessage": "Este sistema todavía no permite registrar aplicaciones aprobadas."
+   }
+  },
+  {
+   "ok": false,
+   "error": {
+    "code": "APPLICATION_CATALOG_UNAVAILABLE",
+    "userMessage": "No encontré esa aplicación disponible en este equipo."
+   }
+  },
+  {
+   "ok": false,
+   "error": {
+    "code": "APPLICATION_CATALOG_ALREADY_REGISTERED",
+    "userMessage": "Esa aplicación ya está registrada."
+   }
+  },
+  {
+   "ok": false,
+   "error": {
+    "code": "APPLICATION_CONFLICT",
+    "userMessage": "Ya existe una aplicación o alias con esos datos."
+   }
+  },
+  {
+   "ok": false,
+   "error": {
+    "code": "APPLICATION_CATALOG_PREPARATION_FAILED",
+    "userMessage": "No pude preparar el registro de la aplicación."
+   }
+  },
+  {
+   "ok": false,
+   "error": {
+    "code": "APPLICATION_CATALOG_PERSISTENCE_FAILED",
+    "userMessage": "No pude guardar el registro de la aplicación."
+   }
+  }
+ ],
+ "historySentences": {
+  "SEARCH_FILES": {
+   "SUCCEEDED": "La acción de archivos se completó.",
+   "VALIDATION_FAILED": "La acción de archivos no se completó.",
+   "EXECUTION_FAILED": "La acción de archivos no se completó.",
+   "CANCELLED": "La acción de archivos fue cancelada."
+  },
+  "LIST_CONTACTS": {
+   "SUCCEEDED": "La acción de mensajería se completó.",
+   "VALIDATION_FAILED": "La acción de mensajería no se completó.",
+   "EXECUTION_FAILED": "La acción de mensajería no se completó.",
+   "CANCELLED": "La acción de mensajería fue cancelada."
+  },
+  "PAUSE_SPOTIFY": {
+   "SUCCEEDED": "La acción de música se completó.",
+   "VALIDATION_FAILED": "La acción de música no se completó.",
+   "EXECUTION_FAILED": "La acción de música no se completó.",
+   "CANCELLED": "La acción de música fue cancelada."
+  },
+  "SEARCH_SPOTIFY_APP": {
+   "SUCCEEDED": "La búsqueda en Spotify se completó.",
+   "VALIDATION_FAILED": "La búsqueda en Spotify no se completó.",
+   "EXECUTION_FAILED": "La búsqueda en Spotify no se completó.",
+   "CANCELLED": "La búsqueda en Spotify no se completó."
+  },
+  "GET_CURRENT_DATE_TIME": {
+   "SUCCEEDED": "Se consultó la fecha y la hora.",
+   "VALIDATION_FAILED": "La acción del planificador no se completó.",
+   "EXECUTION_FAILED": "La acción del planificador no se completó.",
+   "CANCELLED": "La acción del planificador fue cancelada."
+  },
+  "CREATE_TASK": {
+   "SUCCEEDED": "Se creó una tarea.",
+   "VALIDATION_FAILED": "La acción del planificador no se completó.",
+   "EXECUTION_FAILED": "La acción del planificador no se completó.",
+   "CANCELLED": "La acción del planificador fue cancelada."
+  },
+  "GET_WEATHER": {
+   "SUCCEEDED": "Se respondió una consulta del clima.",
+   "VALIDATION_FAILED": "La consulta del clima no se completó.",
+   "EXECUTION_FAILED": "La consulta del clima no se completó.",
+   "CANCELLED": "La consulta del clima no se completó."
+  },
+  "OPEN_APPLICATION": {
+   "SUCCEEDED": "raw outcome text with a private title",
+   "VALIDATION_FAILED": "raw outcome text with a private title",
+   "EXECUTION_FAILED": "raw outcome text with a private title",
+   "CANCELLED": "raw outcome text with a private title"
+  }
+ },
+ "spotifyExecutorOutcomes": {
+  "SPOTIFY_NOT_CONNECTED": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_NOT_CONNECTED",
+   "userSummary": "Spotify no está conectado. Di «conecta Spotify» para conectarlo."
+  },
+  "SPOTIFY_NOT_CONFIGURED": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_NOT_CONFIGURED",
+   "userSummary": "La conexión con Spotify no está configurada en este equipo."
+  },
+  "SPOTIFY_AUTH_EXPIRED": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_AUTH_EXPIRED",
+   "userSummary": "La conexión con Spotify caducó. Di «conecta Spotify» para conectarla de nuevo."
+  },
+  "SPOTIFY_PREMIUM_REQUIRED": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_PREMIUM_REQUIRED",
+   "userSummary": "Controlar la reproducción requiere Spotify Premium."
+  },
+  "SPOTIFY_NOT_ALLOWLISTED": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_NOT_ALLOWLISTED",
+   "userSummary": "Esta cuenta de Spotify no está autorizada para la app de Ares. Agrégala en el panel de desarrolladores de Spotify."
+  },
+  "SPOTIFY_NO_ACTIVE_DEVICE": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_NO_ACTIVE_DEVICE",
+   "userSummary": "Abre Spotify en tu computador y vuelve a intentarlo."
+  },
+  "SPOTIFY_NO_RESULTS": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_NO_RESULTS",
+   "userSummary": "No encontré resultados en Spotify para esa búsqueda."
+  },
+  "SPOTIFY_RATE_LIMITED": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "EXECUTION_FAILED",
+   "errorCode": "SPOTIFY_RATE_LIMITED",
+   "userSummary": "Spotify está recibiendo muchas solicitudes. Intenta de nuevo en un momento."
+  },
+  "SPOTIFY_NETWORK_ERROR": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "EXECUTION_FAILED",
+   "errorCode": "SPOTIFY_NETWORK_ERROR",
+   "userSummary": "No pude comunicarme con Spotify. Revisa tu conexión e inténtalo de nuevo."
+  },
+  "SPOTIFY_UNEXPECTED_RESPONSE": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "EXECUTION_FAILED",
+   "errorCode": "SPOTIFY_UNEXPECTED_RESPONSE",
+   "userSummary": "Spotify respondió algo inesperado. Inténtalo de nuevo."
+  },
+  "SPOTIFY_CONNECT_CANCELLED": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "CANCELLED",
+   "errorCode": "SPOTIFY_CONNECT_CANCELLED",
+   "userSummary": "Se canceló la conexión con Spotify."
+  },
+  "SPOTIFY_CONNECT_TIMEOUT": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "EXECUTION_FAILED",
+   "errorCode": "SPOTIFY_CONNECT_TIMEOUT",
+   "userSummary": "La conexión con Spotify tardó demasiado y se canceló. Inténtalo de nuevo."
+  },
+  "SPOTIFY_CONNECT_PORT_BUSY": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "EXECUTION_FAILED",
+   "errorCode": "SPOTIFY_CONNECT_PORT_BUSY",
+   "userSummary": "No pude iniciar la conexión con Spotify porque el puerto local 8888 está ocupado."
+  },
+  "SPOTIFY_BROWSER_UNAVAILABLE": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "EXECUTION_FAILED",
+   "errorCode": "SPOTIFY_BROWSER_UNAVAILABLE",
+   "userSummary": "No pude abrir el navegador para conectar Spotify."
+  },
+  "SPOTIFY_SECURE_STORAGE_UNAVAILABLE": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_SECURE_STORAGE_UNAVAILABLE",
+   "userSummary": "Este equipo no permite guardar la conexión de Spotify de forma segura, así que no la guardaré."
+  },
+  "SPOTIFY_INVALID_REQUEST": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "VALIDATION_FAILED",
+   "errorCode": "SPOTIFY_INVALID_REQUEST",
+   "userSummary": "Indica qué quieres que reproduzca, o un volumen entre 0 y 100."
+  },
+  "SUCCESS_STATUS": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "GET_SPOTIFY_STATUS",
+   "riskLevel": 1,
+   "status": "SUCCEEDED",
+   "userSummary": "Spotify está conectado."
+  },
+  "THROWN": {
+   "actionId": "11111111-1111-4111-8111-111111111111",
+   "action": "CONNECT_SPOTIFY",
+   "riskLevel": 2,
+   "status": "EXECUTION_FAILED",
+   "errorCode": "SPOTIFY_UNEXPECTED_RESPONSE",
+   "userSummary": "Spotify respondió algo inesperado. Inténtalo de nuevo."
+  }
+ }
+}
