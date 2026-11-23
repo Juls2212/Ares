@@ -127,7 +127,7 @@ describe("contact and draft utterances", () => {
     const cases: Array<[string, string]> = [
       ["escríbele a Pedro que llego tarde", MESSAGING_FAILURES.MESSAGING_CONTACT_NOT_FOUND],
       ["escríbele a Juan que llego tarde", MESSAGING_FAILURES.MESSAGING_CONTACT_AMBIGUOUS],
-      ["escríbele a Mamá", "¿Qué quieres decirle? Solo prepararé un borrador; no lo enviaré."],
+      ["escríbele a Mamá", "¿Qué quieres decirle? Solo lo dejo preparado; no lo envío."],
       ["mándale un mensaje", "¿A quién quieres escribirle?"]
     ];
     for (const [utterance, question] of cases) {
@@ -298,8 +298,6 @@ describe("provider drafts for the MESSAGING actions", () => {
   const messagingDraft = (action: string, fields: Fields | null, extra: Record<string, unknown> = {}) => ({
     action,
     input: null,
-    weeklyRoutine: null,
-    habitAction: null,
     approvedWeb: null,
     catalogApplication: null,
     filesAction: null,
