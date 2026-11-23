@@ -42,21 +42,19 @@ const legacyReferences = (file: string): string[] =>
 const hasMarker = (file: string): boolean => readSource(file).includes("LEGACY_TEST_MARKER");
 
 /**
- * Marked tests that reach legacy behavior only through surviving modules (the weekly and habit parts of planner
- * code), so they reference no legacy path directly.
+ * Marked tests that reach legacy behavior only through surviving modules, so they reference no legacy path directly.
+ * Empty since Phase 3.1 removed the weekly and habit parts of the planner code.
  */
-const MARKED_WITHOUT_DIRECT_PATH: readonly string[] = [
-  "tests/legacy-planner-weekly-executor.test.ts",
-  "tests/legacy-planner-weekly-service.test.ts",
-  "tests/legacy-planner-weekly-validation.test.ts",
-  "tests/legacy-planner-database.integration.ts"
-];
+const MARKED_WITHOUT_DIRECT_PATH: readonly string[] = [];
 
 describe("legacy isolation", () => {
+  it("tracks no legacy path any more: every cleanup phase is done", () => {
+    expect(LEGACY_PATHS).toEqual([]);
+  });
+
   it("lists every legacy path with a phase and a note, and every entry still exists", () => {
-    expect(LEGACY_ENTRIES.length).toBeGreaterThan(15);
     for (const entry of LEGACY_ENTRIES) {
-      expect(["3.1", "3.2"], entry.path).toContain(entry.phase);
+      expect(entry.phase.length, entry.path).toBeGreaterThan(0);
       expect(entry.note.length, entry.path).toBeGreaterThan(10);
       const absentReason = ALREADY_ABSENT[entry.path];
       if (absentReason !== undefined) {
