@@ -4,6 +4,13 @@ import {
   VOICE_MAX_RECORDING_DURATION_MS,
   type VoiceMimeType
 } from "../../../shared/voice-contracts";
+import {
+  VOICE_CAPTURE_FAILURES,
+  errorNameOf,
+  failureCodeForCaptureError,
+  type MicrophoneAccessStatus,
+  type VoiceAttemptReporter
+} from "../../../shared/voice-diagnostics";
 
 type RecorderLike = {
   mimeType: string;
@@ -44,6 +51,10 @@ export type ManualVoiceRecorderDependencies = {
   onMaximumDuration?: () => void;
   now?: () => number;
   isUserActivationActive?: () => boolean;
+  /** Receives stages and fixed-enum facts only (never audio or text); it must not throw into the recorder. */
+  diagnostics?: VoiceAttemptReporter;
+  /** The system's microphone access status as last reported by Main; «unknown» when not available. */
+  getMicrophoneAccess?: () => MicrophoneAccessStatus;
 };
 
 const isPermissionFailure = (error: unknown): boolean =>
@@ -98,7 +109,8 @@ export const createManualVoiceRecorder = (
       if (disposed || starting || recorder) return;
       const mimeType = firstSupportedMimeType(dependencies.isMimeTypeSupported);
       if (!mimeType) {
-        dependencies.onUnavailable("Este navegador no puede grabar audio compatible.");
+        dependencies.diagnostics?.fail("VOICE_CAPTURE_RECORDER_UNSUPPORTED");
+        dependencies.onUnavailable(VOICE_CAPTURE_FAILURES.messageFor("VOICE_CAPTURE_RECORDER_UNSUPPORTED"));
         return;
       }
       cancelled = false;
@@ -109,6 +121,7 @@ export const createManualVoiceRecorder = (
       try {
         stream = await dependencies.getUserMedia();
         if (cancelled || disposed) { release(); dependencies.onCancelled(); return; }
+        dependencies.diagnostics?.reach("stream_opened");
         dependencies.onStream?.(stream);
         recorder = dependencies.createRecorder(stream, mimeType);
         recorder.ondataavailable = (event) => {
@@ -123,20 +136,25 @@ export const createManualVoiceRecorder = (
           const audio = dependencies.createBlob(chunks, { type: activeMimeType });
           const wasCancelled = cancelled || disposed;
           const durationMs = Math.max(1, Math.ceil(now() - startedAt));
+          dependencies.diagnostics?.reach("recorder_stopped");
+          dependencies.diagnostics?.facts({ mime: activeMimeType, bytes: audio.size, durationMs });
           release();
           if (wasCancelled) {
             dependencies.onCancelled();
           } else if (audio.size === 0) {
-            dependencies.onUnavailable("No se recibió audio para transcribir.");
+            dependencies.diagnostics?.fail("VOICE_CAPTURE_EMPTY_RECORDING");
+            dependencies.onUnavailable(VOICE_CAPTURE_FAILURES.messageFor("VOICE_CAPTURE_EMPTY_RECORDING"));
           } else if (audio.size > VOICE_MAX_AUDIO_BYTES || durationMs > VOICE_MAX_RECORDING_DURATION_MS) {
             dependencies.onUnavailable("La grabación es demasiado larga para transcribirla.");
           } else {
+            dependencies.diagnostics?.reach("blob_ready");
             dependencies.onAudio(audio, activeMimeType, durationMs);
           }
           chunks = [];
         };
         startedAt = now();
         recorder.start(250);
+        dependencies.diagnostics?.reach("recorder_started");
         timer = dependencies.setTimer(
           dependencies.onMaximumDuration ?? cancel,
           dependencies.maximumDurationMs ?? VOICE_MAX_RECORDING_DURATION_MS
@@ -147,7 +165,11 @@ export const createManualVoiceRecorder = (
         const reason = isPermissionFailure(error) && dependencies.isUserActivationActive?.() === false
           ? "USER_GESTURE_REQUIRED"
           : "MICROPHONE_UNAVAILABLE";
-        dependencies.onUnavailable("No se puede usar el micrófono. Revisa los permisos.", reason);
+        // Only the DOM error name is read, and only to choose one of the closed failure codes.
+        const errorName = errorNameOf(error);
+        const failure = failureCodeForCaptureError(errorName, dependencies.getMicrophoneAccess?.() ?? "unknown");
+        dependencies.diagnostics?.fail(failure, errorName);
+        dependencies.onUnavailable(VOICE_CAPTURE_FAILURES.messageFor(failure), reason);
       } finally {
         starting = false;
       }
