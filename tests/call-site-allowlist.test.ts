@@ -50,7 +50,8 @@ const ALLOWLIST: Record<string, { pattern: RegExp; allowed: Entry[] }> = {
     pattern: /\bfetch\(/u,
     allowed: [
       { file: "src/main/spotify/spotify-api-client.ts", purpose: "the only Spotify Web API client" },
-      { file: "src/main/weather/weather-service.ts", purpose: "legacy weather lookup (unregistered; scheduled for removal)" }
+      { file: "src/main/voice/elevenlabs-speech-provider.ts", purpose: "the only ElevenLabs client: one bounded text-to-speech request to api.elevenlabs.io with the already-capped spoken text" },
+      { file: "src/main/weather/weather-service.ts", purpose: "the only weather client: bounded read-only requests to the Open-Meteo geocoding and forecast hosts" }
     ]
   },
   "http server": {
@@ -73,7 +74,7 @@ const ALLOWLIST: Record<string, { pattern: RegExp; allowed: Entry[] }> = {
     allowed: [
       { file: "src/main/assistant/assistant-interpreter.ts", purpose: "NODE_ENV check for a development-only diagnostic" },
       { file: "src/main/config/database-environment.ts", purpose: "reads the database settings in Main" },
-      { file: "src/main/config/openai-environment.ts", purpose: "reads the OpenAI settings in Main" },
+      { file: "src/main/config/openai-environment.ts", purpose: "reads the OpenAI and the optional ElevenLabs speech settings in Main" },
       { file: "src/main/spotify/spotify-config.ts", purpose: "reads the public Spotify client id in Main" }
     ]
   },
