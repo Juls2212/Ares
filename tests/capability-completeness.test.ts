@@ -16,11 +16,11 @@ import type { PlannerService } from "../src/main/planner/planner-service";
  */
 
 /**
- * KNOWN GAPS: registered, parsed and confirmed, but the production planner executor has no case for them, so
- * `execute` resolves to `undefined`. They are scheduled for removal in Refactor Phase 3. The guard tests below fail
- * if an entry here stops being a gap (stale list) and if any new gap appears.
+ * KNOWN GAPS: registered actions that no executor handles. The four habit actions used to be the only gaps; they were
+ * removed in Refactor 3.1, so the list is empty. Any new gap fails the guard test below, and a stale entry fails the
+ * honesty test, so this list can only ever shrink back to empty.
  */
-const KNOWN_GAPS: readonly string[] = ["GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"];
+const KNOWN_GAPS: readonly string[] = [];
 
 const success = { ok: true as const, data: { record: {} } };
 const plannerService = {
@@ -32,13 +32,7 @@ const plannerService = {
   deleteEvent: vi.fn(async () => ({ ok: true, data: { deleted: true } })),
   deleteTask: vi.fn(async () => ({ ok: true, data: { deleted: true } })),
   createReminder: vi.fn(async () => success),
-  createWeeklyRoutine: vi.fn(async () => success),
-  updateWeeklyRoutine: vi.fn(async () => success),
-  createWeeklySchedule: vi.fn(async () => success),
-  updateWeeklySchedule: vi.fn(async () => success),
   listCategories: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
-  listWeeklySchedules: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
-  listWeeklyRoutines: vi.fn(async () => ({ ok: true, data: { items: [], total: 0 } })),
   getTodaySchedule: vi.fn(async () => ({ ok: true, data: { localDate: "2026-09-17", tasks: [], events: [], reminders: [] } })),
   getWeekSchedule: vi.fn(async () => ({ ok: true, data: { weekStart: "2026-09-14", weekEnd: "2026-09-20", tasks: [], events: [], reminders: [] } }))
 } as unknown as PlannerService;
@@ -78,7 +72,8 @@ const executor = createActionExecutor({
   approvedWebExecutor: stubFor("WEB") as never,
   filesExecutor: stubFor("FILES") as never,
   messagingExecutor: stubFor("MESSAGING") as never,
-  spotifyExecutor: stubFor("MUSIC") as never
+  spotifyExecutor: stubFor("MUSIC") as never,
+  weatherExecutor: stubFor("WEATHER") as never
 });
 
 const isWellFormed = (value: unknown): boolean =>
@@ -112,8 +107,8 @@ const findGaps = async (): Promise<string[]> => {
 };
 
 describe("registry to executor completeness", () => {
-  it("covers all 53 enabled actions", () => {
-    expect(ENABLED_ASSISTANT_CAPABILITIES).toHaveLength(53);
+  it("covers all 43 enabled actions", () => {
+    expect(ENABLED_ASSISTANT_CAPABILITIES).toHaveLength(43);
   });
 
   it("has no new gap: every enabled action outside KNOWN_GAPS returns a well-formed outcome from its own executor", async () => {
@@ -130,16 +125,14 @@ describe("registry to executor completeness", () => {
     }
   });
 
-  it("shows the habit gap concretely: the planner executor resolves to nothing for each habit action", async () => {
-    for (const action of KNOWN_GAPS) {
-      const outcome = await executor.execute({ actionId: ID, action, input: {} } as never, getActionPolicy(action as never));
-      expect(outcome, action).toBeUndefined();
-    }
+  it("has an empty KNOWN_GAPS list now that the habit actions are gone", () => {
+    expect(KNOWN_GAPS).toEqual([]);
   });
 
-  it("covers the weekly-schedule actions: they have a dispatch path and are not gaps", async () => {
-    for (const action of ["GET_WEEKLY_SCHEDULE_DETAILS", "ANALYZE_WEEKLY_SCHEDULE", "GET_TODAY_AVAILABILITY", "CREATE_WEEKLY_SCHEDULE", "UPDATE_WEEKLY_SCHEDULE", "CREATE_WEEKLY_ROUTINE", "UPDATE_WEEKLY_ROUTINE"]) {
-      expect((await run(action, "PLANNER")).wellFormed, action).toBe(true);
+  it("gives a removed action name a controlled failure instead of an undefined outcome", async () => {
+    for (const action of ["GET_HABIT_PROGRESS", "CREATE_WEEKLY_SCHEDULE", "GET_TODAY_AVAILABILITY"]) {
+      const outcome = await executor.execute({ actionId: ID, action, input: {} } as never, getActionPolicy("GET_TODAY_SCHEDULE"));
+      expect(outcome, action).toMatchObject({ status: "VALIDATION_FAILED", errorCode: "ACTION_UNSUPPORTED", userSummary: "No puedo hacer eso." });
     }
   });
 
