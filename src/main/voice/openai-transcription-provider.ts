@@ -7,6 +7,9 @@ export type OpenAiTranscriptionProvider = {
   transcribe: (input: { audio: ArrayBuffer; mimeType: VoiceMimeType; signal: AbortSignal }) => Promise<string>;
 };
 
+/** Fixed recognition hint: a compile-time constant naming Ares and the known apps. It never contains user data. */
+export const TRANSCRIPTION_PROMPT_HINT = "Ares, abre Spotify, WhatsApp, Google, Claude o Discord.";
+
 const extensionFor = (mimeType: VoiceMimeType): "webm" | "ogg" =>
   mimeType.startsWith("audio/ogg") ? "ogg" : "webm";
 
@@ -24,7 +27,8 @@ export const createOpenAiTranscriptionProvider = (
           file,
           model: configuration.transcriptionModel,
           response_format: "json",
-          language: "es"
+          language: "es",
+          prompt: TRANSCRIPTION_PROMPT_HINT
         },
         { signal }
       );
