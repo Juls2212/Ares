@@ -16,7 +16,17 @@ import {
 import { createGlobalVoiceShortcutController } from "../features/voice/global-voice-shortcut-controller";
 import { createManualVoiceRecorder, type ManualVoiceRecorder } from "../features/voice/manual-voice-recorder";
 import { bindRecordingCancellation } from "../features/voice/recording-cancellation";
-import { createSpeechEndDetector, type SpeechEndDetector } from "../features/voice/speech-end-detector";
+import { beginCurrentTurn, markCurrentTurn } from "../../shared/turn-timing";
+import { SPEECH_ACTIVITY_THRESHOLD, createSpeechEndDetector, type SpeechEndDetector } from "../features/voice/speech-end-detector";
+import {
+  VOICE_CAPTURE_FAILURES,
+  createVoiceAttempt,
+  failureCodeForTranscription,
+  normalizeMicrophoneAccess,
+  peakLevelOf,
+  type MicrophoneAccessStatus,
+  type VoiceAttempt
+} from "../../shared/voice-diagnostics";
 import { orbAmplitudeSource } from "../features/voice/orb-amplitude";
 import { LIVE_RECORDING_LIMIT_MS } from "../features/voice/recording-limits";
 import { createVoiceTranscriptSubmission } from "../features/voice/voice-transcript-submission";
@@ -62,6 +72,8 @@ export const App = () => {
   const [spokenResponse, setSpokenResponse] = useState<import("../../shared/speech-contracts").SpokenResponse>();
   const [contactForm, setContactForm] = useState<ContactFormRequest>();
   const [voiceMessage, setVoiceMessage] = useState<string>();
+  /** What the last transcription heard. Transient renderer state only: never stored, logged or sent anywhere. */
+  const [heardText, setHeardText] = useState<string>();
   const [shortcutHint, setShortcutHint] = useState<string>();
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
   const voiceRecorder = useRef<ManualVoiceRecorder | undefined>(undefined);
@@ -125,15 +137,23 @@ export const App = () => {
     if (voiceState !== "RECORDING") orbAmplitudeSource.reset();
   }, [voiceState]);
 
-  const transcribeAudio = async (audio: Blob, mimeType: VoiceMimeType, durationMs: number, generation: number): Promise<void> => {
-    if (generation !== voiceGeneration.current || generation <= voiceUploadGeneration.current) return;
+  const transcribeAudio = async (audio: Blob, mimeType: VoiceMimeType, durationMs: number, generation: number, attempt: VoiceAttempt): Promise<void> => {
+    if (generation !== voiceGeneration.current || generation <= voiceUploadGeneration.current) { attempt.finish(); return; }
     voiceUploadGeneration.current = generation;
     try {
       const bytes = await audio.arrayBuffer();
       if (generation !== voiceGeneration.current) return;
+      attempt.reach("ipc_submitted");
       const result = await window.ares.voice.transcribe({ audio: bytes, mimeType, durationMs });
       if (generation !== voiceGeneration.current) return;
-      if (!result.ok) return setVoiceMessage(result.error.userMessage);
+      if (!result.ok) {
+        attempt.fail(failureCodeForTranscription(result.error.code));
+        return setVoiceMessage(result.error.userMessage);
+      }
+      attempt.reach("transcription_done");
+      markCurrentTurn("transcription_done");
+      attempt.finish();
+      setHeardText(result.data.text);
       setVoiceMessage("Procesando instrucción…");
       await voiceSubmission.current.submit({
         generation, text: result.data.text, isCurrent: () => generation === voiceGeneration.current,
@@ -143,30 +163,70 @@ export const App = () => {
       });
       if (generation === voiceGeneration.current) setVoiceMessage("Instrucción procesada. Revisa el resultado y confirma si se requiere.");
     } catch {
-      if (generation === voiceGeneration.current) setVoiceMessage("La transcripción no está disponible en este momento.");
+      attempt.fail("VOICE_TRANSCRIPTION_FAILED");
+      if (generation === voiceGeneration.current) setVoiceMessage(VOICE_CAPTURE_FAILURES.messageFor("VOICE_TRANSCRIPTION_FAILED"));
     } finally {
+      attempt.finish();
       if (generation === voiceGeneration.current) { voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); orbAmplitudeSource.reset(); }
     }
   };
 
+  useEffect(() => {
+    if (spokenResponse) markCurrentTurn("response_composed");
+  }, [spokenResponse?.responseId]);
+
+  useEffect(() => {
+    if (heardText === undefined) return undefined;
+    const timer = setTimeout(() => setHeardText(undefined), 8000);
+    return () => clearTimeout(timer);
+  }, [heardText]);
+
   const startRecording = async (fromGlobalShortcut = false): Promise<void> => {
+    setHeardText(undefined);
     setSpokenResponse(undefined);
     orbAmplitudeSource.reset();
     if (voiceStateReference.current !== "IDLE" || voiceStartInFlight.current || interpretationInFlight.current) return;
     voiceStartInFlight.current = true;
     const generation = ++voiceGeneration.current;
     setVoiceMessage(fromGlobalShortcut ? "Ares está grabando." : undefined);
+    // One privacy-safe diagnostic line per attempt (fixed enums and bounded numbers only), logged to the renderer console.
+    const rawAttempt = createVoiceAttempt((line) => console.info(line));
+    let peakRms = 0;
+    let microphone: MicrophoneAccessStatus = "unknown";
+    let levelAnalysisAvailable = true;
+    const applyLevelFacts = (): void => rawAttempt.facts({ peak: peakLevelOf(peakRms, SPEECH_ACTIVITY_THRESHOLD), analysis: levelAnalysisAvailable ? "ok" : "unavailable" });
+    const attempt: VoiceAttempt = {
+      reach: rawAttempt.reach,
+      facts: rawAttempt.facts,
+      fail: (failure, errorName) => { applyLevelFacts(); rawAttempt.fail(failure, errorName); },
+      finish: () => { applyLevelFacts(); rawAttempt.finish(); }
+    };
+    attempt.reach("shortcut_or_click");
+    attempt.facts({ microphone });
+    try {
+      void window.ares.system.getStatus().then((status) => {
+        microphone = status.ok ? normalizeMicrophoneAccess(status.data.microphoneAccess) : "unknown";
+        attempt.facts({ microphone });
+        attempt.reach("permission_checked");
+      }).catch(() => undefined);
+      void navigator.mediaDevices?.enumerateDevices?.().then((devices) => {
+        attempt.facts({ devices: devices.filter((device) => device.kind === "audioinput").length });
+      }).catch(() => undefined);
+    } catch {
+      // Diagnostics never affect the attempt.
+    }
     const browserMedia = navigator.mediaDevices;
     if (!browserMedia || typeof MediaRecorder === "undefined") {
-      setVoiceMessage("Este navegador no puede grabar audio compatible.");
+      attempt.fail("VOICE_CAPTURE_RECORDER_UNSUPPORTED");
+      setVoiceMessage(VOICE_CAPTURE_FAILURES.messageFor("VOICE_CAPTURE_RECORDER_UNSUPPORTED"));
       voiceStartInFlight.current = false;
       return;
     }
-    let levelAnalysisAvailable = true;
     let maximumWithoutSpeech = false;
     const detector = createSpeechEndDetector({
       // The orb maps this raw level to its own amplitude and writes it as a CSS variable, with no React re-render.
       onRms: (rms) => {
+        peakRms = Math.max(peakRms, rms);
         if (generation === voiceGeneration.current) orbAmplitudeSource.pushMicRms(rms);
       },
       onSpeechEnded: () => {
@@ -181,6 +241,8 @@ export const App = () => {
       createBlob: (parts, options) => new Blob(parts, options),
       setTimer: (callback, delay) => setTimeout(callback, delay), clearTimer: (timer) => clearTimeout(timer),
       maximumDurationMs: LIVE_RECORDING_LIMIT_MS,
+      diagnostics: attempt,
+      getMicrophoneAccess: () => microphone,
       onMaximumDuration: () => {
         if (!levelAnalysisAvailable || detector.hasDetectedSpeech()) {
           voiceRecorder.current?.stop();
@@ -198,14 +260,15 @@ export const App = () => {
       onRecording: () => { voiceStateReference.current = "RECORDING"; setVoiceState("RECORDING"); },
       onProcessing: () => { detector.dispose(); orbAmplitudeSource.reset(); voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); setVoiceMessage("Procesando…"); },
       onUnavailable: (message, reason) => {
+        attempt.finish();
         orbAmplitudeSource.reset();
         voiceStartInFlight.current = false;
         setVoiceState("IDLE");
         setVoiceMessage(fromGlobalShortcut && reason === "USER_GESTURE_REQUIRED" ? "Para iniciar la grabación, usa el botón visible." : message);
       },
       isUserActivationActive: () => navigator.userActivation?.isActive ?? false,
-      onCancelled: () => { detector.dispose(); orbAmplitudeSource.reset(); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); },
-      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); orbAmplitudeSource.reset(); void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
+      onCancelled: () => { detector.dispose(); orbAmplitudeSource.reset(); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); attempt.finish(); },
+      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); orbAmplitudeSource.reset(); beginCurrentTurn((line) => console.info(line)); markCurrentTurn("recording_stopped"); void transcribeAudio(recording, recordingMimeType, durationMs, generation, attempt); }
     });
     await voiceRecorder.current.start();
     voiceStartInFlight.current = false;
@@ -229,12 +292,13 @@ export const App = () => {
     try {
       const result = getInterpretationMessage(await window.ares.assistant.interpret({ text: instruction }));
       if (!isCurrent()) return;
+      markCurrentTurn("interpretation_done");
       if (automaticProposal && result.state === "READY") setDraftStates(Object.fromEntries(result.drafts.map((_draft, index) => [index, { busy: true, resolved: false }])));
       setInterpretation(result);
       setSpokenResponse(result.spokenResponse);
       return result;
     } catch {
-      if (isCurrent()) setVoiceMessage("La interpretación no está disponible en este momento.");
+      if (isCurrent()) setVoiceMessage("No pude entenderte ahora. Inténtalo de nuevo en un momento.");
     } finally {
       interpretationInFlight.current = false;
       setIsInterpreting(false);
@@ -280,6 +344,7 @@ export const App = () => {
     try {
       const result = await window.ares.actions.propose(draft);
       if (!isCurrent()) return;
+      markCurrentTurn("execution_done");
       if (!result.ok) {
         updateDraftState(index, { busy: false, resolved: true, userMessage: result.error.userMessage });
         setSpokenResponse(result.error.spokenResponse);
@@ -293,7 +358,7 @@ export const App = () => {
       updateDraftState(index, { busy: false, resolved: true, userMessage: result.data.userSummary, spokenResponse: result.data.spokenResponse });
       setSpokenResponse(result.data.spokenResponse);
     } catch {
-      if (isCurrent()) setVoiceMessage("No se pudo proponer la acción.");
+      if (isCurrent()) setVoiceMessage("No pude preparar eso. Inténtalo de nuevo.");
     }
   };
 
@@ -355,6 +420,7 @@ export const App = () => {
       technicalState={viewState.kind}
       voiceLabel={voiceLabel}
       voiceMessage={voiceMessage}
+      heardText={heardText}
       shortcutHint={shortcutHint}
       voiceShortcutStatus={voiceShortcutStatus}
       voiceState={voiceState}
