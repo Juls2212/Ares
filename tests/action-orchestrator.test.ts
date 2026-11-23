@@ -77,20 +77,25 @@ describe("action orchestrator", () => {
     expect(executor.execute).toHaveBeenCalledOnce();
   });
 
-  it("holds enabled weekly schedule and habit mutations until one standard confirmation", async () => {
+  it("holds a standard confirmation-required action until one confirmation and rejects the removed habit and weekly names", async () => {
     const { orchestrator, executor } = createOrchestrator();
-    const routine = await orchestrator.propose({
-      action: "CREATE_WEEKLY_ROUTINE",
-      input: { scheduleTitle: "Universidad", title: "Cálculo", weekday: "MONDAY", startTime: "08:00", endTime: "10:00" }
-    });
-    expect(routine).toMatchObject({ ok: true, data: { lifecycleState: "AWAITING_CONFIRMATION", riskLevel: 2 } });
-    if (!routine.ok || !("confirmationId" in routine.data)) throw new Error("Expected confirmation.");
+    const proposed = await orchestrator.propose({ action: "CONNECT_SPOTIFY", input: {} });
+    expect(proposed).toMatchObject({ ok: true, data: { lifecycleState: "AWAITING_CONFIRMATION", riskLevel: 2 } });
+    if (!proposed.ok || !("confirmationId" in proposed.data)) throw new Error("Expected confirmation.");
     expect(executor.execute).not.toHaveBeenCalled();
-    await expect(orchestrator.confirm(routine.data.confirmationId)).resolves.toMatchObject({ ok: true, data: { status: "SUCCEEDED" } });
-    await expect(orchestrator.confirm(routine.data.confirmationId)).resolves.toMatchObject({ ok: false });
+    await expect(orchestrator.confirm(proposed.data.confirmationId)).resolves.toMatchObject({ ok: true, data: { status: "SUCCEEDED" } });
+    await expect(orchestrator.confirm(proposed.data.confirmationId)).resolves.toMatchObject({ ok: false });
 
-    const habit = await orchestrator.propose({ action: "COMPLETE_HABIT", input: { habitTitle: "Leer" } });
-    expect(habit).toMatchObject({ ok: true, data: { action: "COMPLETE_HABIT", lifecycleState: "AWAITING_CONFIRMATION" } });
+    const removed: Array<{ action: string; input: Record<string, unknown> }> = [
+      { action: "COMPLETE_HABIT", input: { habitTitle: "Leer" } },
+      { action: "CREATE_HABIT", input: { title: "Leer", frequency: "DAILY", targetCount: 1 } },
+      { action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Cálculo", weekday: "MONDAY", startTime: "08:00", endTime: "10:00" } },
+      { action: "GET_TODAY_AVAILABILITY", input: {} }
+    ];
+    for (const submission of removed) {
+      await expect(orchestrator.propose(submission), submission.action).resolves.toMatchObject({ ok: false });
+    }
+    expect(executor.execute).toHaveBeenCalledOnce();
   });
 
   it("preflights catalog registration and holds the verified proposal until confirmation", async () => {
