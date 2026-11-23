@@ -5,6 +5,14 @@ import {
 } from "../src/main/system/system-service";
 
 describe("system service", () => {
+  it("adds the microphone access status only when Main provides one, and degrades to unknown if reading it throws", () => {
+    const metadata = () => ({ applicationName: "Ares", applicationVersion: "0.1.0", runtimePlatform: "win32" as const });
+    expect(getSystemStatusResult(metadata, () => "denied")).toMatchObject({ ok: true, data: { microphoneAccess: "denied" } });
+    expect(getSystemStatusResult(metadata, () => { throw new Error("private"); })).toMatchObject({ ok: true, data: { microphoneAccess: "unknown" } });
+    const without = getSystemStatusResult(metadata);
+    expect(without.ok && "microphoneAccess" in without.data).toBe(false);
+  });
+
   it("returns a typed system status success result", () => {
     const result = getSystemStatusResult(() => ({
       applicationName: "Ares",
