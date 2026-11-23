@@ -12,15 +12,12 @@ import type {
   EventRecord,
   PlannerOperationResult,
   ReminderRecord,
-  TaskRecord,
-  WeeklyRoutineRecord,
-  WeeklyScheduleRecord
+  TaskRecord
 } from "../src/shared/planner-contracts";
 
 const categoryId = "550e8400-e29b-41d4-a716-446655440000";
 const taskId = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
 const eventId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
-const weeklyScheduleId = "21ae1498-1a4e-4f85-86ae-0db35afc8921";
 const dateTime = "2026-09-17T14:30:00.000Z";
 
 const category: CategoryRecord = {
@@ -70,28 +67,6 @@ const reminder: ReminderRecord = {
   updatedAt: dateTime
 };
 
-const weeklyRoutine: WeeklyRoutineRecord = {
-  id: "998e6679-7425-40de-944b-e07fc1f90ae7",
-  weeklyScheduleId,
-  title: "Clase de diseño",
-  weekday: "MONDAY",
-  startTime: "08:00",
-  endTime: "10:00",
-  categoryId,
-  location: "Aula 4",
-  createdAt: dateTime,
-  updatedAt: dateTime
-};
-
-const weeklySchedule: WeeklyScheduleRecord = {
-  id: weeklyScheduleId,
-  title: "Horario principal",
-  description: null,
-  color: null,
-  createdAt: dateTime,
-  updatedAt: dateTime
-};
-
 const clock: PlannerClock = {
   getLocalDate: () => "2026-09-17",
   getRangeBounds: (startDate, days) => ({
@@ -116,16 +91,6 @@ const createRepositories = (): PlannerRepositories => ({
   updateEvent: vi.fn(async () => event),
   deleteEvent: vi.fn(async () => true),
   deleteTask: vi.fn(async () => true),
-  createWeeklyRoutine: vi.fn(async () => weeklyRoutine),
-  findWeeklyRoutineById: vi.fn(async () => weeklyRoutine),
-  listWeeklyRoutines: vi.fn(async () => [weeklyRoutine]),
-  updateWeeklyRoutine: vi.fn(async () => weeklyRoutine),
-  deleteWeeklyRoutine: vi.fn(async () => true),
-  createWeeklySchedule: vi.fn(async () => weeklySchedule),
-  findWeeklyScheduleById: vi.fn(async () => weeklySchedule),
-  listWeeklySchedules: vi.fn(async () => [weeklySchedule]),
-  updateWeeklySchedule: vi.fn(async () => weeklySchedule),
-  deleteWeeklySchedule: vi.fn(async () => true),
   createReminder: vi.fn(async () => reminder),
   findReminderById: vi.fn(async () => reminder),
   listReminders: vi.fn(async () => [reminder])
