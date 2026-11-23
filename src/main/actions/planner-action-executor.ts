@@ -1,23 +1,18 @@
+import { failedOutcome, outcomeIdentity, succeededOutcome, type FailureOutcomeStatus } from "../../shared/outcome-kit";
 import {
   PLANNER_ERROR_CODES,
   type PlannerOperationResult
 } from "../../shared/planner-contracts";
 import type {
+  ActionName,
   ActionOutcome,
   ActionPolicy,
-  CreateWeeklyRoutineActionInput,
-  CreateWeeklyScheduleActionInput,
   PlannerActionData,
-  PlannerActionProposal,
-  TerminalActionStatus,
-  UpdateWeeklyRoutineActionInput,
-  UpdateWeeklyScheduleActionInput
+  PlannerActionProposal
 } from "../../shared/action-contracts";
 import { getPlannerService } from "../planner/planner-composition";
 import type { PlannerService } from "../planner/planner-service";
 import type { EventRecord, TaskPriority, TaskRecord, TaskStatus, TodayScheduleData } from "../../shared/planner-contracts";
-import { createWeeklyScheduleAnalysisService, type WeeklyScheduleAnalysisService } from "./weekly-schedule-analysis";
-import { createWeeklyScheduleMutationReferences, type WeeklyScheduleMutationReferences } from "./weekly-schedule-mutation-references";
 
 const MAX_TODAY_SCHEDULE_ITEMS_PER_KIND = 3;
 
@@ -41,19 +36,16 @@ const successSummaries: Record<PlannerActionProposal["action"], string> = {
   CREATE_REMINDER: "Se creó el recordatorio.",
   GET_TODAY_SCHEDULE: "Se consultó la agenda de hoy.",
   GET_WEEK_SCHEDULE: "Se consultó la agenda de la semana.",
-  GET_WEEKLY_SCHEDULE_DETAILS: "Se consultó el horario semanal.",
-  ANALYZE_WEEKLY_SCHEDULE: "Se analizó el horario semanal.",
-  GET_TODAY_AVAILABILITY: "Se consultó la disponibilidad de hoy.",
-  CREATE_WEEKLY_SCHEDULE: "Se creó el horario semanal.",
-  UPDATE_WEEKLY_SCHEDULE: "Se actualizó el horario semanal.",
-  CREATE_WEEKLY_ROUTINE: "Se creó el bloque semanal.",
-  UPDATE_WEEKLY_ROUTINE: "Se actualizó el bloque semanal.",
   GET_CURRENT_DATE_TIME: "Se consultó la fecha y hora actuales.",
   DELETE_EVENT: "Se eliminó el evento.",
   DELETE_TASK: "Se eliminó la tarea."
 };
 
-const failureStatus = (errorCode: string): TerminalActionStatus =>
+/** Controlled outcome for an action this executor does not handle; it always carries a status and a bounded summary. */
+const unsupportedPlannerOutcome = (proposal: { actionId: string; action: ActionName }, policy: ActionPolicy): ActionOutcome =>
+  failedOutcome(outcomeIdentity(proposal, policy), "VALIDATION_FAILED", "ACTION_UNSUPPORTED", "No puedo hacer eso.");
+
+const failureStatus = (errorCode: string): FailureOutcomeStatus =>
   errorCode === PLANNER_ERROR_CODES.databaseUnavailable
     ? "EXECUTION_FAILED"
     : "VALIDATION_FAILED";
@@ -130,59 +122,21 @@ const toOutcome = <T extends PlannerActionData>(
   timeZone: string
 ): ActionOutcome => {
   if (result.ok) {
-    return {
-      actionId: proposal.actionId,
-      action: proposal.action,
-      riskLevel: policy.riskLevel,
-      status: "SUCCEEDED",
-      data: result.data,
-      userSummary:
-        proposal.action === "GET_TODAY_SCHEDULE"
+    return succeededOutcome(
+      outcomeIdentity(proposal, policy),
+      proposal.action === "GET_TODAY_SCHEDULE"
           ? describeTodaySchedule(result.data as TodayScheduleData, timeZone)
-          : successSummaries[proposal.action]
-    };
+          : successSummaries[proposal.action],
+      { data: result.data }
+    );
   }
 
-  return {
-    actionId: proposal.actionId,
-    action: proposal.action,
-    riskLevel: policy.riskLevel,
-    status: failureStatus(result.error.code),
-    errorCode: result.error.code,
-    userSummary: result.error.userMessage
-  };
-};
-
-const toAnalysisOutcome = (
-  proposal: Extract<PlannerActionProposal, { action: "GET_WEEKLY_SCHEDULE_DETAILS" | "ANALYZE_WEEKLY_SCHEDULE" | "GET_TODAY_AVAILABILITY" }>,
-  policy: ActionPolicy,
-  result: Awaited<ReturnType<WeeklyScheduleAnalysisService["getDetails"]>>
-): ActionOutcome => result.ok
-  ? { actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel, status: "SUCCEEDED", data: {}, userSummary: result.data.summary }
-  : { actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel, status: failureStatus(result.error.code), errorCode: result.error.code, userSummary: result.error.userMessage };
-
-const weekdayLabels = {
-  MONDAY: "lunes", TUESDAY: "martes", WEDNESDAY: "miércoles", THURSDAY: "jueves", FRIDAY: "viernes", SATURDAY: "sábado", SUNDAY: "domingo"
-} as const;
-
-const toWeeklyMutationOutcome = (
-  proposal: Extract<PlannerActionProposal, { action: "CREATE_WEEKLY_SCHEDULE" | "UPDATE_WEEKLY_SCHEDULE" | "CREATE_WEEKLY_ROUTINE" | "UPDATE_WEEKLY_ROUTINE" }>,
-  policy: ActionPolicy,
-  result: { ok: true; data: { record: { title: string; weekday?: keyof typeof weekdayLabels; startTime?: string; endTime?: string } } } | { ok: false; error: { code: string; userMessage: string } },
-  scheduleTitle?: string
-): ActionOutcome => {
-  if (!result.ok) {
-    return { actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel, status: failureStatus(result.error.code), errorCode: result.error.code, userSummary: result.error.userMessage };
-  }
-  const record = result.data.record;
-  const summary = proposal.action === "CREATE_WEEKLY_SCHEDULE"
-    ? `Listo, creé el horario «${record.title}».`
-    : proposal.action === "UPDATE_WEEKLY_SCHEDULE"
-      ? `Listo, actualicé el horario «${record.title}».`
-      : proposal.action === "CREATE_WEEKLY_ROUTINE"
-        ? `Listo, agregué «${record.title}» el ${weekdayLabels[record.weekday!]} de ${record.startTime} a ${record.endTime} en «${scheduleTitle}».`
-        : `Listo, actualicé «${record.title}» el ${weekdayLabels[record.weekday!]} de ${record.startTime} a ${record.endTime} en «${scheduleTitle}».`;
-  return { actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel, status: "SUCCEEDED", data: {}, userSummary: summary };
+  return failedOutcome(
+    outcomeIdentity(proposal, policy),
+    failureStatus(result.error.code),
+    result.error.code,
+    result.error.userMessage
+  );
 };
 
 export const createPlannerActionExecutor = (
@@ -199,89 +153,10 @@ export const createPlannerActionExecutor = (
       })
   };
   let plannerService = dependencies.plannerService;
-  let weeklyScheduleAnalysisService: WeeklyScheduleAnalysisService | undefined;
-  let weeklyScheduleMutationReferences: WeeklyScheduleMutationReferences | undefined;
   const getService = (): PlannerService => {
     plannerService ??= getPlannerService();
     return plannerService;
   };
-  const getWeeklyScheduleAnalysisService = (): WeeklyScheduleAnalysisService => {
-    weeklyScheduleAnalysisService ??= createWeeklyScheduleAnalysisService({ plannerService: getService(), timeZone: dependencies.timeZone });
-    return weeklyScheduleAnalysisService;
-  };
-  const getWeeklyScheduleMutationReferences = (): WeeklyScheduleMutationReferences => {
-    weeklyScheduleMutationReferences ??= createWeeklyScheduleMutationReferences(getService);
-    return weeklyScheduleMutationReferences;
-  };
-  const weeklyReferenceFailure = (
-    proposal: Extract<PlannerActionProposal, { action: "CREATE_WEEKLY_SCHEDULE" | "UPDATE_WEEKLY_SCHEDULE" | "CREATE_WEEKLY_ROUTINE" | "UPDATE_WEEKLY_ROUTINE" }>,
-    policy: ActionPolicy,
-    state: "MISSING" | "AMBIGUOUS" | "UNAVAILABLE",
-    kind: "schedule" | "routine" | "category"
-  ): ActionOutcome => {
-    const messages = {
-      schedule: state === "MISSING" ? "No encontré ese horario semanal." : state === "AMBIGUOUS" ? "Encontré varios horarios con ese nombre. Indica uno más específico." : "No se pudieron consultar los horarios semanales.",
-      routine: state === "MISSING" ? "No encontré ese bloque semanal." : state === "AMBIGUOUS" ? "Encontré varios bloques que coinciden. Indica el día u horario exacto." : "No se pudieron consultar los bloques semanales.",
-      category: state === "MISSING" ? "No encontré esa categoría." : state === "AMBIGUOUS" ? "Encontré varias categorías con ese nombre. Indica una más específica." : "No se pudieron consultar las categorías."
-    } as const;
-    return { actionId: proposal.actionId, action: proposal.action, riskLevel: policy.riskLevel, status: state === "UNAVAILABLE" ? "EXECUTION_FAILED" : "VALIDATION_FAILED", errorCode: state === "UNAVAILABLE" ? "PLANNER_DATABASE_UNAVAILABLE" : "PLANNER_NOT_FOUND", userSummary: messages[kind] };
-  };
-  const executeWeeklyMutation = async (
-    proposal: Extract<PlannerActionProposal, { action: "CREATE_WEEKLY_SCHEDULE" | "UPDATE_WEEKLY_SCHEDULE" | "CREATE_WEEKLY_ROUTINE" | "UPDATE_WEEKLY_ROUTINE" }>,
-    policy: ActionPolicy
-  ): Promise<ActionOutcome> => {
-    const service = getService();
-    const references = getWeeklyScheduleMutationReferences();
-    if (proposal.action === "CREATE_WEEKLY_SCHEDULE") {
-      const input = proposal.input as CreateWeeklyScheduleActionInput;
-      const existing = await references.resolveSchedule(input.title);
-      if (existing.state === "RESOLVED") {
-        return {
-          actionId: proposal.actionId,
-          action: proposal.action,
-          riskLevel: policy.riskLevel,
-          status: "VALIDATION_FAILED",
-          errorCode: "PLANNER_WEEKLY_SCHEDULE_TITLE_DUPLICATE",
-          userSummary: "Ya existe un horario con ese nombre. Indica otro nombre."
-        };
-      }
-      if (existing.state === "UNAVAILABLE") return weeklyReferenceFailure(proposal, policy, "UNAVAILABLE", "schedule");
-      return toWeeklyMutationOutcome(proposal, policy, await service.createWeeklySchedule(input) as never);
-    }
-    const schedule = await references.resolveSchedule(proposal.input.scheduleTitle);
-    if (schedule.state !== "RESOLVED") return weeklyReferenceFailure(proposal, policy, schedule.state, "schedule");
-    if (proposal.action === "UPDATE_WEEKLY_SCHEDULE") {
-      const { scheduleTitle: _scheduleTitle, ...input } = proposal.input as UpdateWeeklyScheduleActionInput;
-      if (input.title !== undefined) {
-        const replacement = await references.resolveSchedule(input.title);
-        if (replacement.state === "RESOLVED" && replacement.schedule.id !== schedule.schedule.id) {
-          return {
-            actionId: proposal.actionId,
-            action: proposal.action,
-            riskLevel: policy.riskLevel,
-            status: "VALIDATION_FAILED",
-            errorCode: "PLANNER_WEEKLY_SCHEDULE_TITLE_DUPLICATE",
-            userSummary: "Ya existe un horario con ese nombre. Indica otro nombre."
-          };
-        }
-        if (replacement.state === "UNAVAILABLE") return weeklyReferenceFailure(proposal, policy, "UNAVAILABLE", "schedule");
-      }
-      return toWeeklyMutationOutcome(proposal, policy, await service.updateWeeklySchedule({ ...input, weeklyScheduleId: schedule.schedule.id }) as never);
-    }
-    const categoryName = proposal.input.categoryName;
-    const category = categoryName ? await references.resolveCategory(categoryName) : undefined;
-    if (category && category.state !== "RESOLVED") return weeklyReferenceFailure(proposal, policy, category.state, "category");
-    if (proposal.action === "CREATE_WEEKLY_ROUTINE") {
-      const { scheduleTitle: _scheduleTitle, categoryName: _categoryName, ...input } = proposal.input as CreateWeeklyRoutineActionInput;
-      return toWeeklyMutationOutcome(proposal, policy, await service.createWeeklyRoutine({ ...input, weeklyScheduleId: schedule.schedule.id, ...(category ? { categoryId: category.category.id } : {}) }) as never, schedule.schedule.title);
-    }
-    const update = proposal.input as UpdateWeeklyRoutineActionInput;
-    const routine = await references.resolveRoutine({ scheduleTitle: schedule.schedule.title, routineTitle: update.routineTitle, weekday: update.targetWeekday, startTime: update.targetStartTime, endTime: update.targetEndTime });
-    if (routine.state !== "RESOLVED") return weeklyReferenceFailure(proposal, policy, routine.state, "routine");
-    const { scheduleTitle: _scheduleTitle, routineTitle: _routineTitle, targetWeekday: _targetWeekday, targetStartTime: _targetStartTime, targetEndTime: _targetEndTime, categoryName: _categoryName, ...input } = update;
-    return toWeeklyMutationOutcome(proposal, policy, await service.updateWeeklyRoutine({ ...input, routineId: routine.routine.id, weeklyScheduleId: schedule.schedule.id, ...(category ? { categoryId: category.category.id } : {}) }) as never, schedule.schedule.title);
-  };
-
   return {
     execute: async (proposal, policy) => {
       try {
@@ -302,41 +177,30 @@ export const createPlannerActionExecutor = (
             return toOutcome(proposal, policy, await getService().getTodaySchedule(proposal.input), dependencies.timeZone());
           case "GET_WEEK_SCHEDULE":
             return toOutcome(proposal, policy, await getService().getWeekSchedule(proposal.input), dependencies.timeZone());
-          case "GET_WEEKLY_SCHEDULE_DETAILS":
-            return toAnalysisOutcome(proposal, policy, await getWeeklyScheduleAnalysisService().getDetails(proposal.input));
-          case "ANALYZE_WEEKLY_SCHEDULE":
-            return toAnalysisOutcome(proposal, policy, await getWeeklyScheduleAnalysisService().analyze(proposal.input));
-          case "GET_TODAY_AVAILABILITY":
-            return toAnalysisOutcome(proposal, policy, await getWeeklyScheduleAnalysisService().getTodayAvailability(proposal.input));
-          case "CREATE_WEEKLY_SCHEDULE":
-          case "UPDATE_WEEKLY_SCHEDULE":
-          case "CREATE_WEEKLY_ROUTINE":
-          case "UPDATE_WEEKLY_ROUTINE":
-            return executeWeeklyMutation(proposal, policy);
           case "GET_CURRENT_DATE_TIME":
-            return {
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: "SUCCEEDED",
-              data: {},
-              userSummary: describeCurrentDateTime(dependencies.now(), dependencies.timeZone())
-            };
+            return succeededOutcome(
+              outcomeIdentity(proposal, policy),
+              describeCurrentDateTime(dependencies.now(), dependencies.timeZone()),
+              { data: {} }
+            );
           case "DELETE_EVENT":
             return toOutcome(proposal, policy, await getService().deleteEvent(proposal.input), dependencies.timeZone());
           case "DELETE_TASK":
             return toOutcome(proposal, policy, await getService().deleteTask(proposal.input), dependencies.timeZone());
+          default: {
+            // Compile-time exhaustiveness: a new action name that is not handled above fails typecheck here.
+            const unhandled: never = proposal;
+            return unsupportedPlannerOutcome(unhandled, policy);
+          }
         }
       } catch {
         dependencies.logError("Planner action execution failed.");
-        return {
-          actionId: proposal.actionId,
-          action: proposal.action,
-          riskLevel: policy.riskLevel,
-          status: "EXECUTION_FAILED",
-          errorCode: "ACTION_EXECUTION_UNAVAILABLE",
-          userSummary: "No se pudo completar la acción solicitada."
-        };
+        return failedOutcome(
+          outcomeIdentity(proposal, policy),
+          "EXECUTION_FAILED",
+          "ACTION_EXECUTION_UNAVAILABLE",
+          "No pude hacer eso. Inténtalo de nuevo."
+        );
       }
     }
   };
