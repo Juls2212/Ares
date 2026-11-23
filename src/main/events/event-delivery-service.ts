@@ -1,3 +1,4 @@
+import { collapseAndTrim } from "../../shared/text-fold";
 import {
   createEventDeliveryRepository,
   type EventDeliveryRepository
@@ -42,7 +43,7 @@ export type EventDeliveryService = {
 };
 
 const normalizeEventTitle = (title: string): string => {
-  const normalized = title.replace(/\s+/gu, " ").trim();
+  const normalized = collapseAndTrim(title);
   return normalized.length > 0 && normalized.length <= 240 ? normalized : FALLBACK_EVENT_TITLE;
 };
 
