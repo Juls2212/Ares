@@ -7,4 +7,5 @@ const removePresentationFormatting = (text: string): string => text
 
 // This changes only presentational markup and spacing for speech. Stored and displayed response text is untouched.
 export const normalizeSpeechText = (text: string): string =>
-  removePresentationFormatting(text).replace(/\s+/g, " ").trim();
+  collapseAndTrim(removePresentationFormatting(text));import { collapseAndTrim } from "../../shared/text-fold";
+
