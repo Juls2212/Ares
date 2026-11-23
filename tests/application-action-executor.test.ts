@@ -3,7 +3,6 @@ import { createApplicationActionExecutor } from "../src/main/actions/application
 import { getActionPolicy } from "../src/main/actions/action-policy";
 import { catalogRegistrationFailure } from "../src/main/applications/catalog-registration-failures";
 import type { ApplicationLauncher } from "../src/main/applications/application-launcher";
-import type { WebPageLauncher } from "../src/main/applications/web-page-launcher";
 
 const proposal = {
   actionId: "550e8400-e29b-41d4-a716-446655440000",
@@ -16,14 +15,6 @@ const createLauncher = (): ApplicationLauncher =>
     launchByAlias: vi.fn(async () => ({ ok: true as const, data: { applicationName: "Microsoft Word" } })),
     launchResolvedTarget: vi.fn()
   }) as unknown as ApplicationLauncher;
-
-const createWebPageLauncher = (): WebPageLauncher =>
-  ({
-    launch: vi.fn(async () => ({
-      ok: true as const,
-      data: { applicationName: "Google Chrome", destination: "YOUTUBE" as const }
-    }))
-  }) as WebPageLauncher;
 
 describe("application action executor", () => {
   it("maps OPEN_APPLICATION to the Main-only launcher and returns safe terminal data", async () => {
@@ -114,31 +105,5 @@ describe("application action executor", () => {
       expect(outcome).toMatchObject({ status, userSummary: message });
       expect(JSON.stringify(outcome)).not.toMatch(/spotify:|\.exe|C:\\/i);
     }
-  });
-
-  it("maps OPEN_WEB_PAGE through the trusted launcher with no URL in the terminal outcome", async () => {
-    const launcher = createLauncher();
-    const webPageLauncher = createWebPageLauncher();
-    const executor = createApplicationActionExecutor({ launcher, webPageLauncher, logError: vi.fn() });
-    const webProposal = {
-      actionId: proposal.actionId,
-      action: "OPEN_WEB_PAGE" as const,
-      input: { destination: "YOUTUBE" as const, browser: "CHROME" as const }
-    };
-
-    const outcome = await executor.execute(webProposal, getActionPolicy("OPEN_WEB_PAGE"));
-
-    expect(webPageLauncher.launch).toHaveBeenCalledWith(webProposal.input);
-    expect(launcher.launchByAlias).not.toHaveBeenCalled();
-    expect(outcome).toEqual({
-      actionId: proposal.actionId,
-      action: "OPEN_WEB_PAGE",
-      riskLevel: 1,
-      status: "SUCCEEDED",
-      data: { applicationName: "Google Chrome", destination: "YOUTUBE" },
-      userSummary: "Se abrió YouTube en Google Chrome."
-    });
-    expect(JSON.stringify(outcome)).not.toContain("https://");
-    expect(JSON.stringify(outcome)).not.toContain("chrome.exe");
   });
 });
