@@ -145,7 +145,7 @@ describe("response context chip", () => {
     expect(RESPONSE_AREA_LABELS).toEqual({ APPLICATIONS: "Aplicaciones", FILES: "Archivos", MUSIC: "Música", MESSAGING: "Mensajes", WEB: "Web" });
     const cases: Array<[string, string]> = [
       ["OPEN_APPLICATION", "Aplicaciones"], ["SEARCH_FILES", "Archivos"], ["DELETE_FOUND_ITEM", "Archivos"], ["PLAY_SPOTIFY_MUSIC", "Música"],
-      ["WHAT_IS_PLAYING", "Música"], ["PREPARE_MESSAGE_DRAFT", "Mensajes"], ["LIST_CONTACTS", "Mensajes"], ["OPEN_WEB_PAGE", "Web"], ["SEARCH_APPROVED_SITE", "Web"]
+      ["WHAT_IS_PLAYING", "Música"], ["PREPARE_MESSAGE_DRAFT", "Mensajes"], ["LIST_CONTACTS", "Mensajes"], ["OPEN_APPROVED_PAGE", "Web"], ["SEARCH_APPROVED_SITE", "Web"]
     ];
     for (const [action, label] of cases) expect(responseAreaLabel(interpretationFor(action)), action).toBe(label);
   });
