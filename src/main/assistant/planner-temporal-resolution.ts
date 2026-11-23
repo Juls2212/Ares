@@ -33,13 +33,6 @@ const pad = (value: number): string => value.toString().padStart(2, "0");
 const formatDate = ({ year, month, day }: CalendarDate): string =>
   `${year.toString().padStart(4, "0")}-${pad(month)}-${pad(day)}`;
 
-const normalizeSpanish = (value: string): string =>
-  value
-    .trim()
-    .toLocaleLowerCase("es")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "");
-
 const parseCalendarDate = (value: string): CalendarDate | undefined => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return undefined;
@@ -121,7 +114,7 @@ const resolveLocalInstant = (local: LocalDateTime, timeZone: string): Date | und
 
 const parseLocalTime = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toLocaleLowerCase("en-US");
+  const normalized = lowerTrim(value);
   const clock = /^(\d{1,2}):(\d{2})$/.exec(normalized);
   if (clock) {
     const hour = Number(clock[1]);
@@ -152,7 +145,7 @@ export const createPlannerTemporalResolver = (dependencies: PlannerTemporalResol
     today: CalendarDate
   ): { ok: true; date: CalendarDate } | { ok: false; reason: PlannerTemporalResolutionReason } => {
     if (typeof value !== "string") return { ok: false, reason: "DATE_INVALID" };
-    const normalized = normalizeSpanish(value).replace(/^el\s+/, "");
+    const normalized = foldSpanishWord(value).replace(/^el\s+/, "");
     const explicit = parseCalendarDate(normalized);
     if (explicit) {
       return compareCalendarDates(explicit, today) < 0
@@ -161,7 +154,7 @@ export const createPlannerTemporalResolver = (dependencies: PlannerTemporalResol
     }
     if (normalized === "hoy") return { ok: true, date: today };
     if (normalized === "manana") return { ok: true, date: addCalendarDays(today, 1) };
-    const targetWeekday = weekdayByName[normalized];
+    const targetWeekday = Object.hasOwn(weekdayByName, normalized) ? weekdayByName[normalized] : undefined;
     if (targetWeekday === undefined) return { ok: false, reason: "DATE_INVALID" };
     const currentWeekday = new Date(Date.UTC(today.year, today.month - 1, today.day)).getUTCDay();
     const daysAhead = (targetWeekday - currentWeekday + 7) % 7;
@@ -261,4 +254,5 @@ export const createPlannerTemporalResolver = (dependencies: PlannerTemporalResol
       }
     }
   };
-};
+};import { foldSpanishWord, lowerTrim } from "../../shared/text-fold";
+
