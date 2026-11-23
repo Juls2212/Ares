@@ -294,8 +294,6 @@ describe("interpreter draft for custom registration", () => {
         drafts: [{
           action: REQUEST,
           input: draftInput === null ? null : JSON.stringify(draftInput),
-          weeklyRoutine: null,
-          habitAction: null,
           approvedWeb: null,
           catalogApplication: null
         }]
