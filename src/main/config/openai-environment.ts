@@ -1,6 +1,5 @@
-import dotenv from "dotenv";
-
 import { MainConfigurationError } from "./database-environment";
+import { loadDevelopmentEnvironment } from "./development-environment";
 
 export type OpenAiConfiguration = {
   apiKey: string;
@@ -8,7 +7,7 @@ export type OpenAiConfiguration = {
 };
 
 export const getOpenAiSpeechConfiguration = (): { apiKey: string } => {
-  dotenv.config({ quiet: true });
+  loadDevelopmentEnvironment();
   return { apiKey: requiredValue(process.env, "OPENAI_API_KEY", "speech") };
 };
 
@@ -40,7 +39,7 @@ export const getOpenAiConfiguration = (
   environment: NodeJS.ProcessEnv = process.env
 ): OpenAiConfiguration => {
   if (environment === process.env) {
-    dotenv.config({ quiet: true });
+    loadDevelopmentEnvironment();
   }
 
   return {
@@ -54,7 +53,7 @@ export const getOpenAiTranscriptionConfiguration = (
   environment: NodeJS.ProcessEnv = process.env
 ): OpenAiTranscriptionConfiguration => {
   if (environment === process.env) {
-    dotenv.config({ quiet: true });
+    loadDevelopmentEnvironment();
   }
 
   return {
@@ -68,7 +67,7 @@ export const getElevenLabsSpeechConfiguration = (
   environment: NodeJS.ProcessEnv = process.env
 ): { apiKey: string; voiceId: string } | undefined => {
   if (environment === process.env) {
-    dotenv.config({ quiet: true });
+    loadDevelopmentEnvironment();
   }
   const apiKey = environment.ELEVENLABS_API_KEY?.trim();
   const voiceId = environment.ELEVENLABS_VOICE_ID?.trim();

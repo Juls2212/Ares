@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+import { loadDevelopmentEnvironment } from "./development-environment";
 
 export class MainConfigurationError extends Error {
   public readonly code: string;
@@ -19,7 +19,7 @@ export const getDatabaseUrl = (
   // Development secrets are read only when trusted Main code first needs the database.
   // Explicit environments keep configuration tests and callers fully deterministic.
   if (environment === process.env) {
-    dotenv.config({ quiet: true });
+    loadDevelopmentEnvironment();
   }
 
   const databaseUrl = environment.DATABASE_URL;

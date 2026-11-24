@@ -1,5 +1,6 @@
 import { app, BrowserWindow, globalShortcut, Menu, nativeImage, nativeTheme, session, Tray } from "electron";
 import path from "node:path";
+import { markPackagedRuntime } from "./config/development-environment";
 import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
 import { registerAssistantIpcHandlers } from "./ipc/register-assistant-ipc";
 import { registerSettingsIpcHandlers } from "./ipc/register-settings-ipc";
@@ -29,6 +30,9 @@ import {
   createTrayIconBitmap,
   type ManagedWindow
 } from "./background/background-lifecycle";
+
+// Before any configuration read: a packaged app reads settings only from the process environment.
+markPackagedRuntime(app.isPackaged);
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;

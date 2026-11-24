@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+import { loadDevelopmentEnvironment } from "../config/development-environment";
 
 /** Fixed values of the Spotify integration. Nothing here comes from voice, the model or the renderer. */
 export const SPOTIFY_LOOPBACK_HOST = "127.0.0.1";
@@ -23,7 +23,7 @@ export const SPOTIFY_CLIENT_ID_PATTERN = /^[A-Za-z0-9]{16,64}$/u;
  * stored or returned to another process; an unusable value is reported as «not configured».
  */
 export const getSpotifyClientId = (environment: NodeJS.ProcessEnv = process.env): string | undefined => {
-  if (environment === process.env) dotenv.config({ quiet: true });
+  if (environment === process.env) loadDevelopmentEnvironment();
   const value = environment.SPOTIFY_CLIENT_ID?.trim();
   return value && SPOTIFY_CLIENT_ID_PATTERN.test(value) ? value : undefined;
 };
