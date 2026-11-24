@@ -6,7 +6,7 @@ const preloadSource = readSource("src/preload/preload.ts");
 const rendererGlobalSource = readSource("src/renderer/global.d.ts");
 
 describe("preload surface", () => {
-  it("uses only the explicit system, action, assistant, voice, speech, messaging and settings channels", () => {
+  it("uses only the explicit system, action, assistant, voice, speech, messaging, settings and theme channels", () => {
     expect(IPC_CHANNELS).toEqual({
       system: { getStatus: "system:get-status", getCapabilities: "system:get-capabilities" },
       actions: { propose: "actions:propose", confirm: "actions:confirm", cancel: "actions:cancel" },
@@ -18,7 +18,8 @@ describe("preload surface", () => {
         submitContactForm: "messaging:contact-form:submit",
         cancelContactForm: "messaging:contact-form:cancel"
       },
-      settings: { voice: { get: "settings:voice:get" } }
+      settings: { voice: { get: "settings:voice:get" } },
+      theme: { setPreference: "theme:set-preference" }
     });
   });
 

@@ -12,6 +12,9 @@ export const getOpenAiSpeechConfiguration = (): { apiKey: string } => {
   return { apiKey: requiredValue(process.env, "OPENAI_API_KEY", "speech") };
 };
 
+/** Used when OPENAI_TRANSCRIPTION_MODEL is unset or blank: the full-size model, which is the most accurate. */
+export const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
+
 export type OpenAiTranscriptionConfiguration = {
   apiKey: string;
   transcriptionModel: string;
@@ -56,7 +59,7 @@ export const getOpenAiTranscriptionConfiguration = (
 
   return {
     apiKey: requiredValue(environment, "OPENAI_API_KEY", "transcription"),
-    transcriptionModel: requiredValue(environment, "OPENAI_TRANSCRIPTION_MODEL", "transcription")
+    transcriptionModel: environment.OPENAI_TRANSCRIPTION_MODEL?.trim() || DEFAULT_TRANSCRIPTION_MODEL
   };
 };
 

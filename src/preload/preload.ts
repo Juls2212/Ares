@@ -30,6 +30,7 @@ import type {
   VoiceTranscriptionData,
   VoiceTranscriptionInput
 } from "../shared/voice-contracts";
+import type { ThemeOperationResult, ThemeSetPreferenceInput } from "../shared/theme-contracts";
 import type {
   SettingsOperationResult,
   VoicePreferencesData
@@ -106,6 +107,10 @@ const aresApi = {
           SettingsOperationResult<VoicePreferencesData>
         >
     }
+  },
+  theme: {
+    setPreference: (input: ThemeSetPreferenceInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.theme.setPreference, input) as Promise<ThemeOperationResult>
   }
 } satisfies AresApi;
 

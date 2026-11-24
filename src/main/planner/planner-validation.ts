@@ -790,18 +790,19 @@ export const validateReminderListInput = (
 export const validateGetTodayScheduleInput = (
   input: unknown
 ): PlannerOperationResult<GetTodayScheduleInput> => {
-  const objectResult = validateObject(input, ["includeCompletedTasks"]);
+  const objectResult = validateObject(input, ["includeCompletedTasks", "date"]);
   if (!objectResult.ok) return objectResult;
   const includeCompletedTasks = validateOptionalBoolean(
     objectResult.data,
     "includeCompletedTasks"
   );
   if (!includeCompletedTasks.ok) return includeCompletedTasks;
-  return createSuccess(
-    includeCompletedTasks.data === undefined
-      ? {}
-      : { includeCompletedTasks: includeCompletedTasks.data }
-  );
+  const date = validateOptionalCalendarDate(objectResult.data, "date");
+  if (!date.ok) return date;
+  return createSuccess({
+    ...(includeCompletedTasks.data === undefined ? {} : { includeCompletedTasks: includeCompletedTasks.data }),
+    ...(stringValue(date.data) === undefined ? {} : { date: stringValue(date.data) })
+  });
 };
 
 export const validateGetWeekScheduleInput = (

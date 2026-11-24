@@ -4,9 +4,11 @@ import {
   type ActionSubmission
 } from "../../shared/action-contracts";
 import { validateWeatherInput } from "../weather/weather-validation";
+import { validateSystemInfoInput } from "../system/system-info";
 import {
   ASSISTANT_CURRENT_CONTEXT_TOKEN,
   ASSISTANT_ERROR_CODES,
+  ASSISTANT_INSTRUCTION_MAX_LENGTH,
   type AssistantInterpretInput,
   type AssistantInterpretation,
   type AssistantInterpretationReference,
@@ -65,6 +67,16 @@ import { validateApprovedWebActionInput } from "../actions/approved-web-action-e
 import { parseMessagingCommand } from "./messaging-phrases";
 import { parseStreamingCommand } from "./streaming-phrases";
 import { parseSpotifyControlCommand } from "./spotify-control-phrases";
+import type { VariantPicker } from "../../shared/phrase-variation";
+import {
+  LOCAL_MODE_NOT_UNDERSTOOD,
+  matchLocalIntent,
+  toProviderOutput,
+  type LocalContext,
+  type LocalIntent,
+  type LocalMatch,
+  type LocalMode
+} from "./local-intent-interpreter";
 import { validateSpotifySearchQuery } from "../applications/spotify-search";
 import type { ContactResolution } from "../messaging/messaging-service";
 import { MESSAGING_FAILURES } from "../messaging/messaging-failures";
@@ -75,7 +87,7 @@ import {
   validateContactName
 } from "../messaging/messaging-validation";
 
-const MAX_INSTRUCTION_LENGTH = 2_000;
+const MAX_INSTRUCTION_LENGTH = ASSISTANT_INSTRUCTION_MAX_LENGTH;
 const MAX_DRAFTS = 8;
 const MAX_PROVIDER_OUTPUT_LENGTH = 16_000;
 const READY_SUMMARY = "Listo, esto es lo que preparé.";
@@ -104,6 +116,13 @@ export type AssistantInterpreterDependencies = {
   isSpotifyAppRegistered?: () => Promise<boolean>;
   /** Local connection state of the Spotify Web API; it decides whether «pon X» plays or asks to connect. */
   isSpotifyConnected?: () => Promise<boolean>;
+  /**
+   * The offline local brain. When absent the interpreter is cloud-only, exactly as before. When present, `localFirst` answers a
+   * small set of exact-grammar commands without the provider, and a missing, failing or slow provider falls back to it.
+   */
+  localBrain?: { localFirst: boolean; pick?: VariantPicker };
+  /** One closed-enum line per turn that reaches the local or cloud decision; defaults to the console. */
+  logInfo?: (line: string) => void;
 };
 
 export type TrustedAssistantReference = {
@@ -731,10 +750,22 @@ const resolveCurrentContextToken = (
   return draftClarification("Eso no se puede hacer con lo que elegiste.");
 };
 
+const scheduleDateClarification = (reason: PlannerTemporalResolutionReason): string =>
+  reason === "DATE_OUT_OF_RANGE" ? "Solo puedo consultar los próximos 14 días. ¿Qué día quieres?"
+    : reason === "DATE_PAST" ? "Solo puedo consultar desde hoy en adelante. ¿Qué día quieres?"
+      : reason === "WEEKDAY_AMBIGUOUS" ? "¿Hoy o el próximo? Dime la fecha exacta."
+        : "¿De qué día quieres la agenda? Dime «hoy», «mañana» o una fecha.";
+
 const plannerClarification = (
   action: PlannerTemporalAction,
-  reason?: PlannerTemporalResolutionReason
+  reason?: PlannerTemporalResolutionReason,
+  hour?: number
 ): DraftClarification => {
+  if (reason === "TIME_AMBIGUOUS") {
+    // An hour from 1 to 12 said without a day period is never guessed.
+    if (hour === 12) return draftClarification("¿A las 12 del mediodía o a medianoche?");
+    return draftClarification(hour === undefined ? "¿Es de la mañana o de la tarde?" : `¿A las ${hour} de la mañana o de la tarde?`);
+  }
   if (reason === "TIME_RANGE_INVALID") {
     return draftClarification("La hora final del evento debe ser posterior a la hora de inicio.");
   }
@@ -795,7 +826,7 @@ const validateDraft = async (
     }
     case "CREATE_TASK": {
       const temporal = temporalResolver.resolve(action as PlannerTemporalAction, input);
-      if (!temporal.ok) return plannerClarification(action, temporal.reason);
+      if (!temporal.ok) return plannerClarification(action, temporal.reason, temporal.hour);
       if (!hasOnlyKeys(temporal.input, ["title", "description", "dueDate", "dueTime", "priority", "status", "categoryId", "completedAt"])) {
         return null;
       }
@@ -806,7 +837,7 @@ const validateDraft = async (
     }
     case "CREATE_EVENT": {
       const temporal = temporalResolver.resolve(action as PlannerTemporalAction, input);
-      if (!temporal.ok) return plannerClarification(action, temporal.reason);
+      if (!temporal.ok) return plannerClarification(action, temporal.reason, temporal.hour);
       if (!hasOnlyKeys(temporal.input, ["title", "description", "startAt", "endAt", "categoryId", "location"])) {
         return null;
       }
@@ -817,7 +848,7 @@ const validateDraft = async (
     }
     case "CREATE_REMINDER": {
       const temporal = temporalResolver.resolve(action as PlannerTemporalAction, input);
-      if (!temporal.ok) return plannerClarification(action, temporal.reason);
+      if (!temporal.ok) return plannerClarification(action, temporal.reason, temporal.hour);
       if (!hasOnlyKeys(temporal.input, ["title", "remindAt", "taskId", "eventId", "status", "deliveredAt"])) {
         return null;
       }
@@ -829,7 +860,11 @@ const validateDraft = async (
       return { action, input: result.data };
     }
     case "GET_TODAY_SCHEDULE": {
-      const result = validateGetTodayScheduleInput(input);
+      if (!isRecord(input)) return null;
+      // The day (today, tomorrow, the day after, a weekday or a date) is resolved by Main's clock, never by the model.
+      const temporal = temporalResolver.resolve("GET_TODAY_SCHEDULE", input);
+      if (!temporal.ok) return draftClarification(scheduleDateClarification(temporal.reason));
+      const result = validateGetTodayScheduleInput(temporal.input);
       return result.ok ? { action, input: result.data } : null;
     }
     case "GET_WEEK_SCHEDULE": {
@@ -838,6 +873,11 @@ const validateDraft = async (
     }
     case "GET_CURRENT_DATE_TIME": {
       return isRecord(input) && hasOnlyKeys(input, []) ? { action, input: {} } : null;
+    }
+    case "GET_SYSTEM_INFO": {
+      // A closed topic from a closed list; nothing the person said is copied into the draft.
+      const result = validateSystemInfoInput(input);
+      return result.ok ? { action, input: result.data } : null;
     }
     case "GET_WEATHER": {
       const result = validateWeatherInput(input);
@@ -1093,6 +1133,11 @@ const parseCandidateInput = (candidate: UnknownRecord): unknown => {
     if (candidate.input !== null || !isRecord(candidate.weatherQuery)) return undefined;
     return Object.fromEntries(Object.entries(candidate.weatherQuery).filter(([, value]) => value !== null));
   }
+  if (candidate.action === "GET_SYSTEM_INFO") {
+    if (candidate.input !== null || !isRecord(candidate.systemInfo)) return undefined;
+    // Passed on whole: the closed validator rejects an extra field instead of dropping it silently.
+    return candidate.systemInfo;
+  }
   if (candidate.action === "SET_SPOTIFY_VOLUME") {
     if (candidate.input !== null || !isRecord(candidate.spotifyControl)) return undefined;
     return Object.fromEntries(Object.entries(candidate.spotifyControl).filter(([, value]) => value !== null));
@@ -1118,6 +1163,7 @@ const parseCandidateInput = (candidate: UnknownRecord): unknown => {
     || (candidate.filesAction !== undefined && candidate.filesAction !== null)
     || (candidate.messagingAction !== undefined && candidate.messagingAction !== null)
     || (candidate.weatherQuery !== undefined && candidate.weatherQuery !== null)
+    || (candidate.systemInfo !== undefined && candidate.systemInfo !== null)
     || (candidate.spotifySearch !== undefined && candidate.spotifySearch !== null)
     || (candidate.spotifyControl !== undefined && candidate.spotifyControl !== null)
   ) return undefined;
@@ -1208,7 +1254,7 @@ const parseProviderOutput = async (
   }
   const drafts: ActionSubmission[] = [];
   for (const candidate of parsed.drafts) {
-    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "weatherQuery", "spotifySearch", "spotifyControl"])) {
+    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["action", "input", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "weatherQuery", "systemInfo", "spotifySearch", "spotifyControl"])) {
       return rejection(ASSISTANT_ERROR_CODES.malformed);
     }
     let effective: UnknownRecord = candidate;
@@ -1298,6 +1344,13 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
       console.error(message);
     });
 
+  const brain = dependencies.localBrain;
+  const logInfo = dependencies.logInfo ?? ((line: string) => { console.info(line); });
+  /** Only a closed intent name and a closed route name: never the text. */
+  const logTurn = (intent: LocalIntent | "none", route: "local" | "cloud" | "local-fallback"): void => {
+    try { logInfo(`local-brain intent=${intent} route=${route}`); } catch { /* diagnostics never affect the turn */ }
+  };
+
   const reportUnavailable = (
     code: (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT_ERROR_CODES]
   ): AssistantOperationResult<AssistantInterpretation> => {
@@ -1351,11 +1404,74 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
         { isSpotifyAppRegistered: dependencies.isSpotifyAppRegistered, isSpotifyConnected: dependencies.isSpotifyConnected }
       );
       if (streamingResult) return streamingResult;
+      const isKeyAvailable = (): boolean => {
+        try { getConfiguration(); return true; } catch { return false; }
+      };
+      const localContext = (): LocalContext => ({
+        registeredAliases: referenceOverrides?.knownApplicationAliases ?? [],
+        isKeyAvailable,
+        pick: brain?.pick
+      });
+      /**
+       * Runs a local match through the SAME parser and validators the cloud output goes through, so a draft is exactly as
+       * trusted as a provider draft. Anything that does not end as a draft, an answer or a question is dropped.
+       */
+      const runLocal = async (match: LocalMatch): Promise<AssistantOperationResult<AssistantInterpretation> | undefined> => {
+        try {
+          if (match.kind === "none") return undefined;
+          if (match.kind === "clarify") return clarification(match.question);
+          const localReference = createReference(dependencies, referenceOverrides);
+          const result = await parseProviderOutput(
+            toProviderOutput(match),
+            localReference,
+            createPlannerTemporalResolver({ now: () => new Date(localReference.now), timeZone: () => localReference.timeZone }),
+            currentContext,
+            dependencies.resolveEventDeletion,
+            normalizedInput.instruction,
+            resolveTrustedReference,
+            dependencies.resolveFoundFileName,
+            dependencies.resolveFoundFolderName,
+            { resolveMessagingContact: dependencies.resolveMessagingContact, hasActiveMessageDraft: dependencies.hasActiveMessageDraft },
+            { isSpotifyAppRegistered: dependencies.isSpotifyAppRegistered, isSpotifyConnected: dependencies.isSpotifyConnected }
+          );
+          return result.ok && ["READY", "CONVERSATIONAL", "NEEDS_CLARIFICATION"].includes(result.data.state) ? result : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      const matchLocally = (mode: LocalMode): LocalMatch => matchLocalIntent(normalizedInput.instruction, localContext(), mode);
+      const intentOf = (match: LocalMatch): LocalIntent | "none" => (match.kind === "none" ? "none" : match.intent);
+
+      if (brain?.localFirst) {
+        const match = matchLocally("strict");
+        const local = await runLocal(match);
+        if (local) {
+          logTurn(intentOf(match), "local");
+          return local;
+        }
+      }
+
+      /** The provider is missing, failed or was too slow: the local brain answers alone, or says it did not understand. */
+      const failOrFallBack = async (
+        code: (typeof ASSISTANT_ERROR_CODES)[keyof typeof ASSISTANT_ERROR_CODES]
+      ): Promise<AssistantOperationResult<AssistantInterpretation>> => {
+        const failure = reportUnavailable(code);
+        if (!brain) return failure;
+        const match = matchLocally("lenient");
+        const local = await runLocal(match);
+        if (local) {
+          logTurn(intentOf(match), "local-fallback");
+          return local;
+        }
+        logTurn("none", "local-fallback");
+        return success({ state: "CONVERSATIONAL", summary: LOCAL_MODE_NOT_UNDERSTOOD, drafts: [], clarifications: [] });
+      };
+
       let provider: StructuredInterpretationProvider;
       try {
         provider = createProvider(getConfiguration());
       } catch {
-        return reportUnavailable(ASSISTANT_ERROR_CODES.configuration);
+        return failOrFallBack(ASSISTANT_ERROR_CODES.configuration);
       }
 
       let reference: AssistantInterpretationReference;
@@ -1368,6 +1484,7 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
       } catch {
         return reportUnavailable(ASSISTANT_ERROR_CODES.unavailable);
       }
+      if (brain) logTurn("none", "cloud");
       const controller = new AbortController();
       let timedOut = false;
       const timeout = setTimeout(() => {
@@ -1382,10 +1499,10 @@ export const createAssistantInterpreter = (dependencies: AssistantInterpreterDep
           signal: controller.signal
         });
       } catch (error) {
-        if (timedOut) return reportUnavailable(ASSISTANT_ERROR_CODES.timeout);
+        if (timedOut) return failOrFallBack(ASSISTANT_ERROR_CODES.timeout);
         const diagnostic = getAssistantProviderFailureDiagnostic(error);
         if (isDevelopmentDiagnosticEnabled()) logError(formatProviderFailureDiagnostic(diagnostic));
-        return reportUnavailable(getProviderFailureCode(diagnostic));
+        return failOrFallBack(getProviderFailureCode(diagnostic));
       } finally {
         clearTimeout(timeout);
       }

@@ -7,7 +7,7 @@ describe("mounted Ares wiring", () => {
     const view = readSource("src/renderer/views/ares-view.tsx");
     expect(view).not.toContain("BrowserSpeechControls");
     expect(view).not.toContain("VoiceCommandControls");
-    expect(view).toContain("<GlassOrb");
+    expect(view).toContain("<OrbCanvas");
     expect(view).not.toContain("assistant-instruction");
   });
 

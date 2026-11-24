@@ -12,9 +12,9 @@ import type {
 } from "../../shared/action-contracts";
 import { getPlannerService } from "../planner/planner-composition";
 import type { PlannerService } from "../planner/planner-service";
-import type { EventRecord, TaskPriority, TaskRecord, TaskStatus, TodayScheduleData } from "../../shared/planner-contracts";
-
-const MAX_TODAY_SCHEDULE_ITEMS_PER_KIND = 3;
+import type { TodayScheduleData } from "../../shared/planner-contracts";
+import { spokenClock } from "../../shared/spanish-time";
+import { describeSchedule } from "./agenda-text";
 
 export type PlannerActionExecutor = {
   execute: (proposal: PlannerActionProposal, policy: ActionPolicy) => Promise<ActionOutcome>;
@@ -34,7 +34,7 @@ const successSummaries: Record<PlannerActionProposal["action"], string> = {
   CREATE_EVENT: "Se creó el evento.",
   UPDATE_EVENT: "Se actualizó el evento.",
   CREATE_REMINDER: "Se creó el recordatorio.",
-  GET_TODAY_SCHEDULE: "Se consultó la agenda de hoy.",
+  GET_TODAY_SCHEDULE: "Se consultó la agenda.",
   GET_WEEK_SCHEDULE: "Se consultó la agenda de la semana.",
   GET_CURRENT_DATE_TIME: "Se consultó la fecha y hora actuales.",
   DELETE_EVENT: "Se eliminó el evento.",
@@ -50,54 +50,6 @@ const failureStatus = (errorCode: string): FailureOutcomeStatus =>
     ? "EXECUTION_FAILED"
     : "VALIDATION_FAILED";
 
-const priorityLabels: Record<TaskPriority, string> = {
-  LOW: "prioridad baja",
-  MEDIUM: "prioridad media",
-  HIGH: "prioridad alta"
-};
-
-const statusLabels: Record<TaskStatus, string> = {
-  PENDING: "pendiente",
-  IN_PROGRESS: "en progreso",
-  COMPLETED: "completada"
-};
-
-const formatLocalTime = (instant: string, timeZone: string): string =>
-  new Intl.DateTimeFormat("es-CO", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  }).format(new Date(instant));
-
-const describeTask = (task: TaskRecord): string => {
-  const dueTime = task.dueTime ? `, a las ${task.dueTime}` : "";
-  return `${task.title} (${priorityLabels[task.priority]}, ${statusLabels[task.status]}${dueTime})`;
-};
-
-const describeEvent = (event: EventRecord, timeZone: string): string =>
-  `${event.title} a las ${formatLocalTime(event.startAt, timeZone)}`;
-
-export const describeTodaySchedule = (schedule: TodayScheduleData, timeZone: string): string => {
-  if (schedule.tasks.length === 0 && schedule.events.length === 0) {
-    return "Hoy no tienes tareas ni eventos.";
-  }
-
-  const displayedTasks = schedule.tasks.slice(0, MAX_TODAY_SCHEDULE_ITEMS_PER_KIND);
-  const displayedEvents = schedule.events.slice(0, MAX_TODAY_SCHEDULE_ITEMS_PER_KIND);
-  const sections: string[] = [];
-  if (displayedTasks.length > 0) {
-    sections.push(`Tareas: ${displayedTasks.map(describeTask).join("; ")}.`);
-  }
-  if (displayedEvents.length > 0) {
-    sections.push(`Eventos: ${displayedEvents.map((event) => describeEvent(event, timeZone)).join("; ")}.`);
-  }
-  const remaining = schedule.tasks.length - displayedTasks.length + schedule.events.length - displayedEvents.length;
-  const remainingText =
-    remaining > 0 ? ` Además, tienes ${remaining} ${remaining === 1 ? "elemento más" : "elementos más"}.` : "";
-  return `Para hoy: ${sections.join(" ")}${remainingText}`;
-};
-
 export const describeCurrentDateTime = (now: Date, timeZone: string): string => {
   const date = new Intl.DateTimeFormat("es-CO", {
     timeZone,
@@ -106,29 +58,31 @@ export const describeCurrentDateTime = (now: Date, timeZone: string): string => 
     month: "long",
     year: "numeric"
   }).format(now);
-  const time = new Intl.DateTimeFormat("es-CO", {
+  const time = new Intl.DateTimeFormat("en-GB", {
     timeZone,
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23"
   }).format(now);
-  return `Hoy es ${date}. Son las ${time}.`;
+  // Said in 12-hour form with the day period: «Son las 3 y 42 de la tarde», «Es la 1 y media de la tarde».
+  const clock = spokenClock(time);
+  return `Hoy es ${date}. ${clock.startsWith("las ") ? "Son" : "Es"} ${clock}.`;
 };
 
 const toOutcome = <T extends PlannerActionData>(
   proposal: PlannerActionProposal,
   policy: ActionPolicy,
   result: PlannerOperationResult<T>,
-  timeZone: string
+  timeZone: string,
+  now: Date = new Date()
 ): ActionOutcome => {
   if (result.ok) {
-    return succeededOutcome(
-      outcomeIdentity(proposal, policy),
-      proposal.action === "GET_TODAY_SCHEDULE"
-          ? describeTodaySchedule(result.data as TodayScheduleData, timeZone)
-          : successSummaries[proposal.action],
-      { data: result.data }
-    );
+    if (proposal.action === "GET_TODAY_SCHEDULE") {
+      // The words of the agenda are for the screen and the voice only; history keeps a fixed sentence.
+      const texts = describeSchedule(result.data as TodayScheduleData, now, timeZone);
+      return succeededOutcome(outcomeIdentity(proposal, policy), texts.display, { data: { ...result.data, spokenSummary: texts.spoken } as T });
+    }
+    return succeededOutcome(outcomeIdentity(proposal, policy), successSummaries[proposal.action], { data: result.data });
   }
 
   return failedOutcome(
@@ -174,7 +128,7 @@ export const createPlannerActionExecutor = (
           case "CREATE_REMINDER":
             return toOutcome(proposal, policy, await getService().createReminder(proposal.input), dependencies.timeZone());
           case "GET_TODAY_SCHEDULE":
-            return toOutcome(proposal, policy, await getService().getTodaySchedule(proposal.input), dependencies.timeZone());
+            return toOutcome(proposal, policy, await getService().getTodaySchedule(proposal.input), dependencies.timeZone(), dependencies.now());
           case "GET_WEEK_SCHEDULE":
             return toOutcome(proposal, policy, await getService().getWeekSchedule(proposal.input), dependencies.timeZone());
           case "GET_CURRENT_DATE_TIME":

@@ -31,6 +31,7 @@ import {
   spotifyFailure,
   spotifySuccess
 } from "../src/main/spotify/spotify-failures";
+import { THEME_FAILURES } from "../src/shared/theme-contracts";
 import { ELEVENLABS_FAILURES } from "../src/main/voice/elevenlabs-speech-provider";
 import { WEATHER_ERROR_CODES, weatherUserMessage } from "../src/main/weather/weather-service";
 import { ACTION_ERROR_CODES } from "../src/shared/action-contracts";
@@ -108,6 +109,7 @@ const record = async (): Promise<Record<string, unknown>> => ({
   catalogLaunchFailure: CATALOG_LAUNCH_FAILURE,
   weatherTable: Object.fromEntries(Object.values(WEATHER_ERROR_CODES).map((code) => [code, weatherUserMessage(code)])),
   elevenLabsTable: ELEVENLABS_FAILURES.messages,
+  themeTable: THEME_FAILURES.messages,
   plannerCodes: PLANNER_ERROR_CODES,
   actionErrorCodes: ACTION_ERROR_CODES,
   executionCodes: {
@@ -148,7 +150,7 @@ describe("failure taxonomies, builders and history sentences (golden)", () => {
     expect(Object.keys(golden).sort()).toEqual([
       "actionErrorCodes", "catalogBuilders", "catalogLaunchFailure", "catalogRegistrationTable", "elevenLabsTable", "executionCodes", "filesBuilders",
       "filesTable", "historySentences", "messagingBuilders", "messagingTable", "plannerCodes", "spotifyBuilders", "spotifyExecutorOutcomes",
-      "spotifyTable", "weatherTable"
+      "spotifyTable", "themeTable", "weatherTable"
     ]);
   });
 
@@ -160,6 +162,7 @@ describe("failure taxonomies, builders and history sentences (golden)", () => {
     expect(asJson(CATALOG_LAUNCH_FAILURE)).toEqual(golden.catalogLaunchFailure);
     expect(asJson(Object.fromEntries(Object.values(WEATHER_ERROR_CODES).map((code) => [code, weatherUserMessage(code)])))).toEqual(golden.weatherTable);
     expect(asJson(ELEVENLABS_FAILURES.messages)).toEqual(golden.elevenLabsTable);
+    expect(asJson(THEME_FAILURES.messages)).toEqual(golden.themeTable);
     expect(asJson(PLANNER_ERROR_CODES)).toEqual(golden.plannerCodes);
     expect(asJson(ACTION_ERROR_CODES)).toEqual(golden.actionErrorCodes);
     expect(asJson({

@@ -25,7 +25,9 @@ describe("assistant capability registry", () => {
   });
 
   it("enables the FILES and MESSAGING domains only for their explicit action lists", () => {
-    expect(CAPABILITY_DOMAINS).toEqual(["INTERNAL_MEMORY", "APPLICATIONS", "WEB", "FILES", "MESSAGING", "MUSIC", "WEATHER"]);
+    expect(CAPABILITY_DOMAINS).toEqual(["INTERNAL_MEMORY", "APPLICATIONS", "WEB", "FILES", "MESSAGING", "MUSIC", "WEATHER", "SYSTEM_INFO"]);
+    expect(ENABLED_ASSISTANT_CAPABILITIES.filter((capability) => capability.domain === "SYSTEM_INFO").map((capability) => [capability.action, capability.approval, capability.executor]))
+      .toEqual([["GET_SYSTEM_INFO", "DIRECT", "SYSTEM_INFO"]]);
     expect(ENABLED_ASSISTANT_CAPABILITIES.filter((capability) => capability.domain === "WEATHER").map((capability) => [capability.action, capability.approval, capability.executor]))
       .toEqual([["GET_WEATHER", "DIRECT", "WEATHER"]]);
     expect(ENABLED_ASSISTANT_CAPABILITIES.filter((capability) => capability.domain === "MUSIC").map((capability) => [capability.action, capability.approval, capability.executor]).sort())

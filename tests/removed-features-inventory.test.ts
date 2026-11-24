@@ -68,8 +68,8 @@ describe("removed habit, weekly-schedule, legacy file and native-addon code", ()
       expect(ACTION_KINDS as readonly string[], name).not.toContain(name);
       expect(ENABLED_ASSISTANT_CAPABILITIES.map((entry) => entry.action as string), name).not.toContain(name);
     }
-    expect(ACTION_NAMES).toHaveLength(43);
-    expect(ENABLED_ASSISTANT_CAPABILITIES).toHaveLength(43);
+    expect(ACTION_NAMES).toHaveLength(44);
+    expect(ENABLED_ASSISTANT_CAPABILITIES).toHaveLength(44);
   });
 
   it("makes ACTION_NAMES exactly the enabled catalog, with nothing dead in it", () => {
@@ -138,8 +138,8 @@ describe("surviving actions still resolve through the real executors", () => {
     await expect(run("CREATE_TASK", { title: "Informe" })).resolves.toMatchObject({ status: "SUCCEEDED", userSummary: "Se creó la tarea." });
     await expect(run("CREATE_EVENT", { title: "Reunión", startAt: "2026-09-17T10:00:00Z" })).resolves.toMatchObject({ status: "SUCCEEDED", userSummary: "Se creó el evento." });
     await expect(run("CREATE_REMINDER", { title: "Llamar", remindAt: "2026-09-17T10:00:00Z" })).resolves.toMatchObject({ status: "SUCCEEDED", userSummary: "Se creó el recordatorio." });
-    await expect(run("GET_TODAY_SCHEDULE", {})).resolves.toMatchObject({ status: "SUCCEEDED", userSummary: "Hoy no tienes tareas ni eventos." });
-    await expect(run("GET_CURRENT_DATE_TIME", {})).resolves.toMatchObject({ status: "SUCCEEDED", userSummary: expect.stringContaining("Son las 05:00") });
+    await expect(run("GET_TODAY_SCHEDULE", {})).resolves.toMatchObject({ status: "SUCCEEDED", userSummary: "Hoy no tienes nada programado." });
+    await expect(run("GET_CURRENT_DATE_TIME", {})).resolves.toMatchObject({ status: "SUCCEEDED", userSummary: expect.stringContaining("Son las 5 de la mañana") });
   });
 
   it("runs the supervised FILES actions through the supervised executor", async () => {
@@ -152,6 +152,6 @@ describe("surviving actions still resolve through the real executors", () => {
   it("keeps the today schedule free of weekly or routine items", async () => {
     const outcome = await run("GET_TODAY_SCHEDULE", {});
     expect(JSON.stringify(outcome)).not.toMatch(/routine|rutina|semanal|horario/iu);
-    expect(Object.keys((outcome as { data: Record<string, unknown> }).data).sort()).toEqual(["events", "localDate", "reminders", "tasks"]);
+    expect(Object.keys((outcome as { data: Record<string, unknown> }).data).sort()).toEqual(["events", "localDate", "reminders", "spokenSummary", "tasks"]);
   });
 });

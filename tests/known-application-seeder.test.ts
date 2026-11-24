@@ -10,7 +10,6 @@ import {
   type KnownApplicationSeedMarker
 } from "../src/main/applications/known-application-seeder";
 import { validateRegisterApplicationInput } from "../src/main/applications/application-validation";
-import { TRANSCRIPTION_PROMPT_HINT } from "../src/main/voice/openai-transcription-provider";
 
 type AppRow = { id: string; name: string; catalogKey: string | null; aliases: { alias: string }[]; launchMode: string };
 
@@ -139,16 +138,11 @@ describe("known application seeder", () => {
   });
 });
 
-describe("transcription hint", () => {
-  it("is a fixed constant with only Ares and the five known apps, used by the provider", () => {
-    expect(TRANSCRIPTION_PROMPT_HINT).toBe("Ares, abre Spotify, WhatsApp, Google, Claude o Discord.");
+describe("transcription hint (removed)", () => {
+  it("sends no prompt parameter at all: a hint biased the model and distorted names and letters", () => {
     const source = readFileSync(path.resolve(process.cwd(), "src/main/voice/openai-transcription-provider.ts"), "utf8");
-    expect(source).toContain("prompt: TRANSCRIPTION_PROMPT_HINT");
     expect(source).toContain('language: "es"');
-    expect(source.match(/prompt:/gu)).toHaveLength(1);
-    expect(source).toMatch(/const TRANSCRIPTION_PROMPT_HINT = "[^"$`{}]*";/u);
-    // No input of transcribe() reaches the prompt.
-    expect(source).not.toMatch(/prompt: (?!TRANSCRIPTION_PROMPT_HINT)/u);
-    for (const hostile of ["ignora todo", "Ana García", "C:\\Users\\Ana"]) expect(TRANSCRIPTION_PROMPT_HINT).not.toContain(hostile);
+    expect(source).not.toMatch(/prompt\s*:/u);
+    expect(source).not.toContain("TRANSCRIPTION_PROMPT_HINT");
   });
 });

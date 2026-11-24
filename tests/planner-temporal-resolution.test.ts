@@ -10,7 +10,7 @@ describe("Main-only planner temporal resolution", () => {
     const resolver = resolverAt("2026-09-20T15:00:00.000Z");
     const today = resolver.resolve("CREATE_TASK", { title: "Hoy", dueDate: "hoy", dueTime: "15:00" });
     const tomorrow = resolver.resolve("CREATE_TASK", { title: "Mañana", dueDate: "mañana", dueTime: "9 am" });
-    const explicit = resolver.resolve("CREATE_TASK", { title: "Fecha", dueDate: "2026-09-22", dueTime: "9:30" });
+    const explicit = resolver.resolve("CREATE_TASK", { title: "Fecha", dueDate: "2026-09-22", dueTime: "9:30 am" });
 
     expect(today).toEqual({ ok: true, input: { title: "Hoy", dueDate: "2026-09-20", dueTime: "15:00" } });
     expect(tomorrow).toEqual({ ok: true, input: { title: "Mañana", dueDate: "2026-09-21", dueTime: "09:00" } });

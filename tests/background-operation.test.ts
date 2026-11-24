@@ -74,7 +74,7 @@ describe("main window wiring", () => {
 
   it("disables background throttling without touching security, size, or frame options", () => {
     expect(main).toContain("backgroundThrottling: false");
-    for (const option of ["contextIsolation: true", "nodeIntegration: false", "sandbox: true", "webSecurity: true", "width: 440", "height: 440", "maximizable: false", "fullscreenable: false"]) {
+    for (const option of ["contextIsolation: true", "nodeIntegration: false", "sandbox: true", "webSecurity: true", "width: 480, height: 740, minWidth: 420, minHeight: 620", "maximizable: false", "fullscreenable: false"]) {
       expect(main).toContain(option);
     }
     expect(main).not.toMatch(/frame:\s*false|alwaysOnTop|skipTaskbar/);
@@ -153,7 +153,9 @@ describe("minimize and hide do not cancel an active session", () => {
     const app = source("src/renderer/app/App.tsx");
     expect(app).toContain("bindRecordingCancellation(document, window, cancelRecording)");
     expect(app).not.toContain("document.hidden");
-    expect(app).toContain("onCancelRecording={cancelRecording}");
+    // A second press now stops and sends; Escape and page teardown still cancel.
+    expect(app).toContain("onSendRecording={sendRecording}");
+    expect(app).toContain("stopRecording: sendRecording");
   });
 
   it("keeps spoken responses playing while minimized, stopping only on Escape or teardown", () => {

@@ -14,7 +14,7 @@ vi.mock("electron", () => ({
 }));
 
 /**
- * Names inventory of the renderer-facing surface (13 methods, 13 channels after Refactor 2.2). The existing preload-surface
+ * Names inventory of the renderer-facing surface (14 methods, 14 channels: UI 7.2 added theme.setPreference). The existing preload-surface
  * test checks behavior and shape; this file lists every exposed method and every IPC channel so each change is deliberate.
  */
 const EXPECTED_METHODS = [
@@ -30,7 +30,8 @@ const EXPECTED_METHODS = [
   "messaging.submitContactForm",
   "messaging.cancelContactForm",
   "speech.speak",
-  "settings.voice.get"
+  "settings.voice.get",
+  "theme.setPreference"
 ];
 
 const EXPECTED_CHANNELS = [
@@ -46,7 +47,8 @@ const EXPECTED_CHANNELS = [
   "messaging.contactFormRequested=messaging:contact-form-requested",
   "messaging.submitContactForm=messaging:contact-form:submit",
   "messaging.cancelContactForm=messaging:contact-form:cancel",
-  "settings.voice.get=settings:voice:get"
+  "settings.voice.get=settings:voice:get",
+  "theme.setPreference=theme:set-preference"
 ];
 
 const methodNames = (value: unknown, prefix = ""): string[] =>

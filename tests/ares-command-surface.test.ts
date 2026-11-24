@@ -14,11 +14,11 @@ describe("Ares command surface", () => {
       isInterpreting: false,
       draftStates: {},
       onStartRecording: vi.fn(),
-      onCancelRecording: vi.fn(),
+      onSendRecording: vi.fn(),
       onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     }));
-    const core = markup.indexOf("command-orb");
+    const core = markup.indexOf("orb-stage");
 
     expect(core).toBeGreaterThan(-1);
     expect(markup).not.toContain("support-panel--left");
@@ -27,7 +27,7 @@ describe("Ares command surface", () => {
     expect(markup).not.toContain("Próximos eventos");
     expect(markup).not.toContain("Hábitos de hoy");
     expect(markup).toContain("Toca el orbe para hablar");
-    expect(markup).toContain('aria-label="Toca para hablar"');
+    expect(markup).toContain('aria-label="Hablar con Ares"');
     expect(markup).not.toContain("audio se enviará a OpenAI");
   });
 });

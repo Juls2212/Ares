@@ -39,7 +39,7 @@ describe("IPC channel registry", () => {
   it("has unique channel names in the allowed namespaces", () => {
     const names = channels.map(([, name]) => name);
     expect(new Set(names).size).toBe(names.length);
-    for (const name of names) expect(name).toMatch(/^(?:system|actions|assistant|voice|speech|messaging|settings):[a-z:-]+$/u);
+    for (const name of names) expect(name).toMatch(/^(?:system|actions|assistant|voice|speech|messaging|settings|theme):[a-z:-]+$/u);
   });
 
   it("registers every invoke channel exactly once in Main, inside src/main/ipc", () => {

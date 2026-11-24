@@ -69,6 +69,7 @@ export const ACTION_NAMES = [
   "GET_WEEK_SCHEDULE",
   "GET_CURRENT_DATE_TIME",
   "GET_WEATHER",
+  "GET_SYSTEM_INFO",
   "DELETE_EVENT",
   "DELETE_TASK",
   "SAVE_CONTACT",
@@ -149,6 +150,14 @@ export const WEATHER_MAX_DAY_OFFSET = 6;
  */
 export type GetWeatherInput = { location?: string; dayOffset?: number };
 
+/**
+ * The closed topics of the read-only computer information query. Battery is deliberately absent: it can only be read in the
+ * renderer, and handing it to Main would need a new channel.
+ */
+export const SYSTEM_INFO_TOPICS = ["disk", "memory", "cpu", "uptime", "summary"] as const;
+export type SystemInfoTopic = (typeof SYSTEM_INFO_TOPICS)[number];
+export type GetSystemInfoInput = { topic: SystemInfoTopic };
+
 type ActionProposalBase = {
   actionId: string;
   dependsOn?: string[];
@@ -226,6 +235,11 @@ export type SearchApprovedSiteInput = {
   query: string;
 };
 
+export type SystemInfoActionProposal = ActionProposalBase & {
+  action: "GET_SYSTEM_INFO";
+  input: GetSystemInfoInput;
+};
+
 export type WeatherActionProposal = ActionProposalBase & {
   action: "GET_WEATHER";
   input: GetWeatherInput;
@@ -290,6 +304,7 @@ export type MessagingActionProposal =
 export type ExecutableActionProposal =
   | PlannerActionProposal
   | WeatherActionProposal
+  | SystemInfoActionProposal
   | OpenApplicationActionProposal
   | SearchSpotifyAppActionProposal
   | SpotifyMusicActionProposal
@@ -313,6 +328,11 @@ export type PlannerActionSubmission =
   | { action: "GET_CURRENT_DATE_TIME"; input: GetCurrentDateTimeInput }
   | { action: "DELETE_EVENT"; input: DeleteEventInput }
   | { action: "DELETE_TASK"; input: DeleteTaskInput };
+
+export type SystemInfoActionSubmission = {
+  action: "GET_SYSTEM_INFO";
+  input: GetSystemInfoInput;
+};
 
 export type WeatherActionSubmission = {
   action: "GET_WEATHER";
@@ -371,6 +391,7 @@ export type MessagingActionSubmission =
 export type ActionSubmission =
   | PlannerActionSubmission
   | WeatherActionSubmission
+  | SystemInfoActionSubmission
   | OpenApplicationActionSubmission
   | SearchSpotifyAppActionSubmission
   | SpotifyMusicActionSubmission

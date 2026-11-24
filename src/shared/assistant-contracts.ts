@@ -77,6 +77,9 @@ export type AssistantInterpretationReference = {
   currentContext?: AssistantCurrentContext;
 };
 
+/** The longest instruction the interpreter accepts, whether it was transcribed from speech or typed. */
+export const ASSISTANT_INSTRUCTION_MAX_LENGTH = 2_000;
+
 export const ASSISTANT_ERROR_CODES = {
   unavailable: "ASSISTANT_UNAVAILABLE",
   configuration: "ASSISTANT_CONFIGURATION_UNAVAILABLE",

@@ -7,13 +7,13 @@ const source = (file: string): string => readSource(file);
 describe("Ares assistant output placement", () => {
   it("keeps the compact shell voice-only without a command dock or typed entry", () => {
     const view = source("src/renderer/views/ares-view.tsx");
-    const controlsStart = view.indexOf("<GlassOrb");
+    const controlsStart = view.indexOf("<OrbCanvas");
     const review = view.indexOf("<InterpretationResult");
     const controls = view.slice(controlsStart, review);
 
     expect(controlsStart).toBeGreaterThan(-1);
     expect(review).toBeGreaterThan(controlsStart);
-    expect(controls).toContain("onActivate={orbInteraction.activate}");
+    expect(controls).toContain("onActivate={interaction.activate}");
     expect(view).not.toContain("VoiceCommandControls");
     expect(view).not.toContain("command-entry-form");
     expect(view).not.toContain("assistant-instruction");
@@ -39,7 +39,7 @@ describe("Ares assistant output placement", () => {
     expect(view).not.toContain("resolvedActionMessage");
     expect(view).not.toContain('className="command-instrument__speech"');
     expect(view).toContain("<ResponseSpeechControls");
-    expect(view).toContain("headless onPlaybackEvent");
+    expect(view).toContain("headless onNotice={onSpeechNotice} onPlaybackEvent");
     expect(view).toContain("stop: () => stopSpeechReference.current?.()");
     expect(controls).toContain("Detener voz");
     expect(controls).not.toContain("speechSynthesis");

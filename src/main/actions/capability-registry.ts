@@ -7,11 +7,12 @@ export const CAPABILITY_DOMAINS = [
   "FILES",
   "MESSAGING",
   "MUSIC",
-  "WEATHER"
+  "WEATHER",
+  "SYSTEM_INFO"
 ] as const;
 
 export type CapabilityDomain = (typeof CAPABILITY_DOMAINS)[number];
-export type CapabilityExecutorCategory = "PLANNER" | "APPLICATION" | "WEB" | "FILES" | "MESSAGING" | "MUSIC" | "WEATHER";
+export type CapabilityExecutorCategory = "PLANNER" | "APPLICATION" | "WEB" | "FILES" | "MESSAGING" | "MUSIC" | "WEATHER" | "SYSTEM_INFO";
 
 export type AssistantCapability = {
   action: ActionName;
@@ -31,7 +32,7 @@ const internalMemoryCapabilities = [
   ["UPDATE_EVENT", "DIRECT", "Actualizar evento"],
   ["DELETE_EVENT", "REINFORCED_CONFIRMATION_REQUIRED", "Eliminar evento"],
   ["CREATE_REMINDER", "DIRECT", "Crear recordatorio"],
-  ["GET_TODAY_SCHEDULE", "DIRECT", "Consultar agenda de hoy"],
+  ["GET_TODAY_SCHEDULE", "DIRECT", "Consultar la agenda de un día cercano"],
   ["GET_WEEK_SCHEDULE", "DIRECT", "Consultar agenda semanal"],
   ["GET_CURRENT_DATE_TIME", "DIRECT", "Consultar fecha y hora"]
 ] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
@@ -99,6 +100,14 @@ const weatherCapabilities = [
   ["GET_WEATHER", "DIRECT", "Consultar el clima"]
 ] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
 
+/**
+ * The SYSTEM_INFO domain is read-only aggregates about this computer (disk space, memory, processor load, uptime). It never
+ * lists processes, files, users, hosts or addresses, and it changes nothing.
+ */
+const systemInfoCapabilities = [
+  ["GET_SYSTEM_INFO", "DIRECT", "Consultar información del equipo"]
+] as const satisfies ReadonlyArray<readonly [ActionName, ActionApprovalClass, string]>;
+
 const createCapability = (
   action: ActionName,
   domain: AssistantCapability["domain"],
@@ -125,7 +134,9 @@ export const ENABLED_ASSISTANT_CAPABILITIES: readonly AssistantCapability[] = Ob
   ...musicCapabilities.map(([action, approval, label]) =>
     createCapability(action, "MUSIC", approval, label, "MUSIC")),
   ...weatherCapabilities.map(([action, approval, label]) =>
-    createCapability(action, "WEATHER", approval, label, "WEATHER"))
+    createCapability(action, "WEATHER", approval, label, "WEATHER")),
+  ...systemInfoCapabilities.map(([action, approval, label]) =>
+    createCapability(action, "SYSTEM_INFO", approval, label, "SYSTEM_INFO"))
 ]);
 
 const capabilitiesByAction = new Map(

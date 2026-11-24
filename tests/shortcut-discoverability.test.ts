@@ -76,16 +76,16 @@ describe("one-time orb hint", () => {
     expect(app).toContain("shortcutHint={shortcutHint}");
   });
 
-  it("renders only while idle and never over a response, as static text safe for both themes and reduced motion", () => {
+  it("shows the active shortcut as a static caption under the microphone button, never animated and at least 12px", () => {
     const view = source("src/renderer/views/ares-view.tsx");
-    expect(view).toContain('shortcutHint && exclusiveCoreState === "IDLE" && !coreResponse');
-    expect(view).toContain('className="shortcut-hint" role="note"');
-    const css = source("src/renderer/styles/ares-glass.css");
-    const start = css.indexOf(".shortcut-hint {");
+    expect(view).toContain("shortcutCaption(shortcutHint)");
+    expect(view).toContain('className="hud__caption"');
+    expect(view).toContain('DEFAULT_SHORTCUT_CAPTION = "CTRL + ALT + ESPACIO"');
+    const css = source("src/renderer/styles/ares-hud.css");
+    const start = css.indexOf(".hud__caption {");
     const block = css.slice(start, css.indexOf("}", start) + 1);
-    expect(block).toContain("pointer-events: none;");
-    expect(block).toContain("var(--ink-2)");
-    expect(block).toContain("bottom: 5cqw;");
+    expect(block).toContain("font-size: 12px;");
+    expect(block).toContain("var(--dim)");
     expect(block).not.toMatch(/animation|transition/);
   });
 });

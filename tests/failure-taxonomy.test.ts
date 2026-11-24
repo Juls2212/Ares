@@ -7,9 +7,11 @@ import { FILES_FAILURES, filesFailure } from "../src/main/files/supervised-file-
 import { MESSAGING_FAILURES, type MessagingFailureCode, messagingFailure } from "../src/main/messaging/messaging-failures";
 import { SPOTIFY_FAILURES, spotifyFailure } from "../src/main/spotify/spotify-failures";
 import { WEATHER_ERROR_CODES, weatherUserMessage } from "../src/main/weather/weather-service";
+import { SYSTEM_INFO_ERROR_CODES, systemInfoUserMessage } from "../src/main/system/system-info";
 import type { ActionData } from "../src/shared/action-contracts";
 import { defineFailureTaxonomy } from "../src/shared/failure-taxonomy";
 import { ELEVENLABS_FAILURES } from "../src/main/voice/elevenlabs-speech-provider";
+import { THEME_FAILURES } from "../src/shared/theme-contracts";
 import { VOICE_CAPTURE_FAILURES } from "../src/shared/voice-diagnostics";
 import {
   cancelledOutcome,
@@ -118,8 +120,10 @@ describe("privacy walk over every failure taxonomy", () => {
     ["files", FILES_FAILURES],
     ["catalog registration", Object.fromEntries([...Object.values(CATALOG_REGISTRATION_FAILURES), CATALOG_LAUNCH_FAILURE].map((entry) => [entry.code, entry.userMessage]))],
     ["weather", Object.fromEntries(Object.values(WEATHER_ERROR_CODES).map((code) => [code, weatherUserMessage(code)]))],
+    ["system information", Object.fromEntries(Object.values(SYSTEM_INFO_ERROR_CODES).map((code) => [code, systemInfoUserMessage(code)]))],
     ["voice capture", { ...VOICE_CAPTURE_FAILURES.messages }],
-    ["elevenlabs speech", { ...ELEVENLABS_FAILURES.messages }]
+    ["elevenlabs speech", { ...ELEVENLABS_FAILURES.messages }],
+    ["theme", { ...THEME_FAILURES.messages }]
   ];
 
   /**
@@ -169,7 +173,7 @@ describe("privacy walk over every failure taxonomy", () => {
   it("reads a meaningful number of messages (the walk is not vacuous)", () => {
     const exported = taxonomies.reduce((total, [, table]) => total + Object.keys(table).length, 0);
     const local = LOCAL_TABLES.reduce((total, table) => total + localMessages(table).length, 0);
-    expect(exported).toBe(17 + 16 + 13 + 8 + 6 + 9 + 7);
+    expect(exported).toBe(17 + 16 + 13 + 8 + 6 + 2 + 9 + 7 + 3);
     expect(local).toBeGreaterThan(60);
   });
 

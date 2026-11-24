@@ -49,6 +49,7 @@ export type AresApi = {
   voice: VoiceApi;
   speech: import("./speech-contracts").SpeechApi;
   settings: SettingsApi;
+  theme: import("./theme-contracts").ThemeApi;
   messaging: import("./messaging-contracts").MessagingApi;
 };
 
@@ -79,7 +80,8 @@ export const IPC_CHANNELS = {
     voice: {
       get: "settings:voice:get"
     }
-  }
+  },
+  theme: { setPreference: "theme:set-preference" }
 } as const;
 import type { ActionApi } from "./action-contracts";
 import type { AssistantApi } from "./assistant-contracts";

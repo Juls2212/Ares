@@ -6,15 +6,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AssistantInterpretation } from "../src/shared/assistant-contracts";
 import type { AwaitingActionConfirmation } from "../src/shared/action-contracts";
-import { orbAccessibleName, type OrbState } from "../src/renderer/components/orb-visuals";
+import type { OrbState } from "../src/renderer/orb/orb-runtime";
 import { InterpretationResult, REVIEW_CARD_EXIT_MS, type DraftActionState } from "../src/renderer/features/assistant/interpretation-result";
 import { ContactFormDialog } from "../src/renderer/features/messaging/contact-form-dialog";
 import { LIVE_RECORDING_LIMIT_MS } from "../src/renderer/features/voice/recording-limits";
 import { VOICE_MAX_RECORDING_DURATION_MS } from "../src/shared/voice-contracts";
-import { AresView, parseShortcutHint } from "../src/renderer/views/ares-view";
+import { AresView, micLabelFor, parseShortcutHint } from "../src/renderer/views/ares-view";
 
 const source = (file: string): string => readFileSync(path.resolve(process.cwd(), file), "utf8");
-const css = source("src/renderer/styles/ares-glass.css");
+const css = source("src/renderer/styles/ares-hud.css");
 
 const viewProperties = {
   technicalState: "SUCCESS" as const,
@@ -24,7 +24,7 @@ const viewProperties = {
   isInterpreting: false,
   draftStates: {},
   onStartRecording: vi.fn(),
-  onCancelRecording: vi.fn(),
+  onSendRecording: vi.fn(),
   onPropose: vi.fn(),
   onResolveConfirmation: vi.fn()
 };
@@ -33,24 +33,23 @@ const statusRegion = (markup: string): string => /<div aria-atomic="true" aria-l
 describe("orb accessible names", () => {
   it("gives every state one Spanish name that says what activating the orb does", () => {
     const names: Array<[OrbState, string]> = [
-      ["idle", "Toca para hablar"],
-      ["recording", "Escuchando. Toca para cancelar"],
+      ["idle", "Hablar con Ares"],
+      ["recording", "Enviar lo que dije"],
       ["transcribing", "Procesando"],
       ["interpreting", "Procesando"],
-      ["acting", "Actuando"],
-      ["speaking", "Hablando. Toca para detener"],
-      ["error", "Error. Toca para reintentar"]
+      ["acting", "Procesando"],
+      ["speaking", "Detener voz"],
+      ["error", "Hablar con Ares"]
     ];
-    for (const [state, name] of names) expect(orbAccessibleName(state)).toBe(name);
-    expect(orbAccessibleName("idle", true)).toBe("Esperando tu confirmación");
+    for (const [state, name] of names) expect(micLabelFor(state)).toBe(name);
+    expect(micLabelFor("idle", true)).toBe("Esperando tu confirmación");
   });
 
   it("keeps the orb a native button (Enter and Space) with a visible focus ring", () => {
     const markup = renderToStaticMarkup(createElement(AresView, viewProperties));
-    expect(markup).toContain('aria-label="Toca para hablar"');
-    expect(markup).toMatch(/<button type="button"/u);
-    expect(css).toContain(".glass-orb:focus-visible .glass-orb__ring { opacity: 1; }");
-    expect(css).toContain("border: 2px solid var(--focus-ink);");
+    expect(markup).toContain('aria-label="Hablar con Ares"');
+    expect(markup).toMatch(/<button[^>]* type="button"/u);
+    expect(css).toContain(".mic:focus-visible { outline: 3px solid var(--accent2); outline-offset: 3px; }");
   });
 });
 
@@ -63,8 +62,8 @@ describe("live region", () => {
   });
 
   it("announces the state while listening and processing", () => {
-    expect(statusRegion(renderToStaticMarkup(createElement(AresView, { ...viewProperties, voiceState: "RECORDING", orbState: "recording" })))).toBe("Escuchando…");
-    expect(statusRegion(renderToStaticMarkup(createElement(AresView, { ...viewProperties, voiceState: "PROCESSING", orbState: "transcribing" })))).toBe("Pensando…");
+    expect(statusRegion(renderToStaticMarkup(createElement(AresView, { ...viewProperties, voiceState: "RECORDING", orbState: "recording" })))).toBe("Te escucho…");
+    expect(statusRegion(renderToStaticMarkup(createElement(AresView, { ...viewProperties, voiceState: "PROCESSING", orbState: "transcribing" })))).toBe("Un momento…");
   });
 
   it("announces the final response once, as one text that does not change while it is revealed", () => {
@@ -131,11 +130,11 @@ describe("confirmation card semantics and focus", () => {
     expect(card).toContain('<button className="button-secondary" disabled tabIndex={-1} type="button">Cancelar</button>');
     const exitCss = css.match(/\.review-card\[data-exiting\] \{[^}]*\}/u)?.[0] ?? "";
     expect(exitCss).toContain("pointer-events: none");
-    expect(exitCss).toContain("ares-card-out 200ms ease-in");
-    expect(css).toMatch(/@keyframes ares-card-out \{ from \{ opacity: 1; transform: translateY\(0\); \} to \{ opacity: 0; transform: translateY\(16px\); \} \}/u);
+    expect(exitCss).toContain("hud-card-out 200ms ease-in");
+    expect(css).toMatch(/@keyframes hud-card-out \{ from \{ opacity: 1; transform: translateY\(0\); \} to \{ opacity: 0; transform: translateY\(14px\); \} \}/u);
     const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
-    expect(reduced).toMatch(/\.review-card\[data-exiting\] \{ animation: ares-fade-out 160ms ease-in both; \}/u);
-    expect(css).toMatch(/@keyframes ares-fade-out \{ from \{ opacity: 1; \} to \{ opacity: 0; \} \}/u);
+    expect(reduced).toMatch(/\.review-card\[data-exiting\] \{ animation: hud-fade-out 160ms ease-in both; \}/u);
+    expect(css).toMatch(/@keyframes hud-fade-out \{ from \{ opacity: 1; \} to \{ opacity: 0; \} \}/u);
   });
 });
 
@@ -157,27 +156,35 @@ describe("contact form", () => {
     expect(form).toContain('aria-describedby={errorMessage ? "contact-form-error" : undefined}');
     expect(form).toContain('id="contact-form-error" role="alert"');
     expect(form).toContain('event.key === "Escape" && !event.defaultPrevented');
-    expect(form).toContain('document.querySelector<HTMLElement>(".glass-orb")');
+    expect(form).toContain('document.querySelector<HTMLElement>(".mic")');
     expect(form).not.toMatch(/console\.|localStorage|sessionStorage/u);
   });
 });
 
 describe("targets and accessibility modes", () => {
   it("keeps every interactive control at least 24 px", () => {
-    expect(css).toMatch(/\.color-button \{[^}]*width: 28px;\s*height: 28px;/u);
+    expect(css).toMatch(/\.mic \{[^}]*width: 68px;\s*height: 68px;/u);
     expect(css).toMatch(/\.review-card button \{\s*height: 40px;/u);
-    expect(css).toMatch(/\.contact-form__field input \{[^}]*min-height: 36px;/u);
+    expect(css).toMatch(/\.contact-form__field input \{[^}]*min-height: 38px;/u);
   });
 
-  it("covers the key caps and the exiting card in forced-colors and reduced-motion", () => {
+  it("covers the button, the grid, the CSS orb and the card in forced-colors, and the card in reduced-motion", () => {
     const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
-    expect(forced).toContain(".shortcut-hint kbd");
+    expect(forced).toContain(".mic {");
+    expect(forced).toContain(".hex-background");
+    expect(forced).toContain(".orb-fallback");
     expect(forced).toContain(".review-card {");
-    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)/u);
+    expect(css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"))).toContain(".review-card");
+  });
+
+  it("never uses a font smaller than 12px anywhere in the stylesheet", () => {
+    const sizes = [...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/gu)].map((match) => Number(match[1]));
+    expect(sizes.length).toBeGreaterThan(10);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(12);
   });
 
   it("does not rely on color alone: the reinforced card keeps a 2 px border", () => {
-    expect(css).toContain("border: 2px solid var(--card-reinforced-border)");
+    expect(css).toContain("border: 2px solid var(--amber)");
   });
 });
 
@@ -188,19 +195,12 @@ describe("shortcut hint key caps", () => {
     expect(parseShortcutHint(undefined)).toEqual({ label: "", keys: [] });
   });
 
-  it("renders key caps while keeping the hint non-interactive, static and conditional", () => {
+  it("shows the shortcut as a plain, static caption instead of key caps", () => {
     const markup = renderToStaticMarkup(createElement(AresView, { ...viewProperties, shortcutHint: "Atajo: Ctrl+Alt+Espacio" }));
-    expect(markup).toContain('class="shortcut-hint" role="note"');
-    expect(markup.match(/<kbd>/gu)).toHaveLength(3);
-    expect(markup).toContain("<kbd>Ctrl</kbd>");
-    expect(markup).toContain("Atajo:");
-    const hidden = renderToStaticMarkup(createElement(AresView, { ...viewProperties, shortcutHint: "Atajo: Ctrl+Alt+Espacio", spokenResponse: { responseId: "r", text: "Hola" } }));
-    expect(hidden).not.toContain("shortcut-hint");
-    const block = css.match(/\.shortcut-hint \{[^}]*\}/u)?.[0] ?? "";
-    expect(block).toContain("pointer-events: none;");
-    expect(block).not.toMatch(/animation|transition/u);
-    expect(css).toMatch(/\.shortcut-hint kbd \{[^}]*var\(--kbd-bg\)[^}]*\}/u);
-    expect(css).toMatch(/\.shortcut-hint kbd \{[^}]*var\(--kbd-border\)[^}]*\}/u);
+    expect(markup).toContain('class="hud__caption"');
+    expect(markup).toContain("CTRL + ALT + ESPACIO");
+    expect(markup).not.toContain("<kbd>");
+    expect(markup).not.toContain("shortcut-hint");
   });
 });
 
@@ -215,13 +215,13 @@ describe("recording limit, fonts and offline robustness", () => {
     const app = source("src/renderer/app/App.tsx");
     expect(app).not.toContain("<UtilityPanel");
     expect(app).not.toContain('aria-controls="utility-panel"');
-    expect(app).toContain("<ColorSchemeButton");
+    expect(app).not.toContain("ColorSchemeButton");
   });
 
-  it("declares a bundled font only when its file exists, and never loads anything remotely", () => {
-    const fontFile = path.resolve(process.cwd(), "src/renderer/assets/fonts/Figtree-Variable.woff2");
-    if (!existsSync(fontFile)) expect(css).not.toContain("@font-face");
-    else expect(css).toContain("Figtree-Variable.woff2");
-    for (const file of ["src/renderer/styles/ares-glass.css", "src/renderer/main.tsx"]) expect(source(file)).not.toMatch(/https?:\/\//u);
+  it("uses the system font stack only, declares no font file, and never loads anything remotely", () => {
+    expect(css).not.toContain("@font-face");
+    expect(css).toContain('--font-family: "Bahnschrift", "Segoe UI", system-ui, sans-serif;');
+    for (const file of ["src/renderer/styles/ares-hud.css", "src/renderer/main.tsx"]) expect(source(file)).not.toMatch(/https?:\/\//u);
+    expect(existsSync(path.resolve(process.cwd(), "src/renderer/assets"))).toBe(false);
   });
 });

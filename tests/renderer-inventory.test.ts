@@ -24,29 +24,35 @@ const DELETED_PATHS = [
 const EXPECTED_RENDERER_FILES = [
   "src/renderer/app/App.tsx",
   "src/renderer/app/app-state.ts",
-  "src/renderer/components/glass-orb.tsx",
-  "src/renderer/components/orb-visuals.ts",
-  "src/renderer/features/assistant/idle-guidance.tsx",
+  "src/renderer/features/assistant/command-input.tsx",
   "src/renderer/features/assistant/interpretation-result.tsx",
   "src/renderer/features/assistant/response-area.ts",
   "src/renderer/features/assistant/response-core-reveal.ts",
   "src/renderer/features/messaging/contact-form-dialog.tsx",
-  "src/renderer/features/settings/color-scheme-button.tsx",
-  "src/renderer/features/settings/color-schemes.ts",
-  "src/renderer/features/settings/theme-preference.ts",
-  "src/renderer/features/settings/use-theme-preference.ts",
+  "src/renderer/features/theme/theme-toggle.tsx",
   "src/renderer/features/voice/global-voice-shortcut-controller.ts",
   "src/renderer/features/voice/manual-voice-recorder.ts",
   "src/renderer/features/voice/orb-amplitude.ts",
+  "src/renderer/features/voice/playback-level.ts",
   "src/renderer/features/voice/recording-cancellation.ts",
   "src/renderer/features/voice/recording-limits.ts",
   "src/renderer/features/voice/response-playback.ts",
   "src/renderer/features/voice/response-speech-controls.tsx",
   "src/renderer/features/voice/speech-eligibility.ts",
   "src/renderer/features/voice/speech-end-detector.ts",
+  "src/renderer/features/voice/system-voice.ts",
   "src/renderer/features/voice/voice-transcript-submission.ts",
   "src/renderer/global.d.ts",
   "src/renderer/main.tsx",
+  "src/renderer/orb/orb-canvas.tsx",
+  "src/renderer/orb/orb-layout.ts",
+  "src/renderer/orb/orb-renderer.ts",
+  "src/renderer/orb/orb-runtime.ts",
+  "src/renderer/theme/contrast.ts",
+  "src/renderer/theme/theme-store.ts",
+  "src/renderer/theme/theme-transition-dom.ts",
+  "src/renderer/theme/theme-transition.ts",
+  "src/renderer/theme/themes.ts",
   "src/renderer/views/ares-view.tsx"
 ];
 
@@ -62,9 +68,9 @@ describe("renderer inventory after the legacy UI removal", () => {
     expect(rendererFiles).toEqual([...EXPECTED_RENDERER_FILES].sort());
   });
 
-  it("has only the glass stylesheet", () => {
+  it("has only the HUD stylesheet", () => {
     const styles = readdirSync(path.resolve(process.cwd(), "src/renderer/styles"));
-    expect(styles).toEqual(["ares-glass.css"]);
+    expect(styles).toEqual(["ares-hud.css"]);
   });
 
   it("never imports a deleted module, Tailwind or the legacy stylesheet", () => {
@@ -83,14 +89,14 @@ describe("renderer inventory after the legacy UI removal", () => {
     expect(readSource("vite.renderer.config.ts")).not.toMatch(/tailwind/iu);
   });
 
-  it("keeps the renderer entry mounting the orb view and the glass stylesheet only", () => {
+  it("keeps the renderer entry mounting the orb view and the HUD stylesheet only", () => {
     const entry = readSource("src/renderer/main.tsx");
-    expect(entry).toContain('import "./styles/ares-glass.css"');
+    expect(entry).toContain('import "./styles/ares-hud.css"');
     expect(entry.match(/import "[^"]+\.css"/gu)).toHaveLength(1);
     expect(entry).toContain("<App />");
     const app = readSource("src/renderer/app/App.tsx");
     expect(app).toContain("<AresView");
-    expect(readSource("src/renderer/views/ares-view.tsx")).toContain("<GlassOrb");
+    expect(readSource("src/renderer/views/ares-view.tsx")).toContain("<OrbCanvas");
   });
 
   it("has no text input, calendar component or settings panel in the mounted views", () => {

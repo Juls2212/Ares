@@ -122,19 +122,21 @@ describe("planner action executor", () => {
         reminders: []
       }
     } as never);
-    const executor = createPlannerActionExecutor({ plannerService, timeZone: () => "America/Bogota", logError: vi.fn() });
+    const executor = createPlannerActionExecutor({ plannerService, now: () => new Date("2026-09-17T14:00:00.000Z"), timeZone: () => "America/Bogota", logError: vi.fn() });
     const outcome = await executor.execute(
       { actionId: "11111111-1111-4111-8111-111111111111", action: "GET_TODAY_SCHEDULE", input: {} },
       getActionPolicy("GET_TODAY_SCHEDULE")
     );
 
-    expect(outcome.userSummary).toContain("Tareas: Preparar informe (prioridad alta, pendiente, a las 09:30)");
-    expect(outcome.userSummary).toContain("Revisar agenda (prioridad baja, completada)");
-    expect(outcome.userSummary).toContain("Enviar correo (prioridad media, en progreso, a las 11:00)");
-    expect(outcome.userSummary).toContain("Eventos: Reunión de equipo a las 10:30");
-    expect(outcome.userSummary).toContain("Seguimiento a las 13:00");
-    expect(outcome.userSummary).toContain("Cierre a las 15:00");
-    expect(outcome.userSummary).toContain("Además, tienes 2 elementos más.");
+    // The agenda is read in time order with 12-hour times; all 8 items fit on screen (up to 12), the voice gets the first 5.
+    expect(outcome.userSummary.startsWith("Hoy tienes 8 cosas: a las 9 y media de la mañana, la tarea Preparar informe; a las 10 y media de la mañana, Reunión de equipo; a las 11 de la mañana, la tarea Enviar correo;")).toBe(true);
+    expect(outcome.userSummary).toContain("a la 1 de la tarde, Seguimiento");
+    expect(outcome.userSummary).toContain("a las 3 de la tarde, Cierre");
+    expect(outcome.userSummary).toContain("la tarea Revisar agenda; y la tarea Tarea restante");
+    expect(outcome.userSummary).not.toContain("más.");
+    const spoken = (outcome as { data: { spokenSummary: string } }).data.spokenSummary;
+    expect(spoken).toMatch(/^Hoy tienes 8 cosas: .*; y 3 más\.$/u);
+    expect(spoken).not.toContain("Evento restante");
     expect(outcome.userSummary).not.toContain("task-1");
     expect(outcome.userSummary).not.toContain("event-1");
     expect(outcome.userSummary).not.toContain("2026-09-17T15:30:00.000Z");
@@ -148,7 +150,7 @@ describe("planner action executor", () => {
         { actionId: "11111111-1111-4111-8111-111111111111", action: "GET_TODAY_SCHEDULE", input: {} },
         getActionPolicy("GET_TODAY_SCHEDULE")
       )
-    ).resolves.toMatchObject({ userSummary: "Hoy no tienes tareas ni eventos." });
+    ).resolves.toMatchObject({ userSummary: "Hoy no tienes nada programado." });
   });
 
   it("derives current date and time from the injected Main clock without consulting planner data", async () => {
@@ -167,7 +169,7 @@ describe("planner action executor", () => {
 
     expect(outcome).toMatchObject({ status: "SUCCEEDED", action: "GET_CURRENT_DATE_TIME" });
     expect(outcome.userSummary).toContain("2 de octubre de 2026");
-    expect(outcome.userSummary).toContain("10:05");
+    expect(outcome.userSummary).toContain("Son las 10 y 5 de la mañana.");
     expect(outcome.userSummary).not.toContain("2026-10-02T15:05:00.000Z");
     expect(plannerService.getTodaySchedule).not.toHaveBeenCalled();
   });
@@ -176,7 +178,7 @@ describe("planner action executor", () => {
 
   it("distinguishes task-only and event-only schedules from the actual returned records", async () => {
     const plannerService = createPlannerService();
-    const executor = createPlannerActionExecutor({ plannerService, timeZone: () => "America/Bogota", logError: vi.fn() });
+    const executor = createPlannerActionExecutor({ plannerService, now: () => new Date("2026-09-17T14:00:00.000Z"), timeZone: () => "America/Bogota", logError: vi.fn() });
     vi.mocked(plannerService.getTodaySchedule)
       .mockResolvedValueOnce({
         ok: true,
@@ -201,9 +203,9 @@ describe("planner action executor", () => {
     const taskOnly = await executor.execute(proposal, getActionPolicy("GET_TODAY_SCHEDULE"));
     const eventOnly = await executor.execute(proposal, getActionPolicy("GET_TODAY_SCHEDULE"));
 
-    expect(taskOnly.userSummary).toContain("Tareas: Escribir minuta (prioridad media, pendiente)");
-    expect(taskOnly.userSummary).not.toContain("Eventos:");
-    expect(eventOnly.userSummary).toContain("Eventos: Llamada a las 11:00");
-    expect(eventOnly.userSummary).not.toContain("Tareas:");
+    expect(taskOnly.userSummary).toBe("Hoy tienes una cosa: la tarea Escribir minuta.");
+    expect(taskOnly.userSummary).not.toContain("recordatorio");
+    expect(eventOnly.userSummary).toBe("Hoy tienes una cosa: a las 11 de la mañana, Llamada.");
+    expect(eventOnly.userSummary).not.toContain("la tarea");
   });
 });

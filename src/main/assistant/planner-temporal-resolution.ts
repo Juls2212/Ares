@@ -1,12 +1,14 @@
 type UnknownRecord = Record<string, unknown>;
 
-export type PlannerTemporalAction = "CREATE_TASK" | "CREATE_EVENT" | "CREATE_REMINDER";
+export type PlannerTemporalAction = "CREATE_TASK" | "CREATE_EVENT" | "CREATE_REMINDER" | "GET_TODAY_SCHEDULE";
 
 export type PlannerTemporalResolutionReason =
   | "DATE_REQUIRED"
   | "TIME_REQUIRED"
   | "DATE_INVALID"
   | "TIME_INVALID"
+  | "TIME_AMBIGUOUS"
+  | "DATE_OUT_OF_RANGE"
   | "DATE_PAST"
   | "INSTANT_PAST"
   | "WEEKDAY_AMBIGUOUS"
@@ -15,7 +17,7 @@ export type PlannerTemporalResolutionReason =
 
 export type PlannerTemporalResolution =
   | { ok: true; input: UnknownRecord }
-  | { ok: false; reason: PlannerTemporalResolutionReason };
+  | { ok: false; reason: PlannerTemporalResolutionReason; /** The 12-hour hour that was said without a day period. */ hour?: number };
 
 export type PlannerTemporalResolverDependencies = {
   now: () => Date;
@@ -112,23 +114,9 @@ const resolveLocalInstant = (local: LocalDateTime, timeZone: string): Date | und
   return candidates.length === 1 ? candidates[0] : undefined;
 };
 
-const parseLocalTime = (value: unknown): string | undefined => {
-  if (typeof value !== "string") return undefined;
-  const normalized = lowerTrim(value);
-  const clock = /^(\d{1,2}):(\d{2})$/.exec(normalized);
-  if (clock) {
-    const hour = Number(clock[1]);
-    const minute = Number(clock[2]);
-    return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 ? `${pad(hour)}:${pad(minute)}` : undefined;
-  }
-  const meridiem = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/.exec(normalized);
-  if (!meridiem) return undefined;
-  const originalHour = Number(meridiem[1]);
-  const minute = meridiem[2] === undefined ? 0 : Number(meridiem[2]);
-  if (originalHour < 1 || originalHour > 12 || minute > 59) return undefined;
-  const hour = originalHour % 12 + (meridiem[3] === "pm" ? 12 : 0);
-  return `${pad(hour)}:${pad(minute)}`;
-};
+/** A failed time parse as a resolution failure: an hour said without a day period asks, anything else is invalid. */
+const timeFailure = (result: Extract<SpanishTimeResult, { ok: false }>): { ok: false; reason: PlannerTemporalResolutionReason; hour?: number } =>
+  result.reason === "TIME_AMBIGUOUS" ? { ok: false, reason: "TIME_AMBIGUOUS", hour: result.hour } : { ok: false, reason: "TIME_INVALID" };
 
 const isExplicitDateTime = (value: unknown): value is string =>
   typeof value === "string" &&
@@ -154,6 +142,7 @@ export const createPlannerTemporalResolver = (dependencies: PlannerTemporalResol
     }
     if (normalized === "hoy") return { ok: true, date: today };
     if (normalized === "manana") return { ok: true, date: addCalendarDays(today, 1) };
+    if (normalized === "pasado manana") return { ok: true, date: addCalendarDays(today, 2) };
     const targetWeekday = Object.hasOwn(weekdayByName, normalized) ? weekdayByName[normalized] : undefined;
     if (targetWeekday === undefined) return { ok: false, reason: "DATE_INVALID" };
     const currentWeekday = new Date(Date.UTC(today.year, today.month - 1, today.day)).getUTCDay();
@@ -174,8 +163,9 @@ export const createPlannerTemporalResolver = (dependencies: PlannerTemporalResol
     if (!date.ok) return date;
     const resolved: UnknownRecord = { ...input, dueDate: formatDate(date.date) };
     if (input.dueTime === undefined) return { ok: true, input: resolved };
-    const time = parseLocalTime(input.dueTime);
-    if (!time) return { ok: false, reason: "TIME_INVALID" };
+    const parsedTime = parseSpanishTime(input.dueTime);
+    if (!parsedTime.ok) return timeFailure(parsedTime);
+    const time = parsedTime.time;
     const [hour, minute] = time.split(":").map(Number);
     const nowLocal = formatParts(now, dependencies.timeZone());
     if (compareCalendarDates(date.date, today) === 0 && (hour < nowLocal.hour || (hour === nowLocal.hour && minute <= nowLocal.minute))) {
@@ -211,17 +201,17 @@ export const createPlannerTemporalResolver = (dependencies: PlannerTemporalResol
     }
     const date = resolveDate(dateValue, today);
     if (!date.ok) return date;
-    const time = parseLocalTime(startTimeValue);
-    if (!time) return { ok: false, reason: "TIME_INVALID" };
-    const [hour, minute] = time.split(":").map(Number);
+    const parsedStart = parseSpanishTime(startTimeValue);
+    if (!parsedStart.ok) return timeFailure(parsedStart);
+    const [hour, minute] = parsedStart.time.split(":").map(Number);
     const instant = resolveLocalInstant({ ...date.date, hour, minute }, dependencies.timeZone());
     if (!instant) return { ok: false, reason: "LOCAL_TIME_AMBIGUOUS" };
     if (instant.getTime() <= now.getTime()) return { ok: false, reason: "INSTANT_PAST" };
     const { date: _date, time: _time, startTime: _startTime, endTime: _endTime, ...remaining } = input;
     if (action === "CREATE_EVENT" && endTimeValue !== undefined) {
-      const endTime = parseLocalTime(endTimeValue);
-      if (!endTime) return { ok: false, reason: "TIME_INVALID" };
-      const [endHour, endMinute] = endTime.split(":").map(Number);
+      const parsedEnd = parseSpanishTime(endTimeValue);
+      if (!parsedEnd.ok) return timeFailure(parsedEnd);
+      const [endHour, endMinute] = parsedEnd.time.split(":").map(Number);
       const endInstant = resolveLocalInstant({ ...date.date, hour: endHour, minute: endMinute }, dependencies.timeZone());
       if (!endInstant) return { ok: false, reason: "LOCAL_TIME_AMBIGUOUS" };
       if (endInstant.getTime() <= instant.getTime()) return { ok: false, reason: "TIME_RANGE_INVALID" };
@@ -231,6 +221,16 @@ export const createPlannerTemporalResolver = (dependencies: PlannerTemporalResol
       };
     }
     return { ok: true, input: { ...remaining, [instantKey]: instant.toISOString() } };
+  };
+
+  /** The agenda day: today, tomorrow, the day after, a weekday or YYYY-MM-DD, from today up to 14 days ahead. */
+  const resolveScheduleInput = (input: UnknownRecord, today: CalendarDate): PlannerTemporalResolution => {
+    if (input.date === undefined) return { ok: true, input };
+    const date = resolveDate(input.date, today);
+    if (!date.ok) return date;
+    const daysAhead = Math.round((Date.UTC(date.date.year, date.date.month - 1, date.date.day) - Date.UTC(today.year, today.month - 1, today.day)) / 86_400_000);
+    if (daysAhead > MAXIMUM_SCHEDULE_DAYS_AHEAD) return { ok: false, reason: "DATE_OUT_OF_RANGE" };
+    return { ok: true, input: { ...input, date: formatDate(date.date) } };
   };
 
   return {
@@ -251,8 +251,12 @@ export const createPlannerTemporalResolver = (dependencies: PlannerTemporalResol
           return resolveInstantInput(input, action, now, today);
         case "CREATE_REMINDER":
           return resolveInstantInput(input, action, now, today);
+        case "GET_TODAY_SCHEDULE":
+          return resolveScheduleInput(input, today);
       }
     }
   };
-};import { foldSpanishWord, lowerTrim } from "../../shared/text-fold";
+};import { MAXIMUM_SCHEDULE_DAYS_AHEAD } from "../../shared/planner-contracts";
+import { parseSpanishTime, type SpanishTimeResult } from "../../shared/spanish-time";
+import { foldSpanishWord } from "../../shared/text-fold";
 

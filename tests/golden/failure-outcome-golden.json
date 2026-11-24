@@ -102,6 +102,11 @@
   "ELEVENLABS_TIMEOUT": "ElevenLabs tardó demasiado en responder.",
   "ELEVENLABS_RESPONSE_INVALID": "ElevenLabs envió un audio que no se puede usar."
  },
+ "themeTable": {
+  "THEME_PREFERENCE_INVALID": "No pude cambiar el tema. Inténtalo de nuevo.",
+  "THEME_NOT_SAVED": "El tema cambió, pero no pude guardarlo para la próxima vez.",
+  "THEME_UNAVAILABLE": "No pude cambiar el tema ahora."
+ },
  "plannerCodes": {
   "inputInvalid": "PLANNER_INPUT_INVALID",
   "unknownField": "PLANNER_UNKNOWN_FIELD",

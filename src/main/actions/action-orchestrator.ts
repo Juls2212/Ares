@@ -21,7 +21,8 @@ import {
   type SpotifyMusicActionProposal,
   type SupervisedFilesActionProposal,
   type SupervisedFilesActionSubmission,
-  type WeatherActionProposal
+  type WeatherActionProposal,
+  type SystemInfoActionProposal
 } from "../../shared/action-contracts";
 import { createActionHistoryService, type ActionHistoryService } from "./action-history-service";
 import { evaluateActionProposal, getActionPolicy } from "./action-policy";
@@ -31,6 +32,7 @@ import type { SupervisedFileMutationData, SupervisedFileSearchData } from "../..
 import { validateSpotifySearchQuery } from "../applications/spotify-search";
 import { isKnownApplicationCatalogKey } from "../applications/known-application-catalog";
 import { validateWeatherInput } from "../weather/weather-validation";
+import { validateSystemInfoInput } from "../system/system-info";
 import { catalogRegistrationFailure } from "../applications/catalog-registration-failures";
 
 import { MESSAGING_EXECUTION_FAILURE_CODES } from "../messaging/messaging-failures";
@@ -231,6 +233,20 @@ const isWeatherActionSubmission = (
 ): submission is { action: "GET_WEATHER"; input: WeatherActionProposal["input"] } =>
   submission.action === "GET_WEATHER" && validateWeatherInput(submission.input).ok;
 
+/** The validated, normalized topic; a failed validation cannot reach this point. */
+const systemInfoProposalInput = (value: unknown): SystemInfoActionProposal["input"] => {
+  const result = validateSystemInfoInput(value);
+  return result.ok ? result.data : { topic: "summary" };
+};
+
+const isSystemInfoAction = (action: ActionSubmission["action"]): action is SystemInfoActionProposal["action"] =>
+  action === "GET_SYSTEM_INFO";
+
+const isSystemInfoActionSubmission = (
+  submission: Record<string, unknown>
+): submission is { action: "GET_SYSTEM_INFO"; input: SystemInfoActionProposal["input"] } =>
+  submission.action === "GET_SYSTEM_INFO" && validateSystemInfoInput(submission.input).ok;
+
 const SUPERVISED_FILES_ACTIONS = [
   "SEARCH_FILES",
   "REVEAL_FOUND_FILE",
@@ -359,7 +375,7 @@ const PLANNER_HISTORY_SUMMARIES: Record<PlannerActionProposal["action"], string>
   UPDATE_EVENT: "Se actualizó un evento.",
   DELETE_EVENT: "Se eliminó un evento.",
   CREATE_REMINDER: "Se creó un recordatorio.",
-  GET_TODAY_SCHEDULE: "Se consultó la agenda de hoy.",
+  GET_TODAY_SCHEDULE: "Se consultó la agenda.",
   GET_WEEK_SCHEDULE: "Se consultó la agenda de la semana.",
   GET_CURRENT_DATE_TIME: "Se consultó la fecha y la hora."
 };
@@ -379,6 +395,12 @@ const safePlannerHistorySummary = (outcome: ActionOutcome): string =>
 const weatherHistorySentence = historySentences({
   succeeded: "Se respondió una consulta del clima.",
   failed: "La consulta del clima no se completó."
+});
+
+/** History keeps one fixed sentence for the computer information query; the numbers exist only in the spoken and on-screen answer. */
+const systemInfoHistorySentence = historySentences({
+  succeeded: "Se consultó información del equipo.",
+  failed: "La consulta de información del equipo no se completó."
 });
 
 const isOpaqueIdentifier = (value: unknown): value is string =>
@@ -419,6 +441,8 @@ const getHistoryMetadata = (outcome: ActionOutcome): SafeHistoryMetadata => {
           ? "WEB"
         : isWeatherAction(outcome.action)
           ? "WEATHER"
+          : isSystemInfoAction(outcome.action)
+          ? "SYSTEM_INFO"
           : isMessagingAction(outcome.action)
           ? "MESSAGING"
           : isSupervisedFilesAction(outcome.action)
@@ -489,7 +513,9 @@ export const createActionOrchestrator = (
                 ? spotifyMusicHistorySentence(outcome.status)
                 : isWeatherAction(outcome.action)
                   ? weatherHistorySentence(outcome.status)
-                  : isPlannerAction(outcome.action)
+                  : isSystemInfoAction(outcome.action)
+                    ? systemInfoHistorySentence(outcome.status)
+                    : isPlannerAction(outcome.action)
                     ? safePlannerHistorySummary(outcome)
                     : outcome.userSummary,
         ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
@@ -570,7 +596,8 @@ export const createActionOrchestrator = (
         !isSupervisedFilesSubmission(submission) &&
         !isMessagingSubmission(submission) &&
         !isApprovedWebActionSubmission(submission) &&
-        !isWeatherActionSubmission(submission)
+        !isWeatherActionSubmission(submission) &&
+        !isSystemInfoActionSubmission(submission)
       ) {
         return createFailure(ACTION_ERROR_CODES.proposalInvalid);
       }
@@ -617,6 +644,12 @@ export const createActionOrchestrator = (
               // Only the validated, normalized fields travel on; nothing else the caller sent.
               input: weatherProposalInput(submission.input)
             } as WeatherActionProposal
+          : isSystemInfoActionSubmission(submission)
+            ? {
+                actionId,
+                action: "GET_SYSTEM_INFO",
+                input: systemInfoProposalInput(submission.input)
+              } as SystemInfoActionProposal
           : {
               actionId,
               action: submission.action as PlannerActionProposal["action"],

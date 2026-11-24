@@ -70,7 +70,7 @@ describe("the transcript never leaves the renderer's transient state", () => {
   it("is never written by the renderer to the console, storage or history, and shows only a transient line", () => {
     const read = (file: string): string => readFileSync(path.resolve(process.cwd(), file), "utf8");
     const app = read("src/renderer/app/App.tsx");
-    expect(app.match(/setHeardText\(/gu)?.length).toBe(3);
+    expect(app.match(/setHeardText\(/gu)?.length).toBe(4);
     expect(app).toContain("setHeardText(result.data.text)");
     expect(app).toContain("setTimeout(() => setHeardText(undefined), 8000)");
     expect(app).not.toMatch(/console\.\w+\([^)\n]*heardText/u);

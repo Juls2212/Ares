@@ -1,4 +1,5 @@
 import {
+  MAXIMUM_SCHEDULE_DAYS_AHEAD,
   PLANNER_ERROR_CODES,
   type CategoryRecord,
   type DeleteEventData,
@@ -386,7 +387,12 @@ export const createPlannerService = (
       const validation = validateGetTodayScheduleInput(input);
       if (!validation.ok) return validation;
       try {
-        const localDate = dependencies.clock.getLocalDate();
+        const today = dependencies.clock.getLocalDate();
+        const localDate = validation.data.date ?? today;
+        // Only today and up to 14 days ahead can be read; anything else is an invalid date, never a silent today.
+        if (localDate < today || localDate > addCalendarDays(today, MAXIMUM_SCHEDULE_DAYS_AHEAD)) {
+          return createFailure(PLANNER_ERROR_CODES.dateInvalid);
+        }
         const bounds = dependencies.clock.getRangeBounds(localDate, 1);
         const includeCompletedTasks = validation.data.includeCompletedTasks === true;
         const [tasks, events, reminders] = await Promise.all([

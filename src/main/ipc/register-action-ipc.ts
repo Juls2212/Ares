@@ -67,6 +67,14 @@ const speechWindows = new WeakSet<Electron.WebContents>();
 const successPhrasePicker = createRotatingPicker(Date.now() % 97);
 type SpeechResponseStore = Pick<typeof speechService, "clear" | "remember">;
 
+/** An agenda answer: the on-screen text (up to 12 items) and a shorter spoken text, spoken with the agenda cap. */
+const agendaTexts = (outcome: import("../../shared/action-contracts").ActionOutcome): { text: string; spokenText: string } | undefined => {
+  const spoken = outcome.action === "GET_TODAY_SCHEDULE" && typeof outcome.data === "object" && outcome.data !== null
+    ? (outcome.data as { spokenSummary?: unknown }).spokenSummary
+    : undefined;
+  return typeof spoken === "string" ? { text: outcome.userSummary, spokenText: spoken } : undefined;
+};
+
 const isSilentConfirmationFailure = (code: string): boolean =>
   code === ACTION_ERROR_CODES.confirmationInvalid || code === ACTION_ERROR_CODES.confirmationUnavailable;
 
@@ -91,6 +99,11 @@ export const attachSpokenActionResponse = (
     return result;
   }
   if (isAwaitingConfirmation(result.data) || !isTerminalActionOutcome(result.data) || result.data.status === "CANCELLED") {
+    return result;
+  }
+  const agenda = result.data.status === "SUCCEEDED" ? agendaTexts(result.data) : undefined;
+  if (agenda) {
+    result.data.spokenResponse = responses.remember(windowId, agenda.text, { spokenText: agenda.spokenText, agenda: true });
     return result;
   }
   const composed = composeFinalResponse(result.data, pick);

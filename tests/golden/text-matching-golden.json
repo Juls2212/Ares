@@ -4957,8 +4957,11 @@
   [
    "pasado mañana",
    {
-    "ok": false,
-    "reason": "DATE_INVALID"
+    "ok": true,
+    "input": {
+     "title": "Tarea",
+     "dueDate": "2026-09-22"
+    }
    }
   ],
   [

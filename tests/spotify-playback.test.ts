@@ -772,10 +772,10 @@ describe("strict schema and source confinement", () => {
     };
     collect(IPC_CHANNELS, "IPC_CHANNELS");
     expect(channelNames.filter((name) => /spotify|music/iu.test(name))).toEqual([]);
-    // The renderer only names Spotify in display text and in the action label tables: one app-state label table, one
-    // idle example phrase and one action-to-area map. None of them calls window.ares or reads the environment.
+    // The renderer only names Spotify in display text and in the action label tables: one app-state label table
+    // and one action-to-area map. None of them calls window.ares or reads the environment.
     const rendererMentions = listSources("src/renderer").filter((file) => /spotify/iu.test(source(file))).map(base).sort();
-    expect(rendererMentions).toEqual(["app-state.ts", "idle-guidance.tsx", "response-area.ts"]);
+    expect(rendererMentions).toEqual(["app-state.ts", "response-area.ts"]);
     for (const file of listSources("src/renderer")) {
       expect(source(file), file).not.toMatch(/process\.env|\.env["'`]|import\.meta\.env/u);
       if (/spotify/iu.test(source(file))) expect(source(file), file).not.toMatch(/window\.ares|ipcRenderer/u);

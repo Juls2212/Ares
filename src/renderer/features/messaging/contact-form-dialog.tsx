@@ -36,7 +36,7 @@ export const ContactFormDialog = ({ request, onSubmit, onCancel }: ContactFormDi
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     phoneField.current?.focus();
     return () => {
-      const target = previous?.isConnected ? previous : document.querySelector<HTMLElement>(".glass-orb");
+      const target = previous?.isConnected ? previous : document.querySelector<HTMLElement>(".mic");
       target?.focus();
     };
   }, []);

@@ -1,5 +1,5 @@
 import type { ActionSubmission } from "../../shared/action-contracts";
-import type { OrbState } from "../components/orb-visuals";
+import type { OrbState } from "../orb/orb-runtime";
 
 export type VoiceState = "IDLE" | "RECORDING" | "PROCESSING";
 
@@ -10,10 +10,11 @@ export const actionLabels: Record<ActionSubmission["action"], string> = {
   CREATE_EVENT: "Crear evento",
   UPDATE_EVENT: "Actualizar evento",
   CREATE_REMINDER: "Crear recordatorio",
-  GET_TODAY_SCHEDULE: "Consultar agenda de hoy",
+  GET_TODAY_SCHEDULE: "Consultar la agenda de un día cercano",
   GET_WEEK_SCHEDULE: "Consultar agenda semanal",
   GET_CURRENT_DATE_TIME: "Consultar fecha y hora actuales",
   GET_WEATHER: "Consultar el clima",
+  GET_SYSTEM_INFO: "Consultar información del equipo",
   OPEN_APPLICATION: "Abrir aplicación registrada",
   SEARCH_SPOTIFY_APP: "Buscar en la aplicación de Spotify",
   CONNECT_SPOTIFY: "Conectar Spotify",

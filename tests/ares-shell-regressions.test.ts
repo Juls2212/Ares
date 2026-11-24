@@ -10,6 +10,7 @@ vi.mock("react", async (importOriginal) => {
     ...actual,
     useEffect: () => undefined,
     useCallback: (callback: unknown) => callback,
+    useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
     useState: (initial: unknown) => {
       const values = hooks.values.get(hooks.scope)!;
       const index = hooks.index++;
@@ -27,8 +28,6 @@ vi.mock("react", async (importOriginal) => {
 
 import { App } from "../src/renderer/app/App";
 import { AresView } from "../src/renderer/views/ares-view";
-import { GlassOrb } from "../src/renderer/components/glass-orb";
-import { ColorSchemeButton } from "../src/renderer/features/settings/color-scheme-button";
 import { ResponseSpeechControls } from "../src/renderer/features/voice/response-speech-controls";
 
 const render = <T,>(scope: string, component: () => T): T => {
@@ -48,40 +47,44 @@ const find = (node: unknown, type: unknown): ReactElement<any> | undefined => {
   }
 };
 
+/** The one microphone button of the view. */
+const findMic = (node: unknown): ReactElement<any> | undefined => {
+  if (Array.isArray(node)) {
+    for (const child of node) { const match = findMic(child); if (match) return match; }
+  } else if (node && typeof node === "object" && "props" in node) {
+    const element = node as ReactElement<any>;
+    if (element.type === "button" && element.props.className === "mic") return element;
+    return findMic(element.props.children);
+  }
+};
+
 const renderAppOrb = () => {
   const app = render("app", App);
   const props = find(app, AresView)!.props;
   const view = render("view", () => AresView(props));
-  return render("orb", () => GlassOrb(find(view, GlassOrb)!.props));
+  return findMic(view)!;
 };
 
-const styles = readFileSync("src/renderer/styles/ares-glass.css", "utf8");
+const styles = readFileSync("src/renderer/styles/ares-hud.css", "utf8");
 const rule = (selector: string): string => {
   const start = styles.indexOf(`${selector} {`);
-  if (start < 0) throw new Error("Expected glass style rule is missing.");
+  if (start < 0) throw new Error("Expected HUD style rule is missing.");
   return styles.slice(start, styles.indexOf("}", start) + 1);
 };
 
 describe("compact shell regressions", () => {
   let getUserMedia: ReturnType<typeof vi.fn>;
   let trackStop: ReturnType<typeof vi.fn>;
-  let root: { setAttribute: ReturnType<typeof vi.fn> };
-  let theme: string;
   let recorderStart: ReturnType<typeof vi.fn<() => void>>;
 
   beforeEach(() => {
     hooks.values.clear();
     vi.useFakeTimers();
-    theme = "light";
-    root = { setAttribute: vi.fn((_name: string, value: string) => { theme = value; }) };
     trackStop = vi.fn();
     getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: trackStop }] }));
     recorderStart = vi.fn();
-    vi.stubGlobal("document", { documentElement: root, hidden: false });
-    vi.stubGlobal("window", {
-      localStorage: { getItem: () => theme, setItem: vi.fn() },
-      matchMedia: () => ({ matches: false })
-    });
+    vi.stubGlobal("document", { documentElement: { setAttribute: vi.fn() }, hidden: false });
+    vi.stubGlobal("window", { matchMedia: () => ({ matches: false }) });
     vi.stubGlobal("navigator", { mediaDevices: { getUserMedia }, userActivation: { isActive: true } });
     vi.stubGlobal("MediaRecorder", class {
       static isTypeSupported() { return true; }
@@ -99,12 +102,12 @@ describe("compact shell regressions", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(["click", "Enter", "Space"])("starts recording once through the real orb callback on %s activation", async (activation) => {
+  it.each(["click", "Enter", "Space"])("starts recording once through the real button callback on %s activation", async (activation) => {
     const orb = renderAppOrb();
     expect(orb.type).toBe("button");
     expect(orb.props.type).toBe("button");
     expect(orb.props.disabled).toBe(false);
-    expect(orb.props["aria-label"]).toBe("Toca para hablar");
+    expect(orb.props["aria-label"]).toBe("Hablar con Ares");
     // Native Enter/Space generate one click; no additional key handler may double-dispatch it.
     expect(orb.props.onKeyDown).toBeUndefined();
     orb.props.onClick({ type: "click", detail: activation === "click" ? 1 : 0 });
@@ -112,7 +115,8 @@ describe("compact shell regressions", () => {
     expect(getUserMedia).toHaveBeenCalledExactlyOnceWith({ audio: true });
     expect(recorderStart).toHaveBeenCalledOnce();
     const listening = renderAppOrb();
-    expect(listening.props["aria-label"]).toBe("Escuchando. Toca para cancelar");
+    // A second press now stops the recording and sends it, instead of cancelling.
+    expect(listening.props["aria-label"]).toBe("Enviar lo que dije");
     listening.props.onClick();
     expect(trackStop).toHaveBeenCalledOnce();
     expect(renderAppOrb().props["data-state"]).toBe("idle");
@@ -134,8 +138,8 @@ describe("compact shell regressions", () => {
     const view = render("view", () => AresView({ ...find(app, AresView)!.props, orbState: "speaking" }));
     const stop = vi.fn();
     find(view, ResponseSpeechControls)!.props.stopRef.current = stop;
-    const orb = render("orb", () => GlassOrb(find(view, GlassOrb)!.props));
-    expect(orb.props["aria-label"]).toBe("Hablando. Toca para detener");
+    const orb = findMic(view)!;
+    expect(orb.props["aria-label"]).toBe("Detener voz");
     orb.props.onClick();
     expect(stop).toHaveBeenCalledOnce();
     expect(getUserMedia).not.toHaveBeenCalled();
@@ -149,40 +153,32 @@ describe("compact shell regressions", () => {
       voiceState: state === "processing" ? "PROCESSING" : "IDLE",
       draftStates: state === "acting" ? { 0: { busy: true, resolved: false } } : {}
     }));
-    const orb = render("orb", () => GlassOrb(find(view, GlassOrb)!.props));
+    const orb = findMic(view)!;
     expect(orb.props.disabled).toBe(true);
     orb.props.onClick();
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("cycles the color schemes in both directions through the color button and the data-theme attribute", () => {
-    for (const expectedScheme of ["blue", "green"]) {
-      const app = render("app", App);
-      find(app, ColorSchemeButton)!.props.onCycle();
-      expect(theme).toBe(expectedScheme);
-      expect(root.setAttribute).toHaveBeenLastCalledWith("data-theme", expectedScheme);
-      expect(find(render("app", App), ColorSchemeButton)!.props.current.id).toBe(expectedScheme);
-    }
+  it("has no color button, settings gear or other control next to the wordmark", () => {
+    const app = render("app", App);
+    const header = (JSON.stringify(app, (_key, value) => (typeof value === "function" ? undefined : value)).match(/"type":"header"[^]*?"type":"(?:main|section)"/u) ?? [""])[0];
+    expect(header).not.toContain('"type":"button"');
+    expect(readFileSync("src/renderer/app/App.tsx", "utf8")).not.toMatch(/ColorSchemeButton|useThemePreference|header-utilities/u);
   });
 
-  it("uses theme-dependent glass, text, button, and focus tokens", () => {
-    const light = rule(":root");
-    const dark = rule(':root[data-theme="blue"]');
-    for (const token of ["--ink", "--ink-2", "--glass-tint", "--card-tint", "--button-primary-bg", "--button-reinforced-bg", "--focus-ink", "--surface-opaque"]) {
-      expect(light).toContain(`${token}:`);
-      expect(dark).toContain(`${token}:`);
+  it("styles every surface from the theme custom properties, never a fixed light or dark color", () => {
+    for (const selector of [".ares-shell", ".hud__main", ".mic", ".review-card", ".hud__bar"]) {
+      expect(rule(selector), selector).toMatch(/var\(--/u);
+      expect(rule(selector), selector).not.toMatch(/#[0-9a-fA-F]{3,8}\b/u);
     }
-    expect(rule(".ares-shell")).toContain("background-color: var(--glass-tint)");
-    expect(rule(".command-response p")).toContain("color: var(--ink)");
-    expect(rule(".glass-orb:focus-visible .glass-orb__ring")).toContain("opacity: 1");
-    expect(rule(".glass-orb__ring")).toContain("border: 2px solid var(--focus-ink)");
+    expect(rule(".hud__response p")).toContain("color: var(--text)");
+    expect(rule(".mic:focus-visible")).toContain("3px solid var(--accent2)");
   });
 
-  it("keeps every decorative layer inert so only the orb button receives pointer input", () => {
-    expect(rule(".ares-shell::after")).toContain("pointer-events: none");
-    expect(rule(".command-glow")).toContain("pointer-events: none");
-    expect(rule(".glass-orb__ring")).toContain("pointer-events: none");
-    expect(rule(".command-text")).toContain("pointer-events: none");
-    expect(rule(".command-response")).toContain("pointer-events: auto");
+  it("keeps the decorative layers inert so only the button and the orb take pointer input", () => {
+    expect(rule(".hex-background")).toContain("pointer-events: none");
+    expect(rule(".review-layer[data-exiting]")).toContain("pointer-events: none");
+    expect(rule(".mic")).toContain("-webkit-app-region: no-drag");
+    expect(rule(".ares-header")).toContain("-webkit-app-region: drag");
   });
 });

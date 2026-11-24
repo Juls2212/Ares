@@ -50,11 +50,11 @@ describe("core response reveal", () => {
 
   it("shows the response as plain text below the orb and never reinstates a response card", () => {
     const view = source("src/renderer/views/ares-view.tsx");
-    const styles = source("src/renderer/styles/ares-glass.css");
+    const styles = source("src/renderer/styles/ares-hud.css");
 
-    expect(view).toContain("command-response__reserved");
+    expect(view).toContain("hud__response-reserved");
     expect(view).not.toContain("response-card");
-    expect(styles).toContain(".command-response__reserved { color: transparent; }");
+    expect(styles).toContain(".hud__response-reserved { color: transparent; }");
     expect(styles).not.toContain("response-card");
   });
 });

@@ -9,13 +9,15 @@ import { createApplicationActionExecutor } from "../src/main/actions/application
 import { createApprovedWebActionExecutor } from "../src/main/actions/approved-web-action-executor";
 import { createPlannerActionExecutor } from "../src/main/actions/planner-action-executor";
 import { createWeatherActionExecutor } from "../src/main/actions/weather-action-executor";
+import { createSystemInfoActionExecutor } from "../src/main/actions/system-info-action-executor";
+import { createSystemInfoService, type SystemInfoReaders } from "../src/main/system/system-info";
 import { createWeatherService } from "../src/main/weather/weather-service";
 import type { ApplicationLauncher } from "../src/main/applications/application-launcher";
 import type { PlannerService } from "../src/main/planner/planner-service";
 
 /**
  * History and log privacy for the domains without their own test: planner (INTERNAL_MEMORY: tasks, events, reminders, schedule
- * queries, date/time), applications, web and the read-only weather query.
+ * queries, date/time), applications, web, the read-only weather query and the read-only computer information query.
  * Already covered elsewhere and not repeated here:
  *  - messaging: tests/messaging-actions.test.ts, messaging-storage.test.ts, whatsapp-chat-launch.test.ts
  *  - files: tests/supervised-file-actions.test.ts, supervised-file-mutation-actions.test.ts, found-file-open-voice.test.ts
@@ -31,6 +33,7 @@ const flow = (options: {
   plannerService?: PlannerService;
   launcher?: ApplicationLauncher;
   openExternal?: (url: string) => Promise<void>;
+  systemInfoReaders?: Partial<SystemInfoReaders>;
   weatherFetch?: Parameters<typeof createWeatherService>[0] extends infer D ? (D extends { fetch?: infer F } ? F : never) : never;
 }) => {
   const recordTerminal = vi.fn(async (_input: unknown) => ({ ok: true as const, data: {} as never }));
@@ -48,6 +51,9 @@ const flow = (options: {
     filesExecutor: unused,
     messagingExecutor: unused,
     spotifyExecutor: unused,
+    systemInfoExecutor: options.systemInfoReaders
+      ? createSystemInfoActionExecutor({ systemInfoService: createSystemInfoService(options.systemInfoReaders), logError: logs })
+      : unused,
     weatherExecutor: options.weatherFetch
       ? createWeatherActionExecutor({ weatherService: createWeatherService({ fetch: options.weatherFetch }), logError: logs })
       : unused
@@ -112,8 +118,34 @@ describe("planner (memory) history privacy", () => {
     // The person still hears and sees the real agenda text; only the persisted summary is generic.
     expect(outcome).toMatchObject({ ok: true, data: { userSummary: expect.stringContaining("Cumpleaños de Sofía") } });
     const summaries = run.recordTerminal.mock.calls.map((call) => (call[0] as { userSummary: string }).userSummary);
-    expect(summaries).toEqual(["Se consultó la agenda de hoy."]);
+    expect(summaries).toEqual(["Se consultó la agenda."]);
     expect(run.recorded()).not.toMatch(LEAK);
+  });
+
+  it("hears and sees the titles and the 12-hour times of another day, while history has no title, time or count", async () => {
+    const run = flow({
+      plannerService: plannerService({
+        getTodaySchedule: vi.fn(async () => ({
+          ok: true,
+          data: {
+            localDate: "2026-09-18",
+            tasks: [{ title: "Pagar la luz de Sofía", priority: "MEDIUM", status: "PENDING", dueTime: "17:30" }],
+            events: [{ title: "Reunión con Marta", startAt: "2026-09-18T14:00:00.000Z" }],
+            reminders: [{ title: "Llamar al banco", remindAt: "2026-09-18T22:00:00.000Z" }]
+          }
+        }))
+      })
+    });
+    const result = await run.orchestrator.propose({ action: "GET_TODAY_SCHEDULE", input: { date: "2026-09-18" } });
+    const text = (result as { data: { userSummary: string } }).data.userSummary;
+    expect(text).toContain("Reunión con Marta");
+    expect(text).toContain("a las 9 de la mañana");
+    expect(text).toContain("a las 5 y media de la tarde");
+    expect(text).toContain("un recordatorio a las 5 de la tarde");
+    const persisted = JSON.stringify(run.recordTerminal.mock.calls);
+    expect(persisted).toContain("Se consultó la agenda.");
+    expect(persisted).not.toMatch(/Marta|Sofía|banco|luz|de la tarde|de la mañana|17:30|09:00|cosas|3 /u);
+    expect(run.logs).not.toHaveBeenCalled();
   });
 
   it("persists a generic sentence for every planner action and for failures, never the outcome text", async () => {
@@ -260,5 +292,38 @@ describe("web history privacy", () => {
     const run = flow({ openExternal });
     await run.orchestrator.propose({ action: "SEARCH_APPROVED_SITE", input: { site: "GOOGLE", query: "mi contraseña secreta" } });
     expect(run.recorded()).not.toMatch(LEAK);
+  });
+});
+
+describe("computer information history privacy", () => {
+  const GB = 1024 ** 3;
+  const readers = (overrides: Partial<SystemInfoReaders> = {}): Partial<SystemInfoReaders> => ({
+    totalMemory: () => 16 * GB,
+    freeMemory: () => 1 * GB,
+    cpuTimes: (() => { let sample = 0; return () => (sample++ === 0 ? { idle: 0, total: 100 } : { idle: 5, total: 200 }); })(),
+    uptimeSeconds: () => 3 * 86_400 + 7 * 3_600,
+    diskUsage: async () => ({ totalBytes: 476.04 * GB, freeBytes: 38.1 * GB }),
+    sleep: async () => undefined,
+    ...overrides
+  });
+  const NUMBERS = /GB|\d{2,3} ?%|476|38,1|días|horas|C:\\|Someone/u;
+
+  it("answers with the real numbers but stores only one fixed sentence and a category", async () => {
+    const run = flow({ systemInfoReaders: readers() });
+    const outcome = await run.orchestrator.propose({ action: "GET_SYSTEM_INFO", input: { topic: "summary" } });
+    expect(outcome).toMatchObject({ ok: true, data: { status: "SUCCEEDED", userSummary: expect.stringContaining("38,1 GB") } });
+    expect(run.recordTerminal.mock.calls[0]?.[0]).toMatchObject({
+      userSummary: "Se consultó información del equipo.",
+      metadata: { scopeKind: "SYSTEM_INFO", resultKind: "SUCCEEDED" }
+    });
+    expect(run.recorded()).not.toMatch(NUMBERS);
+  });
+
+  it("stores a fixed sentence and no detail when a reader fails with private text", async () => {
+    const run = flow({ systemInfoReaders: readers({ diskUsage: async () => { throw new Error("C:\\Users\\Someone\\private"); } }) });
+    const outcome = await run.orchestrator.propose({ action: "GET_SYSTEM_INFO", input: { topic: "disk" } });
+    expect(outcome).toMatchObject({ ok: true, data: { status: "EXECUTION_FAILED", errorCode: "SYSTEM_INFO_UNAVAILABLE" } });
+    expect(run.recordTerminal.mock.calls[0]?.[0]).toMatchObject({ userSummary: "La consulta de información del equipo no se completó." });
+    expect(run.recorded()).not.toMatch(NUMBERS);
   });
 });

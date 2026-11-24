@@ -9,6 +9,8 @@ import type { ApplicationService } from "../applications/application-service";
 import { getApplicationService } from "../applications/application-composition";
 import { createAssistantInterpreter } from "./assistant-interpreter";
 import { formatInterpretationDiagnostic } from "./interpretation-diagnostic";
+import { LOCAL_FIRST_ENABLED } from "./local-brain-config";
+import { createRotatingPicker } from "../../shared/phrase-variation";
 import { createEventDeletionResolver } from "./assistant-event-reference";
 import { getPlannerService } from "../planner/planner-composition";
 import { getKnownApplicationProviderReferences } from "../applications/known-application-catalog";
@@ -164,9 +166,13 @@ export const createAssistantInterpretationService = (
 
 let assistantInterpretationService: AssistantInterpretationService | undefined;
 
+/** Rotates between equivalent small-talk phrasings; the seed only decides where the rotation starts. */
+const localBrainPicker = createRotatingPicker(Date.now() % 97);
+
 export const getAssistantInterpretationService = (): AssistantInterpretationService => {
   assistantInterpretationService ??= createAssistantInterpretationService({
     getInterpreter: () => createAssistantInterpreter({
+      localBrain: { localFirst: LOCAL_FIRST_ENABLED, pick: localBrainPicker },
       resolveEventDeletion: createEventDeletionResolver(getPlannerService),
       getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
       resolveFoundFileName: (name) => getSupervisedFileService().resolveFoundFileByName(name),

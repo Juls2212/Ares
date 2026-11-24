@@ -178,8 +178,13 @@ export type ReminderListInput = {
   remindAtTo?: IsoDateTime;
 };
 
+/** How many days ahead an agenda can be read (today is day 0). */
+export const MAXIMUM_SCHEDULE_DAYS_AHEAD = 14;
+
 export type GetTodayScheduleInput = {
   includeCompletedTasks?: boolean;
+  /** The day to read, YYYY-MM-DD, from today up to 14 days ahead. Missing means today. */
+  date?: IsoCalendarDate;
 };
 
 export type GetWeekScheduleInput = {
@@ -201,6 +206,8 @@ export type TodayScheduleData = {
   tasks: TaskRecord[];
   events: EventRecord[];
   reminders: ReminderRecord[];
+  /** The shorter text that is spoken (set by the executor). It is never persisted: history keeps a fixed sentence. */
+  spokenSummary?: string;
 };
 
 export type WeekScheduleData = {

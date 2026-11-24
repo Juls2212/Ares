@@ -4,9 +4,9 @@
 
 `src/main/actions/capability-registry.ts` is the Main-only list of what Ares can do. An action name that is not in the registry is rejected before anything runs (`ACTION_UNSUPPORTED`), whatever the interpreter or the renderer sends. Each entry fixes the domain, the approval class, the executor category and a Spanish label. `ACTION_NAMES` in `src/shared/action-contracts.ts` equals the registry exactly.
 
-Domains: `INTERNAL_MEMORY` (planner), `APPLICATIONS`, `WEB`, `FILES`, `MESSAGING`, `MUSIC`, `WEATHER`.
+Domains: `INTERNAL_MEMORY` (planner), `APPLICATIONS`, `WEB`, `FILES`, `MESSAGING`, `MUSIC`, `WEATHER`, `SYSTEM_INFO`.
 
-There are **43 enabled actions**. A test compares this table with the registry, name by name.
+There are **44 enabled actions**. A test compares this table with the registry, name by name.
 
 | Action | Domain | Approval | Risk | Label (Spanish) |
 | --- | --- | --- | --- | --- |
@@ -18,7 +18,7 @@ There are **43 enabled actions**. A test compares this table with the registry, 
 | `UPDATE_EVENT` | INTERNAL_MEMORY | Direct | 1 | Actualizar evento |
 | `DELETE_EVENT` | INTERNAL_MEMORY | Reinforced confirmation | 3 | Eliminar evento |
 | `CREATE_REMINDER` | INTERNAL_MEMORY | Direct | 1 | Crear recordatorio |
-| `GET_TODAY_SCHEDULE` | INTERNAL_MEMORY | Direct | 1 | Consultar agenda de hoy |
+| `GET_TODAY_SCHEDULE` | INTERNAL_MEMORY | Direct | 1 | Consultar la agenda de un día cercano |
 | `GET_WEEK_SCHEDULE` | INTERNAL_MEMORY | Direct | 1 | Consultar agenda semanal |
 | `GET_CURRENT_DATE_TIME` | INTERNAL_MEMORY | Direct | 1 | Consultar fecha y hora |
 | `OPEN_APPLICATION` | APPLICATIONS | Direct | 1 | Abrir aplicación registrada |
@@ -53,6 +53,7 @@ There are **43 enabled actions**. A test compares this table with the registry, 
 | `SET_SPOTIFY_VOLUME` | MUSIC | Direct | 1 | Ajustar volumen de Spotify |
 | `WHAT_IS_PLAYING` | MUSIC | Direct | 1 | Consultar qué está sonando |
 | `GET_WEATHER` | WEATHER | Direct | 1 | Consultar el clima |
+| `GET_SYSTEM_INFO` | SYSTEM_INFO | Direct | 1 | Consultar información del equipo |
 
 ## Approval classes
 

@@ -69,10 +69,10 @@ describe("OpenAI structured interpretation provider", () => {
       expect(variant).toMatchObject({
         type: "object",
         additionalProperties: false,
-        required: ["action", "input", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "weatherQuery", "spotifySearch", "spotifyControl"]
+        required: ["action", "input", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "weatherQuery", "systemInfo", "spotifySearch", "spotifyControl"]
       });
       expect(Object.keys(propertiesOf(variant)).sort()).toEqual(
-        ["action", "approvedWeb", "catalogApplication", "filesAction", "input", "messagingAction", "spotifyControl", "spotifySearch", "weatherQuery"]
+        ["action", "approvedWeb", "catalogApplication", "filesAction", "input", "messagingAction", "spotifyControl", "spotifySearch", "systemInfo", "weatherQuery"]
       );
     }
     expect(JSON.stringify(OPENAI_INTERPRETATION_OUTPUT_SCHEMA)).not.toMatch(/weekly|habit|routine|weekday/iu);
@@ -132,7 +132,7 @@ describe("OpenAI structured interpretation provider", () => {
       "GET_TODAY_SCHEDULE",
       "GET_WEEK_SCHEDULE"
     ]));
-    expect(actions).toHaveLength(43);
+    expect(actions).toHaveLength(44);
     for (const removed of [
       "GET_WEEKLY_SCHEDULE_DETAILS", "ANALYZE_WEEKLY_SCHEDULE", "GET_TODAY_AVAILABILITY", "CREATE_WEEKLY_SCHEDULE",
       "UPDATE_WEEKLY_SCHEDULE", "CREATE_WEEKLY_ROUTINE", "UPDATE_WEEKLY_ROUTINE",
@@ -149,6 +149,7 @@ describe("OpenAI structured interpretation provider", () => {
     expect(actions).toContain("DELETE_EVENT");
     expect(actions).not.toContain("OPEN_WEB_PAGE");
     expect(actions).toContain("GET_WEATHER");
+    expect(actions).toContain("GET_SYSTEM_INFO");
     expect(drafts.maxItems).toBe(8);
   });
 });

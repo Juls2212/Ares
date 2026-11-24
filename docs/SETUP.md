@@ -11,7 +11,7 @@ Copy `.env.example` to `.env` and fill in the values. `.env` is not committed. O
 | `ARES_POSTGRES_DB`, `ARES_POSTGRES_USER`, `ARES_POSTGRES_PASSWORD`, `ARES_POSTGRES_PORT` | `compose.yaml`, the development database container |
 | `DATABASE_URL` | Main's database client and `drizzle.config.ts` |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | Interpretation (Main only) |
-| `OPENAI_TRANSCRIPTION_MODEL` | Speech-to-text (Main only); speech output also needs `OPENAI_API_KEY` |
+| `OPENAI_TRANSCRIPTION_MODEL` | Speech-to-text (Main only); speech output also needs `OPENAI_API_KEY`. Set it explicitly to `gpt-4o-transcribe`, the full-size model, for accuracy with names and letters; a mini model is faster but less accurate. If it is unset or blank Ares uses `gpt-4o-transcribe`. No recognition hint (`prompt`) is sent |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | Optional spoken voice (Main only). Both must be set to use ElevenLabs; otherwise, or if an ElevenLabs request fails, the OpenAI voice is used |
 | `SPOTIFY_CLIENT_ID` | The public client id of the Spotify integration (read by Main; it is not listed in `.env.example`) |
 

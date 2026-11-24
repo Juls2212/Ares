@@ -11,7 +11,8 @@ import type {
   SearchSpotifyAppActionProposal,
   SpotifyMusicActionProposal,
   SupervisedFilesActionProposal,
-  WeatherActionProposal
+  WeatherActionProposal,
+  SystemInfoActionProposal
 } from "../../shared/action-contracts";
 import {
   createApplicationActionExecutor,
@@ -34,6 +35,7 @@ import type { MessagingResult } from "../messaging/messaging-failures";
 import { createSpotifyActionExecutor, type SpotifyActionExecutor } from "./spotify-action-executor";
 import { createPlannerActionExecutor, type PlannerActionExecutor } from "./planner-action-executor";
 import { createWeatherActionExecutor, type WeatherActionExecutor } from "./weather-action-executor";
+import { createSystemInfoActionExecutor, type SystemInfoActionExecutor } from "./system-info-action-executor";
 
 export type ActionExecutor = {
   execute: (proposal: ExecutableActionProposal, policy: ActionPolicy) => Promise<ActionOutcome>;
@@ -57,6 +59,7 @@ type ActionExecutorDependencies = {
   messagingExecutor?: MessagingActionExecutor;
   spotifyExecutor?: SpotifyActionExecutor;
   weatherExecutor?: WeatherActionExecutor;
+  systemInfoExecutor?: SystemInfoActionExecutor;
 };
 
 const isApplicationAction = (
@@ -118,6 +121,9 @@ const isSpotifyMusicProposal = (proposal: ExecutableActionProposal): proposal is
 const isWeatherProposal = (proposal: ExecutableActionProposal): proposal is WeatherActionProposal =>
   proposal.action === "GET_WEATHER";
 
+const isSystemInfoProposal = (proposal: ExecutableActionProposal): proposal is SystemInfoActionProposal =>
+  proposal.action === "GET_SYSTEM_INFO";
+
 const unsupportedOutcome = (
   proposal: ExecutableActionProposal,
   policy: ActionPolicy
@@ -135,6 +141,7 @@ export const createActionExecutor = (
   const messagingExecutor = overrides.messagingExecutor ?? createMessagingActionExecutor();
   const spotifyExecutor = overrides.spotifyExecutor ?? createSpotifyActionExecutor();
   const weatherExecutor = overrides.weatherExecutor ?? createWeatherActionExecutor();
+  const systemInfoExecutor = overrides.systemInfoExecutor ?? createSystemInfoActionExecutor();
 
   return {
     execute: (proposal, policy) => {
@@ -159,6 +166,11 @@ export const createActionExecutor = (
       if (capability.executor === "WEATHER") {
         return isWeatherProposal(proposal)
           ? weatherExecutor.execute(proposal, policy)
+          : Promise.resolve(unsupportedOutcome(proposal, policy));
+      }
+      if (capability.executor === "SYSTEM_INFO") {
+        return isSystemInfoProposal(proposal)
+          ? systemInfoExecutor.execute(proposal, policy)
           : Promise.resolve(unsupportedOutcome(proposal, policy));
       }
       if (capability.executor === "MESSAGING") {

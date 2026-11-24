@@ -293,9 +293,9 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
     approval: "DIRECT",
     availability: "IMPLEMENTED",
     confirmation: {
-      summary: "Se consultará la agenda de hoy.",
+      summary: "Se consultará la agenda de un día cercano.",
       affectedItemCount: null,
-      scopeSummary: "Agenda local de hoy"
+      scopeSummary: "Agenda local de hoy o de un día de los próximos 14"
     }
   },
   GET_WEEK_SCHEDULE: {
@@ -323,6 +323,15 @@ const policyDefinitions: Record<ActionKind, PolicyDefinition> = {
       summary: "Se consultará el clima.",
       affectedItemCount: null,
       scopeSummary: "Consulta de clima"
+    }
+  },
+  GET_SYSTEM_INFO: {
+    approval: "DIRECT",
+    availability: "IMPLEMENTED",
+    confirmation: {
+      summary: "Se consultará información del equipo.",
+      affectedItemCount: null,
+      scopeSummary: "Información del equipo"
     }
   },
   SAVE_CONTACT: {

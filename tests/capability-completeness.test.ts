@@ -73,7 +73,8 @@ const executor = createActionExecutor({
   filesExecutor: stubFor("FILES") as never,
   messagingExecutor: stubFor("MESSAGING") as never,
   spotifyExecutor: stubFor("MUSIC") as never,
-  weatherExecutor: stubFor("WEATHER") as never
+  weatherExecutor: stubFor("WEATHER") as never,
+  systemInfoExecutor: stubFor("SYSTEM_INFO") as never
 });
 
 const isWellFormed = (value: unknown): boolean =>
@@ -107,8 +108,8 @@ const findGaps = async (): Promise<string[]> => {
 };
 
 describe("registry to executor completeness", () => {
-  it("covers all 43 enabled actions", () => {
-    expect(ENABLED_ASSISTANT_CAPABILITIES).toHaveLength(43);
+  it("covers all 44 enabled actions", () => {
+    expect(ENABLED_ASSISTANT_CAPABILITIES).toHaveLength(44);
   });
 
   it("has no new gap: every enabled action outside KNOWN_GAPS returns a well-formed outcome from its own executor", async () => {

@@ -69,7 +69,7 @@ describe("documentation matches the code", () => {
   });
 
   it("does not describe removed features as current", () => {
-    for (const file of readdirSync(path.resolve(process.cwd(), "docs"))) {
+    for (const file of readdirSync(path.resolve(process.cwd(), "docs")).filter((entry) => entry.endsWith(".md"))) {
       const text = readSource(`docs/${file}`);
       for (const removed of ["RENAME_FILE", "ORGANIZE_FILES", "OPEN_WEB_PAGE", "atomic-no-replace", "N-API", "Tailwind", "Planificador", "CREATE_HABIT", "WEEKLY_SCHEDULE"]) {
         expect(text, `${file} mentions ${removed}`).not.toContain(removed);
@@ -78,7 +78,7 @@ describe("documentation matches the code", () => {
   });
 
   it("keeps the docs free of secrets and local absolute paths", () => {
-    for (const file of readdirSync(path.resolve(process.cwd(), "docs"))) {
+    for (const file of readdirSync(path.resolve(process.cwd(), "docs")).filter((entry) => entry.endsWith(".md"))) {
       const text = readSource(`docs/${file}`);
       expect(text, file).not.toMatch(/[A-Za-z]:\\Users\\|sk-[A-Za-z0-9]{8,}|postgres(?:ql)?:\/\/\w+:\w+@/u);
     }

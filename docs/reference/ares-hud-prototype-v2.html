@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ares — prototipo v2 (oscuro, gris niebla, gris menta)</title>
+<style>
+  :root{ --font:'Bahnschrift','Segoe UI',system-ui,sans-serif; }
+  *{box-sizing:border-box;margin:0}
+  body{background:#161b1d;color:#cfd8da;font-family:var(--font);min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px 10px}
+  .demo{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center}
+  .demo .lbl{font-size:11px;letter-spacing:.2em;color:#8a9a9d;text-transform:uppercase;margin-right:4px}
+  .demo button{background:#222a2d;color:#dbe5e7;border:1px solid #3a474b;padding:6px 13px;border-radius:999px;font:inherit;font-size:13px;letter-spacing:.05em;cursor:pointer}
+  .demo button[aria-pressed="true"]{background:#d6e4e6;color:#0c1a1c;border-color:#d6e4e6}
+  .demo button:focus-visible{outline:2px solid #6fd6cd;outline-offset:2px}
+
+  /* ---- tokens (los pone el script desde THEMES) ---- */
+  .app{ width:480px;max-width:100%;height:740px;position:relative;overflow:hidden;border:1px solid var(--line);border-radius:10px;
+    background:radial-gradient(ellipse at 50% 38%,var(--bgc) 0%,var(--bgm) 40%,var(--bge) 82%); color:var(--text); transition:background .3s }
+  #hex{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
+    -webkit-mask-image:radial-gradient(ellipse at 50% 40%,#000 0%,transparent 74%);mask-image:radial-gradient(ellipse at 50% 40%,#000 0%,transparent 74%)}
+  header{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid var(--line)}
+  .brand{font-weight:700;letter-spacing:.42em;font-size:17px;color:var(--accent);text-shadow:var(--brandglow)}
+  .wc{display:flex;gap:6px;color:var(--dim);font-size:13px;letter-spacing:.1em}
+  .wc span{width:34px;height:26px;display:grid;place-items:center}
+  .stage{position:absolute;top:70px;left:20px;width:440px;height:440px}
+  canvas#orb{width:440px;height:440px;display:block}
+  .status{position:absolute;top:512px;left:0;right:0;text-align:center;padding:0 28px}
+  .state{font-size:12px;letter-spacing:.34em;color:var(--dim);text-transform:uppercase}
+  .main{margin-top:8px;font-size:21px;font-weight:600;color:var(--text);min-height:28px}
+  .heard{margin-top:8px;font-size:14px;color:var(--dim);min-height:20px}
+  .bar{position:absolute;left:0;right:0;bottom:0;height:92px;background:var(--plate);border-top:1px solid var(--line2);
+    clip-path:polygon(0 18px,14% 18px,17% 0,83% 0,86% 18px,100% 18px,100% 100%,0 100%)}
+  .bar .row{position:absolute;inset:18px 0 0 0;display:flex;align-items:center;justify-content:center}
+  .mic{width:68px;height:68px;margin-top:-40px;border-radius:50%;border:2px solid var(--accent);background:var(--micbg);color:var(--accent);display:grid;place-items:center;cursor:pointer;box-shadow:var(--micglow)}
+  .mic:focus-visible{outline:3px solid var(--accent2);outline-offset:3px}
+  .cap{position:absolute;bottom:5px;left:0;right:0;text-align:center;font-size:11px;letter-spacing:.2em;color:var(--dim)}
+  .note{max-width:480px;font-size:12px;color:#8a9a9d;line-height:1.5;text-align:center}
+  svg{width:30px;height:30px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</head>
+<body>
+<div class="demo" role="group" aria-label="Estado de demostración">
+  <span class="lbl">Estado</span>
+  <button data-s="idle" aria-pressed="true">Reposo</button>
+  <button data-s="listening" aria-pressed="false">Escuchando</button>
+  <button data-s="thinking" aria-pressed="false">Pensando</button>
+  <button data-s="speaking" aria-pressed="false">Hablando</button>
+  <button data-s="error" aria-pressed="false">Error</button>
+</div>
+<div class="demo" role="group" aria-label="Tema de demostración">
+  <span class="lbl">Tema</span>
+  <button data-t="dark" aria-pressed="true">Oscuro</button>
+  <button data-t="niebla" aria-pressed="false">Claro · gris niebla</button>
+  <button data-t="menta" aria-pressed="false">Claro · gris menta</button>
+</div>
+
+<div class="app" id="app">
+  <canvas id="hex" aria-hidden="true"></canvas>
+  <header>
+    <div class="brand">ARES</div>
+    <div class="wc" aria-hidden="true"><span>—</span><span>▢</span><span>✕</span></div>
+  </header>
+  <div class="stage"><canvas id="orb" aria-hidden="true"></canvas></div>
+  <div class="status" role="status" aria-live="polite">
+    <div class="state" id="stateLabel">Listo</div>
+    <div class="main" id="mainText">Toca el orbe para hablar</div>
+    <div class="heard" id="heardText"></div>
+  </div>
+  <div class="bar">
+    <div class="row">
+      <button class="mic" id="micBtn" aria-label="Hablar con Ares"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+    </div>
+    <div class="cap">CTRL + ALT + ESPACIO</div>
+  </div>
+</div>
+<p class="note">Prototipo v2 de referencia (Canvas 2D, sin dependencias). Los botones de arriba solo simulan estados y temas. En la app real el tema sigue a Windows y se fuerza desde el menú de la bandeja. Diseño original de Ares.</p>
+
+<script>
+(()=>{
+const TAU=Math.PI*2;
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ===================== TEMAS (datos) ===================== */
+const THEMES={
+  dark:{
+    css:{bgc:'#07272b',bgm:'#041a1e',bge:'#02090b',line:'#0f3a40',line2:'#12484e',text:'#bff3ee',dim:'#6fa39f',accent:'#35e0d0',accent2:'#1f9ed8',
+         plate:'linear-gradient(#031317,#02090b)',micbg:'radial-gradient(circle,#0a3a40,#031317)',micglow:'0 0 24px #35e0d055',brandglow:'0 0 14px #35e0d066'},
+    accent:[53,224,208], accent2:[31,158,216], amber:[242,179,74],
+    additive:true, hex:'rgba(53,224,208,0.07)', glowA:.20, coreFill:'rgba(5,28,32,.92)', rim:'rgba(235,255,252,.92)', rimGlow:.9,
+    chunkBase:.12, tickBase:.18, memA:.22, wireBase:.12, partK:1
+  },
+  niebla:{ /* gris azulado, frío */
+    css:{bgc:'#eef2f3',bgm:'#dbe3e5',bge:'#c4ced2',line:'#aebcc1',line2:'#9fb0b6',text:'#0c2a2f',dim:'#45646a',accent:'#0a7f78',accent2:'#1a5f96',
+         plate:'linear-gradient(#e3eaec,#cbd5d9)',micbg:'radial-gradient(circle,#f6fafa,#d9e3e5)',micglow:'0 4px 16px #0a7f7833',brandglow:'none'},
+    accent:[10,127,120], accent2:[26,95,150], amber:[163,95,0],
+    additive:false, hex:'rgba(10,127,120,0.10)', glowA:.16, coreFill:'rgba(250,253,253,.80)', rim:'#0c4a50', rimGlow:.35,
+    chunkBase:.20, tickBase:.26, memA:.38, wireBase:.22, partK:1.25
+  },
+  menta:{ /* gris verdoso, más cálido */
+    css:{bgc:'#eaf2ef',bgm:'#d4e4df',bge:'#b9d0ca',line:'#a3bfb8',line2:'#93b3ab',text:'#0b2b27',dim:'#3f6560',accent:'#0b8a7f',accent2:'#17679c',
+         plate:'linear-gradient(#dcebe7,#c3d9d3)',micbg:'radial-gradient(circle,#f3faf8,#d2e5e0)',micglow:'0 4px 16px #0b8a7f33',brandglow:'none'},
+    accent:[11,138,127], accent2:[23,103,156], amber:[163,95,0],
+    additive:false, hex:'rgba(11,138,127,0.12)', glowA:.18, coreFill:'rgba(248,253,251,.80)', rim:'#0a4a44', rimGlow:.35,
+    chunkBase:.20, tickBase:.26, memA:.38, wireBase:.22, partK:1.25
+  }
+};
+let theme=THEMES.dark;
+const app=document.getElementById('app');
+function applyTheme(name){
+  theme=THEMES[name];
+  for(const [k,v] of Object.entries(theme.css)) app.style.setProperty('--'+k,v);
+  drawHex();
+}
+
+/* ===================== fondo hexagonal ===================== */
+const hex=document.getElementById('hex'), hc=hex.getContext('2d');
+function drawHex(){
+  const dpr=Math.min(devicePixelRatio||1,2), w=480, h=740;
+  hex.width=w*dpr; hex.height=h*dpr; hc.setTransform(dpr,0,0,dpr,0,0); hc.clearRect(0,0,w,h);
+  hc.strokeStyle=theme.hex; hc.lineWidth=1;
+  const r=22, dx=r*Math.sqrt(3), dy=r*1.5;
+  for(let row=-1; row<h/dy+1; row++) for(let col=-1; col<w/dx+1; col++){
+    const x=col*dx+(row%2? dx/2:0), y=row*dy; hc.beginPath();
+    for(let k=0;k<6;k++){const a=TAU/6*k+TAU/12; const px=x+r*Math.cos(a), py=y+r*Math.sin(a); k?hc.lineTo(px,py):hc.moveTo(px,py);}
+    hc.closePath(); hc.stroke();
+  }
+}
+
+/* ===================== orbe ===================== */
+const cv=document.getElementById('orb'), ctx=cv.getContext('2d');
+const W=440, DPR=Math.min(devicePixelRatio||1,2);
+cv.width=W*DPR; cv.height=W*DPR; ctx.scale(DPR,DPR);
+const CX=W/2, CY=W/2;
+let seed=1337; const rnd=()=>{seed=(seed*1664525+1013904223)>>>0; return seed/4294967296;};
+const N=520;
+const parts=Array.from({length:N},()=>({a:rnd()*TAU, r:rnd(), s:(rnd()*0.6+0.2)*(rnd()<.5?-1:1), p:rnd()*TAU, z:rnd()}));
+const SEG=56, TICKS=112; const segV=new Float32Array(SEG);
+let state='idle', level=0, spin=1, amber=0, tAbs=0, last=performance.now();
+const mix=(a,b,t)=>a.map((v,i)=>Math.round(v+(b[i]-v)*t));
+const rgba=(c,a)=>`rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const wobble=(a,t)=>Math.sin(a*3+t*.8)+.6*Math.sin(a*5-t*1.1)+.4*Math.sin(a*2+t*.5);
+function targetLevel(t){
+  switch(state){
+    case 'listening': return Math.min(1,.28+.5*Math.abs(Math.sin(t*7)*Math.sin(t*2.9))+.12*Math.sin(t*23));
+    case 'speaking':  return Math.min(1,.15+.7*Math.abs(Math.sin(t*9)*Math.sin(t*2.3)));
+    case 'thinking':  return .18;
+    case 'error':     return .22;
+    default:          return .05+.03*Math.sin(t*.9);
+  }
+}
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000); last=now;
+  tAbs+=dt*(reduce?.15:1); const t=tAbs;
+  level+=(targetLevel(t)-level)*Math.min(1,dt*9);
+  const spinT = state==='thinking'?3.2 : state==='listening'?1.1 : state==='speaking'?1.5 : .35;
+  spin+=(spinT-spin)*Math.min(1,dt*3);
+  amber+=((state==='error'?1:0)-amber)*Math.min(1,dt*6);
+  const th=theme;
+  const accent=mix(th.accent,th.amber,amber), accent2=mix(th.accent2,th.amber,amber);
+  ctx.clearRect(0,0,W,W);
+
+  const g=ctx.createRadialGradient(CX,CY,10,CX,CY,200);
+  g.addColorStop(0,rgba(accent,th.glowA+level*.18)); g.addColorStop(.55,rgba(accent2,.06)); g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,W);
+
+  for(let i=0;i<SEG;i++){
+    const a=i/SEG*TAU; let v;
+    if(state==='thinking'){ const head=(t*1.7)%TAU; let d=(head-a)%TAU; if(d<0)d+=TAU; v=Math.max(0,1-d/1.7)*.92+.12; }
+    else if(state==='listening') v=level*(.35+.65*(.5+.5*Math.sin(i*1.7+t*9)*Math.sin(i*.6-t*5)));
+    else if(state==='speaking')  v=level*(.45+.55*(.5+.5*Math.sin(i*.55-t*6)))+.05;
+    else if(state==='error')     v=.35+.35*Math.sin(t*6)*Math.sin(t*6);
+    else v=.2+.09*Math.sin(t*.8+i*.35);
+    segV[i]+=(v-segV[i])*Math.min(1,dt*14);
+  }
+  ctx.lineCap='butt'; const da=TAU/SEG*.72;
+  for(let i=0;i<SEG;i++){
+    const a=i/SEG*TAU-Math.PI/2+t*.05*spin; const v=Math.max(0,Math.min(1,segV[i]));
+    ctx.beginPath(); ctx.arc(CX,CY,96,a-da/2,a+da/2);
+    ctx.lineWidth=16; ctx.strokeStyle=rgba(mix(accent2,accent,v),th.chunkBase+v*(1-th.chunkBase)); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(CX,CY,82,0,TAU); ctx.lineWidth=1; ctx.strokeStyle=rgba(accent,th.additive?.35:.5); ctx.stroke();
+
+  ctx.lineWidth=2;
+  for(let i=0;i<TICKS;i++){
+    const f=i/TICKS*SEG, i0=Math.floor(f)%SEG, i1=(i0+1)%SEG; const v=segV[i0]*.6+segV[i1]*.4;
+    const a=i/TICKS*TAU-Math.PI/2+t*.05*spin; const r1=112, r2=r1+3+v*24;
+    ctx.beginPath(); ctx.moveTo(CX+Math.cos(a)*r1,CY+Math.sin(a)*r1); ctx.lineTo(CX+Math.cos(a)*r2,CY+Math.sin(a)*r2);
+    ctx.strokeStyle=rgba(accent,th.tickBase+v*.7); ctx.stroke();
+  }
+  for(let k=0;k<2;k++){
+    ctx.beginPath();
+    for(let i=0;i<=180;i++){ const a=i/180*TAU; const r=150+k*9+wobble(a+k*.7,t*(1+k*.3))*(4+level*16);
+      const x=CX+Math.cos(a)*r, y=CY+Math.sin(a)*r; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+    ctx.closePath(); ctx.lineWidth=1; ctx.strokeStyle=rgba(accent,th.memA-k*.1); ctx.stroke();
+  }
+  if(th.additive) ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<N;i++){
+    const p=parts[i]; const a=p.a+t*.06*p.s*spin;
+    const r=152+p.r*18+wobble(a,t)*(4+level*18)+Math.sin(t*1.3+p.p)*2;
+    const x=CX+Math.cos(a)*r, y=CY+Math.sin(a)*r;
+    const al=(.18+.6*p.z)*(.6+level*.7)*th.partK;
+    ctx.fillStyle=rgba(i%7===0?accent:accent2,Math.min(.95,al));
+    const s=(p.z>.85?2:1.2)*(th.additive?1:1.25); ctx.fillRect(x,y,s,s);
+  }
+  ctx.globalCompositeOperation='source-over';
+
+  const R=58*(1+level*.06), tilt=.38, ry=t*.28*spin;
+  ctx.save(); ctx.beginPath(); ctx.arc(CX,CY,R,0,TAU); ctx.fillStyle=th.coreFill; ctx.fill(); ctx.clip();
+  const proj=(lat,lon)=>{ const x=R*Math.cos(lat)*Math.cos(lon), y=R*Math.sin(lat), z=R*Math.cos(lat)*Math.sin(lon);
+    return [x,y*Math.cos(tilt)-z*Math.sin(tilt),y*Math.sin(tilt)+z*Math.cos(tilt)]; };
+  for(let lat=-60;lat<=60;lat+=30){ const L=lat*Math.PI/180;
+    for(let i=0;i<48;i++){ const p0=proj(L,i/48*TAU+ry), p1=proj(L,(i+1)/48*TAU+ry); const dep=(p0[2]+R)/(2*R);
+      ctx.beginPath(); ctx.moveTo(CX+p0[0],CY+p0[1]); ctx.lineTo(CX+p1[0],CY+p1[1]); ctx.strokeStyle=rgba(accent,th.wireBase+dep*.6); ctx.lineWidth=1; ctx.stroke(); } }
+  for(let m=0;m<12;m++){ const lon=m/12*TAU+ry;
+    for(let i=0;i<32;i++){ const p0=proj(-Math.PI/2+i/32*Math.PI,lon), p1=proj(-Math.PI/2+(i+1)/32*Math.PI,lon); const dep=(p0[2]+R)/(2*R);
+      ctx.beginPath(); ctx.moveTo(CX+p0[0],CY+p0[1]); ctx.lineTo(CX+p1[0],CY+p1[1]); ctx.strokeStyle=rgba(accent,th.wireBase-.02+dep*.62); ctx.lineWidth=1; ctx.stroke(); } }
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,TAU); ctx.lineWidth=2; ctx.strokeStyle=th.rim;
+  ctx.shadowColor=rgba(accent,th.rimGlow); ctx.shadowBlur=(th.additive?14:8)+level*(th.additive?16:8); ctx.stroke(); ctx.shadowBlur=0;
+  requestAnimationFrame(frame);
+}
+
+/* ===================== demo ===================== */
+const copy={
+  idle:['Listo','Toca el orbe para hablar',''],
+  listening:['Escuchando','Te escucho…',''],
+  thinking:['Pensando','Un momento…','Escuché: «abre Spotify»'],
+  speaking:['Respondiendo','Listo, abrí Spotify.','Escuché: «abre Spotify»'],
+  error:['Atención','No pude abrir esa aplicación. Revisa que esté instalada.','Escuché: «abre Discord»']
+};
+const sl=document.getElementById('stateLabel'), mt=document.getElementById('mainText'), ht=document.getElementById('heardText'), mic=document.getElementById('micBtn');
+const micLabel={idle:'Hablar con Ares',listening:'Enviar lo que dije',thinking:'Procesando',speaking:'Detener voz',error:'Hablar con Ares'};
+function setState(s){ state=s; const c=copy[s]; sl.textContent=c[0]; mt.textContent=c[1]; ht.textContent=c[2]; mic.setAttribute('aria-label',micLabel[s]);
+  document.querySelectorAll('[data-s]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.s===s)); }
+document.querySelectorAll('[data-s]').forEach(b=>b.addEventListener('click',()=>setState(b.dataset.s)));
+document.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{
+  applyTheme(b.dataset.t); document.querySelectorAll('[data-t]').forEach(x=>x.setAttribute('aria-pressed',x===b)); }));
+const q=new URLSearchParams(location.search); if(q.get('t')&&THEMES[q.get('t')]){applyTheme(q.get('t'));
+  document.querySelectorAll('[data-t]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.t===q.get('t')));} else applyTheme('dark');
+if(q.get('s')&&copy[q.get('s')]) setState(q.get('s'));
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

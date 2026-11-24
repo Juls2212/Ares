@@ -2,7 +2,7 @@
 
 ## Baseline
 
-- **Process isolation.** `contextIsolation`, `sandbox` and `webSecurity` are on, `nodeIntegration` is off. The renderer reaches Main only through the 13 named `window.ares` methods ([ARCHITECTURE.md](ARCHITECTURE.md)).
+- **Process isolation.** `contextIsolation`, `sandbox` and `webSecurity` are on, `nodeIntegration` is off. The renderer reaches Main only through the 14 named `window.ares` methods ([ARCHITECTURE.md](ARCHITECTURE.md)).
 - **Main owns every capability.** The renderer and the preload never touch the filesystem, shell, network, database, environment or credentials. `tests/call-site-allowlist.test.ts` fails if any other file uses `shell.openExternal`, `shell.openPath`, `shell.showItemInFolder`, `shell.trashItem`, `child_process`, `fetch(`, an HTTP server, `safeStorage`, file deletion, `process.env` or `new BrowserWindow`.
 - **The model is untrusted.** The interpreter sends a closed strict JSON schema (`additionalProperties: false` everywhere), then Main parses and validates every draft again. A provider-authored place, file name or alias is only used when it appears in the person's own words or in a trusted Main list.
 - **Closed inputs.** Actions take enums, bounded text and ordinals. No action accepts a URL, a path, a command, a coordinate or a provider identifier from the caller.
@@ -25,19 +25,21 @@ The Spotify connection uses PKCE with a loopback receiver on `127.0.0.1:8888` an
 
 ## What history, logs and speech never contain
 
-History (`action_history`) keeps, per action: the action name, risk level, terminal status, a **generic fixed sentence**, an error code and a small allowlisted metadata object (counts and category names). For the planner, files, messaging, music and weather domains the sentence is chosen by domain and status (for example "Se creó una tarea." or "La consulta del clima no se completó."), never from the outcome text. For applications and web the stored text is a Main-composed sentence that names only the public application display name or the approved site (Google, YouTube, Spotify). The person still hears and sees the real answer; only what is persisted is generic.
+History (`action_history`) keeps, per action: the action name, risk level, terminal status, a **generic fixed sentence**, an error code and a small allowlisted metadata object (counts and category names). For the planner, files, messaging, music, weather and computer information domains the sentence is chosen by domain and status (for example "Se creó una tarea." or "La consulta del clima no se completó."), never from the outcome text. For applications and web the stored text is a Main-composed sentence that names only the public application display name or the approved site (Google, YouTube, Spotify). The person still hears and sees the real answer; only what is persisted is generic.
 
 Never persisted or logged, in any domain:
 
 - task, event, reminder or contact titles and names, message text, phone numbers;
 - file and folder names, queries, paths, URLs;
 - the typed weather place, coordinates, provider payloads or temperatures;
+- computer information numbers (disk, memory, processor, uptime): history stores only "Se consultó información del equipo."; the module never reads processes, files, users, host names, addresses, serial numbers, installed software or paths;
+- the text of a typed or spoken instruction in the local-brain log line (it carries only a closed intent name and a closed route), and anything the system voice speaks (it runs in the renderer with no IPC, network, storage or logging);
 - the aliases a person typed for an application, executable paths, tokens, authorization codes, response bodies;
 - raw exceptions: executors log one constant line (for example `Weather action execution failed.`).
 
 Failure messages come from closed taxonomies of fixed Spanish sentences that contain no user data ([KITS.md](KITS.md)); a test walks every taxonomy and rejects digit runs, paths, URLs and interpolation placeholders.
 
-Speech receives only text Main composed for the response, already capped to about two sentences. That text goes to OpenAI, or to ElevenLabs when `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are set (and to OpenAI if ElevenLabs fails for that sentence). Nothing else is sent to ElevenLabs: no history and no identifiers, only what the spoken sentence itself says. Its key and voice id are read in Main only, never logged, and failures log only a closed code. Weather answers are spoken because the person just asked for them; they are not stored.
+An agenda answer (GET_TODAY_SCHEDULE, for today or a day up to 14 days ahead) necessarily contains the person's own titles and times. It is built for the on-screen and spoken response only and is spoken through the configured speech provider like any other answer, with its own bounded cap (about 600 characters, never cutting inside a sentence); history keeps the fixed sentence «Se consultó la agenda.» and nothing from the answer is logged. Speech receives only text Main composed for the response, already capped to about two sentences. That text goes to OpenAI, or to ElevenLabs when `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are set (and to OpenAI if ElevenLabs fails for that sentence). Nothing else is sent to ElevenLabs: no history and no identifiers, only what the spoken sentence itself says. Its key and voice id are read in Main only, never logged, and failures log only a closed code. Weather answers are spoken because the person just asked for them; they are not stored.
 
 ## Credentials
 
