@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createManualVoiceRecorder } from "../src/renderer/features/voice/manual-voice-recorder";
 import { VOICE_ALLOWED_MIME_TYPES } from "../src/shared/voice-contracts";
-import { VoiceCommandControls } from "../src/renderer/features/voice/voice-command-controls";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, type ReactElement } from "react";
 
@@ -31,24 +30,14 @@ describe("manual browser voice capture", () => {
     expect(VOICE_ALLOWED_MIME_TYPES).toContain("audio/webm");
   });
 
-  it("shows only a keyboard-safe cancellation control while listening", async () => {
-    for (const activation of ["mouse", "keyboard"] as const) {
+  it("cancels a listening capture without uploading audio and reports the cancellation once", async () => {
+    for (let round = 0; round < 2; round += 1) {
       const f = setup(); await f.voice.start();
       f.recorder?.ondataavailable?.({ data: new Blob(["audio"]) } as BlobEvent);
-      const controls = VoiceCommandControls({ state: "RECORDING", onStart: vi.fn(), onCancel: f.voice.cancel });
-      const nodes: ReactElement<any>[] = [];
-      const collect = (value: any): void => { if (Array.isArray(value)) value.forEach(collect); else if (value && typeof value === "object" && "props" in value) { nodes.push(value); collect(value.props.children); } };
-      collect(controls);
-      const button = nodes.find(node => node.type === "button" && node.props.children === "Cancelar")!;
-      expect(button.props.type).toBe("button");
-      button.props.onClick({ type: "click", detail: activation === "keyboard" ? 0 : 1 });
+      f.voice.cancel();
       expect(f.onAudio).not.toHaveBeenCalled();
       expect(f.onCancelled).toHaveBeenCalledOnce();
     }
-    const html = renderToStaticMarkup(createElement(VoiceCommandControls, { state: "RECORDING", onStart: vi.fn(), onCancel: vi.fn() }));
-    expect(html).toContain("Escuchando…"); expect(html).not.toContain("Detener y transcribir"); expect(html).toContain(">Cancelar</button>");
-    const processingHtml = renderToStaticMarkup(createElement(VoiceCommandControls, { state: "PROCESSING", onStart: vi.fn(), onCancel: vi.fn() }));
-    expect(processingHtml).toContain("Procesando…"); expect(processingHtml).toContain(">Cancelar</button>");
   });
   it("ignores repeated stop and idle cancellation and preserves completed audio", async () => {
     const f = setup(); f.voice.cancel(); expect(f.onCancelled).not.toHaveBeenCalled();

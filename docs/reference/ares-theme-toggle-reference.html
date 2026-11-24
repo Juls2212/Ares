@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Ares — botón de tema (referencia v2, bombilla)</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#161b1d;font-family:'Bahnschrift','Segoe UI',system-ui,sans-serif;color:#cfd8da;padding:24px;display:flex;flex-direction:column;gap:18px;align-items:center}
+.hdr{width:480px;height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 18px;border:1px solid var(--line);border-radius:8px;background:var(--hbg);color:var(--text)}
+.hdr .brand{font-weight:700;letter-spacing:.42em;font-size:17px;color:var(--accent)}
+.right{display:flex;align-items:center;gap:10px}
+.wc{display:flex;color:var(--dim);font-size:13px}.wc span{width:36px;height:26px;display:grid;place-items:center}
+.dark{--hbg:#041a1e;--line:#0f3a40;--text:#bff3ee;--dim:#6fa39f;--accent:#35e0d0;--accent2:#1f9ed8;--fill:rgba(53,224,208,.06);--fillh:rgba(53,224,208,.16);--glass-on:rgba(53,224,208,.28)}
+.light{--hbg:#dcebe7;--line:#a3bfb8;--text:#0b2b27;--dim:#3f6560;--accent:#086159;--accent2:#17679c;--fill:rgba(11,138,127,.08);--fillh:rgba(11,138,127,.20);--glass-on:rgba(11,138,127,.30)}
+.tt{position:relative;width:46px;height:32px;border:0;background:none;padding:0;cursor:pointer;color:var(--accent)}
+.tt svg.frame{position:absolute;inset:0;width:100%;height:100%}
+.tt .poly{fill:var(--fill);stroke:var(--accent);stroke-width:1;transition:fill .2s, filter .2s}
+.tt:hover .poly{fill:var(--fillh);filter:drop-shadow(0 0 5px var(--accent))}
+.tt:active{transform:scale(.96)}
+.tt:focus-visible{outline:2px solid var(--accent2);outline-offset:3px}
+.tt .bulb{position:absolute;left:13px;top:3px;width:20px;height:26px;overflow:visible}
+.bulb .glass{fill:none;stroke:currentColor;stroke-width:1.2;stroke-linejoin:round;transition:fill .35s}
+.bulb .fil{fill:none;stroke:currentColor;stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round;opacity:.35;transition:opacity .35s}
+.bulb .node{fill:currentColor;opacity:.35;transition:opacity .35s}
+.bulb .base{stroke:currentColor;stroke-width:1.3;stroke-linecap:round;opacity:.9}
+.bulb .rays{stroke:currentColor;stroke-width:1.1;stroke-linecap:round;opacity:0;transition:opacity .35s}
+/* data-mode = tema ACTUAL: dark = bombilla apagada, light = encendida */
+.tt[data-mode="light"] .glass{fill:var(--glass-on)}
+.tt[data-mode="light"] .fil,.tt[data-mode="light"] .node{opacity:1}
+.tt[data-mode="light"] .rays{opacity:1}
+.tt[data-mode="light"] .bulb{filter:drop-shadow(0 0 3px var(--accent))}
+.tt .led{position:absolute;left:5px;bottom:5px;width:4px;height:4px;background:var(--accent);opacity:.35;transition:opacity .35s}
+.tt[data-mode="light"] .led{opacity:.95}
+@media (prefers-reduced-motion:reduce){.bulb *,.tt .led,.tt .poly{transition:none!important}}
+.row{display:flex;gap:26px;flex-wrap:wrap;justify-content:center}
+.cap{font-size:12px;letter-spacing:.2em;color:#8a9a9d;text-transform:uppercase;text-align:center;margin-bottom:8px}
+.note{max-width:540px;text-align:center;font-size:12px;color:#8a9a9d;line-height:1.5}
+</style></head><body>
+<template id="btn">
+<button class="tt" aria-label="" title="">
+ <svg class="frame" viewBox="0 0 46 32" aria-hidden="true"><polygon class="poly" points="7,.5 45.5,.5 45.5,25 39,31.5 .5,31.5 .5,7"/></svg>
+ <svg class="bulb" viewBox="0 0 20 24" aria-hidden="true">
+  <g class="rays"><path d="M1.2 3.2L-.4 1.6M18.8 3.2L20.4 1.6M-.2 8.6H-2M20.2 8.6H22"/></g>
+  <polygon class="glass" points="10,1.5 15,3.4 17.5,8 16,12.4 13.6,15 13.6,17 6.4,17 6.4,15 4,12.4 2.5,8 5,3.4"/>
+  <path class="fil" d="M7.6 17V11.4L10 8.8L12.4 11.4V17"/>
+  <circle class="node" cx="10" cy="8.8" r=".95"/><circle class="node" cx="7.6" cy="11.4" r=".8"/><circle class="node" cx="12.4" cy="11.4" r=".8"/>
+  <path class="base" d="M6.6 19H13.4M7.2 20.9H12.8M8.3 22.8H11.7"/>
+ </svg><i class="led"></i></button>
+</template>
+<div class="row">
+ <div><div class="cap">Oscuro · bombilla apagada</div><div class="hdr dark" data-m="dark"><div class="brand">ARES</div><div class="right"><span class="slot"></span><div class="wc"><span>—</span><span>✕</span></div></div></div></div>
+ <div><div class="cap">Claro · bombilla encendida</div><div class="hdr light" data-m="light"><div class="brand">ARES</div><div class="right"><span class="slot"></span><div class="wc"><span>—</span><span>✕</span></div></div></div></div>
+</div>
+<p class="note">Bombilla técnica: vidrio facetado, filamento como pista de circuito con nodos, base segmentada. Apagada en oscuro; encendida (relleno, filamento brillante y rayos) en claro. Sin rotación: la transición es un encendido de 350 ms. Pulsa cualquiera de los dos.</p>
+<script>
+const tpl=document.getElementById('btn');
+document.querySelectorAll('.hdr').forEach(h=>{
+  const b=tpl.content.firstElementChild.cloneNode(true);
+  const set=m=>{b.dataset.mode=m;const t=m==='dark'?'Cambiar a modo claro':'Cambiar a modo oscuro';b.setAttribute('aria-label',t);b.title=t;};
+  set(h.dataset.m); b.addEventListener('click',()=>set(b.dataset.mode==='dark'?'light':'dark'));
+  h.querySelector('.slot').replaceWith(b);
+});
+</script></body></html>

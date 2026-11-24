@@ -62,30 +62,38 @@ describe("OpenAI structured interpretation provider", () => {
     expect(OPENAI_INTERPRETATION_OUTPUT_SCHEMA.properties.state.enum).toContain("CONVERSATIONAL");
   });
 
-  it("uses complete closed draft variants while retaining the bounded weekly-routine object", () => {
+  it("uses complete closed draft variants with no weekly-routine or habit fields", () => {
     const variants = draftVariants();
     expect(variants).toHaveLength(2);
     for (const variant of variants) {
       expect(variant).toMatchObject({
         type: "object",
         additionalProperties: false,
-        required: ["action", "input", "weeklyRoutine", "habitAction", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "spotifySearch", "spotifyControl"]
+        required: ["action", "input", "approvedWeb", "catalogApplication", "filesAction", "messagingAction", "weatherQuery", "systemInfo", "spotifySearch", "spotifyControl"]
       });
+      expect(Object.keys(propertiesOf(variant)).sort()).toEqual(
+        ["action", "approvedWeb", "catalogApplication", "filesAction", "input", "messagingAction", "spotifyControl", "spotifySearch", "systemInfo", "weatherQuery"]
+      );
     }
+    expect(JSON.stringify(OPENAI_INTERPRETATION_OUTPUT_SCHEMA)).not.toMatch(/weekly|habit|routine|weekday/iu);
+  });
 
-    const nonCatalog = variants.find((variant) => {
+  it("keeps the weather query closed: a bounded place and day offset, nothing else", () => {
+    const nonCatalog = draftVariants().find((variant) => {
       const action = propertiesOf(variant).action as SchemaNode;
-      return Array.isArray(action.enum) && !action.enum.includes("REGISTER_CATALOG_APPLICATION");
+      return Array.isArray(action.enum) && action.enum.includes("GET_WEATHER");
     });
-    if (!nonCatalog) throw new Error("Expected non-catalog draft schema.");
-    const weeklyRoutine = propertiesOf(nonCatalog).weeklyRoutine as SchemaNode;
-    const weeklyRoutineObject = (weeklyRoutine.anyOf as readonly SchemaNode[]).find((variant) => variant.type === "object");
-    if (!weeklyRoutineObject) throw new Error("Expected weekly-routine object schema.");
-    expect(weeklyRoutineObject).toMatchObject({
-      additionalProperties: false,
-      required: ["scheduleTitle", "title", "weekdays", "startTime", "endTime", "location", "categoryName"]
+    if (!nonCatalog) throw new Error("Expected the draft variant that lists GET_WEATHER.");
+    const weather = propertiesOf(nonCatalog).weatherQuery as SchemaNode;
+    const weatherObject = (weather.anyOf as readonly SchemaNode[]).find((variant) => variant.type === "object");
+    expect(weatherObject).toMatchObject({ additionalProperties: false, required: ["location", "dayOffset"] });
+    expect(propertiesOf(weatherObject as SchemaNode)).toEqual({
+      location: { anyOf: [{ type: "string", minLength: 1, maxLength: 80 }, { type: "null" }] },
+      dayOffset: { anyOf: [{ type: "integer", minimum: 0, maximum: 6 }, { type: "null" }] }
     });
-    expect(propertiesOf(weeklyRoutineObject).weekdays).toMatchObject({ type: "array", minItems: 1, maxItems: 7 });
+    const catalog = draftVariants().find((variant) => (propertiesOf(variant).action as SchemaNode).enum?.toString() === "REGISTER_CATALOG_APPLICATION");
+    expect((propertiesOf(catalog as SchemaNode).weatherQuery as SchemaNode)).toEqual({ type: "null" });
+    for (const schema of collectObjectSchemas(OPENAI_INTERPRETATION_OUTPUT_SCHEMA)) expect(schema.additionalProperties, JSON.stringify(schema).slice(0, 60)).toBe(false);
   });
 
   it("keeps approved-site and catalog fields closed without accepting launch targets", () => {
@@ -121,11 +129,15 @@ describe("OpenAI structured interpretation provider", () => {
       "CREATE_REMINDER",
       "OPEN_APPLICATION",
       "REGISTER_CATALOG_APPLICATION",
-      "GET_WEEKLY_SCHEDULE_DETAILS",
-      "ANALYZE_WEEKLY_SCHEDULE",
-      "GET_TODAY_AVAILABILITY"
+      "GET_TODAY_SCHEDULE",
+      "GET_WEEK_SCHEDULE"
     ]));
-    expect(actions).toHaveLength(53);
+    expect(actions).toHaveLength(44);
+    for (const removed of [
+      "GET_WEEKLY_SCHEDULE_DETAILS", "ANALYZE_WEEKLY_SCHEDULE", "GET_TODAY_AVAILABILITY", "CREATE_WEEKLY_SCHEDULE",
+      "UPDATE_WEEKLY_SCHEDULE", "CREATE_WEEKLY_ROUTINE", "UPDATE_WEEKLY_ROUTINE",
+      "GET_HABIT_PROGRESS", "CREATE_HABIT", "UPDATE_HABIT", "COMPLETE_HABIT"
+    ]) expect(actions).not.toContain(removed);
     for (const action of [
       "SEARCH_FILES", "REVEAL_FOUND_FILE", "OPEN_FOUND_FILE", "CREATE_FOLDER",
       "RENAME_FOUND_ITEM", "MOVE_FOUND_ITEMS", "ORGANIZE_FOUND_ITEMS", "DELETE_FOUND_ITEM"
@@ -136,7 +148,8 @@ describe("OpenAI structured interpretation provider", () => {
     expect(actions).toContain("SEARCH_APPROVED_SITE");
     expect(actions).toContain("DELETE_EVENT");
     expect(actions).not.toContain("OPEN_WEB_PAGE");
-    expect(actions).not.toContain("GET_WEATHER");
+    expect(actions).toContain("GET_WEATHER");
+    expect(actions).toContain("GET_SYSTEM_INFO");
     expect(drafts.maxItems).toBe(8);
   });
 });

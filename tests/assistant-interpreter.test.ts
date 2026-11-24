@@ -9,12 +9,6 @@ const reference = {
   timeZone: "America/Bogota",
   knownApplicationAliases: ["notepad", "chrome"],
   knownCatalogApplications: [{ key: "SPOTIFY" as const, displayName: "Spotify", recognitionAliases: ["spotify"] }],
-  knownWeeklyScheduleTitles: ["Universidad"],
-  knownFileReferences: [
-    { rootId: "DOCUMENTS" as const, relativePath: "inbox" },
-    { rootId: "DOCUMENTS" as const, relativePath: "inbox\\report.pdf" },
-    { rootId: "DOWNLOADS" as const, relativePath: "incoming" }
-  ]
 };
 
 const providerFor = (output: unknown): StructuredInterpretationProvider => ({
@@ -33,70 +27,8 @@ const ready = (drafts: Array<{ action: string; input: unknown }>) => ({
   state: "READY",
   summary: "Preparé las acciones solicitadas.",
   responseText: "",
-  drafts: drafts.map((draft) => {
-    if (draft.action !== "CREATE_WEEKLY_ROUTINE") {
-      return { action: draft.action, input: JSON.stringify(draft.input), weeklyRoutine: null, habitAction: null, approvedWeb: null };
-    }
-    const weeklyRoutine = draft.input as Record<string, unknown>;
-    return {
-      action: draft.action,
-      input: null,
-      habitAction: null,
-      approvedWeb: null,
-      weeklyRoutine: {
-        ...weeklyRoutine,
-        location: weeklyRoutine.location ?? null,
-        categoryName: weeklyRoutine.categoryName ?? null
-      }
-    };
-  }),
+  drafts: drafts.map((draft) => ({ action: draft.action, input: JSON.stringify(draft.input), approvedWeb: null })),
   clarifications: []
-});
-
-const scheduleRecord = {
-  id: "550e8400-e29b-41d4-a716-446655440000",
-  title: "Universidad",
-  description: null,
-  color: null,
-  createdAt: "2026-10-03T00:00:00.000Z",
-  updatedAt: "2026-10-03T00:00:00.000Z"
-};
-
-const routineRecord = {
-  id: "550e8400-e29b-41d4-a716-446655440001",
-  weeklyScheduleId: scheduleRecord.id,
-  title: "Cálculo",
-  weekday: "MONDAY" as const,
-  startTime: "08:00",
-  endTime: "10:00",
-  categoryId: null,
-  location: null,
-  createdAt: "2026-10-03T00:00:00.000Z",
-  updatedAt: "2026-10-03T00:00:00.000Z"
-};
-
-const weeklyMutationReferences = (state: "RESOLVED" | "MISSING" | "AMBIGUOUS" = "RESOLVED") => ({
-  resolveSchedule: vi.fn(async () => state === "RESOLVED" ? { state, schedule: scheduleRecord } : { state }),
-  resolveRoutine: vi.fn(async () => state === "RESOLVED" ? { state, routine: routineRecord } : { state }),
-  resolveCategory: vi.fn(async () => ({ state: "MISSING" as const }))
-});
-
-const habitRecord = {
-  id: "550e8400-e29b-41d4-a716-446655440010",
-  title: "Leer",
-  description: null,
-  categoryId: null,
-  icon: "BOOK" as const,
-  frequency: "DAILY" as const,
-  targetCount: 1,
-  active: true,
-  createdAt: "2026-10-03T00:00:00.000Z",
-  updatedAt: "2026-10-03T00:00:00.000Z"
-};
-
-const habitMutationReferences = (state: "RESOLVED" | "MISSING" | "AMBIGUOUS" = "RESOLVED") => ({
-  resolveHabit: vi.fn(async () => state === "RESOLVED" ? { state, habit: habitRecord } : { state }),
-  resolveCategory: vi.fn(async () => ({ state: "MISSING" as const }))
 });
 
 describe("Main-only assistant interpreter", () => {
@@ -104,8 +36,8 @@ describe("Main-only assistant interpreter", () => {
     const result = await interpreterFor({
       state: "READY", summary: "Preparé las acciones.", responseText: "", clarifications: [],
       drafts: [
-        { action: "OPEN_APPROVED_PAGE", input: null, weeklyRoutine: null, habitAction: null, approvedWeb: { site: "YOUTUBE", query: null } },
-        { action: "SEARCH_APPROVED_SITE", input: null, weeklyRoutine: null, habitAction: null, approvedWeb: { site: "SPOTIFY", query: "Natalia Lafourcade" } }
+        { action: "OPEN_APPROVED_PAGE", input: null, approvedWeb: { site: "YOUTUBE", query: null } },
+        { action: "SEARCH_APPROVED_SITE", input: null, approvedWeb: { site: "SPOTIFY", query: "Natalia Lafourcade" } }
       ]
     }).interpret({ instruction: "Abre YouTube y busca Natalia Lafourcade en Spotify" }, reference);
 
@@ -124,40 +56,12 @@ describe("Main-only assistant interpreter", () => {
   it("returns a controlled clarification for raw URL web candidates", async () => {
     const result = await interpreterFor({
       state: "READY", summary: "Preparé la acción.", responseText: "", clarifications: [],
-      drafts: [{ action: "SEARCH_APPROVED_SITE", input: null, weeklyRoutine: null, habitAction: null, approvedWeb: { site: "GOOGLE", query: "https://example.com" } }]
+      drafts: [{ action: "SEARCH_APPROVED_SITE", input: null, approvedWeb: { site: "GOOGLE", query: "https://example.com" } }]
     }).interpret({ instruction: "Quiero ver una página de Google" }, reference);
 
     expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
   });
 
-  it("accepts explicit habit candidates and resolves only their human-readable title", async () => {
-    const references = habitMutationReferences();
-    const result = await createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor({
-        state: "READY", summary: "Preparé la acción.", responseText: "", clarifications: [],
-        drafts: [{
-          action: "COMPLETE_HABIT", input: null, weeklyRoutine: null,
-          habitAction: { habitTitle: "Leer", title: null, description: null, frequency: null, targetCount: null, categoryName: null, icon: null, scope: null }
-        }]
-      }),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveHabitMutationReferences: references
-    }).interpret({ instruction: "Marca leer como completado" }, reference);
-
-    expect(result).toMatchObject({ ok: true, data: { state: "READY", drafts: [{ action: "COMPLETE_HABIT", input: { habitTitle: "Leer" } }] } });
-    expect(references.resolveHabit).toHaveBeenCalledWith("Leer");
-  });
-
-  it("rejects malformed habit candidates before they can become a draft", async () => {
-    const result = await interpreterFor({
-      state: "READY", summary: "Preparé la acción.", responseText: "", clarifications: [],
-      drafts: [{ action: "CREATE_HABIT", input: JSON.stringify({ title: "Leer" }), weeklyRoutine: null, habitAction: null }]
-    }).interpret({ instruction: "Crea el hábito Leer" }, reference);
-
-    expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
-  });
   it("accepts varied structured conversational replies without an action draft", async () => {
     const replies: Record<string, string> = {
       "Hola Ares, ¿qué tal están tus servidores hoy?": "Hola, Juli. No puedo verificar el estado de servidores externos, pero puedo ayudarte con tus tareas.",
@@ -216,7 +120,7 @@ describe("Main-only assistant interpreter", () => {
       ok: true,
       data: {
         state: "READY",
-        summary: "Preparé los borradores solicitados.",
+        summary: "Listo, esto es lo que preparé.",
         drafts: [{ action: "GET_CURRENT_DATE_TIME", input: {} }],
         clarifications: []
       }
@@ -224,36 +128,41 @@ describe("Main-only assistant interpreter", () => {
     expect(provider).toHaveBeenCalledOnce();
   });
 
-  it("rejects the unregistered weather action before it can become a draft", async () => {
-    const provider = vi.fn(async () => JSON.stringify(ready([{ action: "GET_WEATHER", input: {} }])));
-    const result = await createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => ({ interpret: provider }),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone
-    }).interpret({ instruction: "¿Cómo está el clima hoy?" }, reference);
-
-    expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
-    expect(provider).toHaveBeenCalledOnce();
+  const weatherReady = (weatherQuery: unknown, input: unknown = null) => ({
+    state: "READY",
+    summary: "Preparé la acción.",
+    responseText: "",
+    drafts: [{ action: "GET_WEATHER", input, approvedWeb: null, weatherQuery }],
+    clarifications: []
   });
 
-  it("rejects a weather draft with model-authored location or weather data", async () => {
-    const result = await interpreterFor(
-      ready([{ action: "GET_WEATHER", input: { city: "Pasto", temperature: 16 } }])
-    ).interpret({ instruction: "Dime el clima" }, reference);
+  it("turns a structured weather query into one typed read-only draft", async () => {
+    const now = await interpreterFor(weatherReady({ location: null, dayOffset: null })).interpret({ instruction: "¿Cómo está el clima?" }, reference);
+    expect(now).toMatchObject({ ok: true, data: { state: "READY", drafts: [{ action: "GET_WEATHER", input: {} }] } });
 
+    const place = await interpreterFor(weatherReady({ location: "Bogotá", dayOffset: 1 })).interpret({ instruction: "¿Lloverá mañana en bogota?" }, reference);
+    expect(place).toMatchObject({ ok: true, data: { state: "READY", drafts: [{ action: "GET_WEATHER", input: { location: "Bogotá", dayOffset: 1 } }] } });
+  });
+
+  it("asks which place when the provider names one the person never said", async () => {
+    const result = await interpreterFor(weatherReady({ location: "Cali", dayOffset: null })).interpret({ instruction: "¿Cómo está el clima?" }, reference);
+    expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
+    expect(JSON.stringify(result)).toContain("¿De qué lugar quieres saber el clima?");
+  });
+
+  it.each([
+    ["extra model-authored fields", { location: null, dayOffset: null, temperature: 16 }, null],
+    ["a URL as the place", { location: "https://evil.example", dayOffset: null }, null],
+    ["a day offset outside the bound", { location: null, dayOffset: 9 }, null],
+    ["a fractional day offset", { location: null, dayOffset: 0.5 }, null],
+    ["a free-text input next to the structured query", { location: null, dayOffset: null }, "{\"city\":\"Pasto\"}"]
+  ])("rejects a weather draft with %s", async (_name, weatherQuery, input) => {
+    const result = await interpreterFor(weatherReady(weatherQuery, input)).interpret({ instruction: "Dime el clima de https://evil.example" }, reference);
     expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
   });
 
   it("rejects provider-authored weather prose so Main remains the factual response source", async () => {
-    const result = await interpreterFor({
-      state: "READY",
-      summary: "Preparé la acción.",
-      responseText: "En Pasto llueve.",
-      drafts: [{ action: "GET_WEATHER", input: "{}" }],
-      clarifications: []
-    }).interpret({ instruction: "¿Cómo está el clima?" }, reference);
-
+    const result = await interpreterFor({ ...weatherReady({ location: null, dayOffset: null }), responseText: "En Pasto llueve." }).interpret({ instruction: "¿Cómo está el clima?" }, reference);
     expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
     expect(JSON.stringify(result)).not.toContain("llueve");
   });
@@ -264,256 +173,6 @@ describe("Main-only assistant interpreter", () => {
     ).interpret({ instruction: "Dime la hora" }, reference);
 
     expect(result).toMatchObject({ ok: true, data: { state: "REJECTED", drafts: [] } });
-  });
-
-  it("accepts a resolved weekly-schedule draft while keeping unknown titles controlled", async () => {
-    const interpreter = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Universidad" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleTitle: async (title) => title === "Universidad"
-        ? { state: "RESOLVED", title: "Universidad" }
-        : { state: "MISSING" }
-    });
-    await expect(interpreter.interpret({ instruction: "¿Qué tengo en mi horario de Universidad?" }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "READY", drafts: [{ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Universidad" } }] }
-    });
-
-    const missing = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "GET_WEEKLY_SCHEDULE_DETAILS", input: { scheduleTitle: "Trabajo" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleTitle: async () => ({ state: "MISSING" })
-    });
-    await expect(missing.interpret({ instruction: "¿Qué tengo en mi horario de Trabajo?" }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "NEEDS_CLARIFICATION", drafts: [] }
-    });
-  });
-
-  it("creates complete single- and multi-weekday routine drafts from validated human-readable input", async () => {
-    const createScheduleReferences = weeklyMutationReferences("MISSING");
-    const createSchedule = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "CREATE_WEEKLY_SCHEDULE", input: { title: "Universidad" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: createScheduleReferences
-    });
-    await expect(createSchedule.interpret({ instruction: "Crea un horario llamado Universidad." }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "READY", drafts: [{ action: "CREATE_WEEKLY_SCHEDULE", input: { title: "Universidad" } }] }
-    });
-
-    const singleWeekdayInterpreter = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Gimnasio", weekdays: ["TUESDAY"], startTime: "06:00", endTime: "07:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: weeklyMutationReferences()
-    });
-    await expect(singleWeekdayInterpreter.interpret({ instruction: "Añade gimnasio el martes de 6 a 7 en Universidad." }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: {
-        state: "READY",
-        drafts: [{ action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Gimnasio", weekday: "TUESDAY", startTime: "06:00", endTime: "07:00" } }]
-      }
-    });
-
-    const twoWeekdayReferences = weeklyMutationReferences();
-    const twoWeekdayInterpreter = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Gimnasio", weekdays: ["TUESDAY", "THURSDAY"], startTime: "6:00", endTime: "7:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: twoWeekdayReferences
-    });
-    const twoWeekday = await twoWeekdayInterpreter.interpret({ instruction: "Añade gimnasio martes y jueves de 6 a 7 en Universidad." }, reference);
-    expect(twoWeekday).toMatchObject({
-      ok: true,
-      data: {
-        state: "READY",
-        drafts: [
-          { action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Gimnasio", weekday: "TUESDAY", startTime: "06:00", endTime: "07:00" } },
-          { action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Gimnasio", weekday: "THURSDAY", startTime: "06:00", endTime: "07:00" } }
-        ]
-      }
-    });
-    if (!twoWeekday.ok) throw new Error("Expected routine drafts.");
-    expect(twoWeekday.data.drafts).toHaveLength(2);
-    expect(twoWeekday.data.drafts.map((draft) => draft.action === "CREATE_WEEKLY_ROUTINE" ? draft.input : undefined)).toEqual([
-      { scheduleTitle: "Universidad", title: "Gimnasio", weekday: "TUESDAY", startTime: "06:00", endTime: "07:00" },
-      { scheduleTitle: "Universidad", title: "Gimnasio", weekday: "THURSDAY", startTime: "06:00", endTime: "07:00" }
-    ]);
-
-    const threeWeekdayInterpreter = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Cálculo", weekdays: ["MONDAY", "WEDNESDAY", "FRIDAY"], startTime: "08:00", endTime: "10:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: weeklyMutationReferences()
-    });
-    const threeWeekday = await threeWeekdayInterpreter.interpret({ instruction: "Añade Cálculo lunes, miércoles y viernes de 8 a 10 en Universidad." }, reference);
-    expect(threeWeekday).toMatchObject({ ok: true, data: { state: "READY" } });
-    if (!threeWeekday.ok) throw new Error("Expected routine drafts.");
-    expect(threeWeekday.data.drafts).toHaveLength(3);
-    expect(threeWeekday.data.drafts.map((draft) => draft.action === "CREATE_WEEKLY_ROUTINE" ? draft.input : undefined)).toEqual([
-      { scheduleTitle: "Universidad", title: "Cálculo", weekday: "MONDAY", startTime: "08:00", endTime: "10:00" },
-      { scheduleTitle: "Universidad", title: "Cálculo", weekday: "WEDNESDAY", startTime: "08:00", endTime: "10:00" },
-      { scheduleTitle: "Universidad", title: "Cálculo", weekday: "FRIDAY", startTime: "08:00", endTime: "10:00" }
-    ]);
-  });
-
-  it("accepts only the explicit weekly-routine provider object and never produces an incomplete review draft", async () => {
-    const createInterpreter = (draft: unknown) => createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor({
-        state: "READY",
-        summary: "Preparé las acciones solicitadas.",
-        responseText: "",
-        drafts: [draft],
-        clarifications: []
-      }),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: weeklyMutationReferences()
-    });
-    const instruction = "Añade gimnasio martes y jueves de 6 a 7 en Universidad";
-    const explicitCandidate = {
-      action: "CREATE_WEEKLY_ROUTINE",
-      input: null,
-      weeklyRoutine: {
-        scheduleTitle: "Universidad",
-        title: "Gimnasio",
-        weekdays: ["TUESDAY", "THURSDAY"],
-        startTime: "6:00",
-        endTime: "7:00",
-        location: null,
-        categoryName: null
-      }
-    };
-
-    await expect(createInterpreter(explicitCandidate).interpret({ instruction }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: {
-        state: "READY",
-        drafts: [
-          { action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Gimnasio", weekday: "TUESDAY", startTime: "06:00", endTime: "07:00" } },
-          { action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Gimnasio", weekday: "THURSDAY", startTime: "06:00", endTime: "07:00" } }
-        ]
-      }
-    });
-
-    for (const invalidCandidate of [
-      { action: "CREATE_WEEKLY_ROUTINE", input: null, weeklyRoutine: null },
-      { action: "CREATE_WEEKLY_ROUTINE", input: JSON.stringify(explicitCandidate.weeklyRoutine), weeklyRoutine: null }
-    ]) {
-      await expect(createInterpreter(invalidCandidate).interpret({ instruction }, reference)).resolves.toMatchObject({
-        ok: true,
-        data: { state: "NEEDS_CLARIFICATION", drafts: [] }
-      });
-    }
-  });
-
-  it("resolves weekly update targets in Main and clarifies missing or ambiguous references", async () => {
-    const references = weeklyMutationReferences();
-    const interpreter = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([
-        { action: "UPDATE_WEEKLY_SCHEDULE", input: { scheduleTitle: "Universidad", title: "Clases de la U" } },
-        { action: "UPDATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", routineTitle: "Cálculo", targetWeekday: "MONDAY", targetStartTime: "08:00", targetEndTime: "10:00", startTime: "09:00", endTime: "11:00" } }
-      ])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: references
-    });
-    await expect(interpreter.interpret({ instruction: "Cambia el nombre del horario Universidad a Clases de la U. En Universidad cambia Cálculo del lunes de 8 a 10 por 9 a 11." }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "READY", drafts: [{ action: "UPDATE_WEEKLY_SCHEDULE" }, { action: "UPDATE_WEEKLY_ROUTINE" }] }
-    });
-    expect(references.resolveSchedule).toHaveBeenCalled();
-    expect(references.resolveRoutine).toHaveBeenCalledWith(expect.objectContaining({ scheduleTitle: "Universidad", routineTitle: "Cálculo" }));
-
-    const missing = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Desconocido", title: "Cálculo", weekday: "MONDAY", startTime: "08:00", endTime: "10:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: weeklyMutationReferences("MISSING")
-    });
-    await expect(missing.interpret({ instruction: "En Desconocido agrega Cálculo el lunes de 8 a 10." }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "NEEDS_CLARIFICATION", drafts: [] }
-    });
-
-    const ambiguousRoutine = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "UPDATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", routineTitle: "Cálculo", startTime: "09:00", endTime: "11:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: {
-        ...weeklyMutationReferences(),
-        resolveRoutine: vi.fn(async () => ({ state: "AMBIGUOUS" as const }))
-      }
-    });
-    await expect(ambiguousRoutine.interpret({ instruction: "En Universidad cambia Cálculo por 9 a 11." }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "NEEDS_CLARIFICATION", drafts: [] }
-    });
-
-    const incomplete = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Cálculo", weekday: "MONDAY", startTime: "08:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: weeklyMutationReferences()
-    });
-    await expect(incomplete.interpret({ instruction: "En Universidad agrega Cálculo el lunes a las 8." }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "NEEDS_CLARIFICATION", drafts: [] }
-    });
-
-    const malformedWeekday = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", title: "Cálculo", weekdays: ["FUNDAY"], startTime: "08:00", endTime: "10:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: weeklyMutationReferences()
-    });
-    await expect(malformedWeekday.interpret({ instruction: "En Universidad agrega Cálculo el lunes de 8 a 10." }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "NEEDS_CLARIFICATION", drafts: [] }
-    });
-
-    const missingTitle = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "CREATE_WEEKLY_ROUTINE", input: { scheduleTitle: "Universidad", weekdays: ["MONDAY"], startTime: "08:00", endTime: "10:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone,
-      resolveWeeklyScheduleMutationReferences: weeklyMutationReferences()
-    });
-    await expect(missingTitle.interpret({ instruction: "En Universidad agrega algo el lunes de 8 a 10." }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "NEEDS_CLARIFICATION", drafts: [] }
-    });
-  });
-
-  it("accepts only an availability cutoff derived from the user instruction", async () => {
-    const interpreter = createAssistantInterpreter({
-      getConfiguration: () => ({ apiKey: "", model: "" }),
-      createProvider: () => providerFor(ready([{ action: "GET_TODAY_AVAILABILITY", input: { afterTime: "14:00" } }])),
-      now: () => new Date(reference.now),
-      timeZone: () => reference.timeZone
-    });
-    await expect(interpreter.interpret({ instruction: "¿Qué tengo hoy después de las dos?" }, reference)).resolves.toMatchObject({
-      ok: true,
-      data: { state: "READY", drafts: [{ action: "GET_TODAY_AVAILABILITY", input: { afterTime: "14:00" } }] }
-    });
-    const invented = interpreterFor(ready([{ action: "GET_TODAY_AVAILABILITY", input: { afterTime: "14:00" } }]));
-    await expect(invented.interpret({ instruction: "¿Qué espacios libres tengo hoy?" }, reference)).resolves.toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
   });
 
   it("rejects retired file context actions before resolving a selected folder", async () => {
@@ -636,8 +295,6 @@ describe("Main-only assistant interpreter", () => {
       drafts: [{
         action: "REGISTER_CATALOG_APPLICATION",
         input: null,
-        weeklyRoutine: null,
-        habitAction: null,
         approvedWeb: null,
         catalogApplication: { catalogKey: "SPOTIFY", alias: null }
       }]
@@ -654,7 +311,7 @@ describe("Main-only assistant interpreter", () => {
       ok: true,
       data: {
         state: "NEEDS_CLARIFICATION",
-        summary: "El borrador 1: Primero debes registrar esa aplicación para poder abrirla.",
+        summary: "Aún no tengo esa aplicación registrada. Pídeme que la registre primero.",
         drafts: []
       }
     });
@@ -798,7 +455,7 @@ describe("Main-only assistant interpreter", () => {
       clarifications: [{ question: "raw-provider-question" }]
     }).interpret({ instruction: "Solicitud incompleta" }, reference);
 
-    expect(readyResult).toMatchObject({ ok: true, data: { state: "READY", summary: "Preparé los borradores solicitados." } });
+    expect(readyResult).toMatchObject({ ok: true, data: { state: "READY", summary: "Listo, esto es lo que preparé." } });
     expect(clarificationResult).toMatchObject({
       ok: true,
       data: { state: "NEEDS_CLARIFICATION", clarifications: [{ question: "¿Puedes indicar los datos necesarios de forma más específica?" }] }
@@ -890,7 +547,7 @@ describe("Main-only assistant interpreter", () => {
       ok: true,
       data: {
         state: "READY",
-        summary: "Preparé los borradores solicitados.",
+        summary: "Listo, esto es lo que preparé.",
         clarifications: [],
         drafts: [
           { action: "CREATE_TASK", input: { title: "Comprar café", dueDate: "2026-09-21" } },
@@ -926,9 +583,9 @@ describe("Main-only assistant interpreter", () => {
       ok: true,
       data: {
         state: "NEEDS_CLARIFICATION",
-        summary: "El borrador 2: La hora final del evento debe ser posterior a la hora de inicio.",
+        summary: "La hora final del evento debe ser posterior a la hora de inicio.",
         drafts: [],
-        clarifications: [{ question: "El borrador 2: La hora final del evento debe ser posterior a la hora de inicio." }]
+        clarifications: [{ question: "La hora final del evento debe ser posterior a la hora de inicio." }]
       }
     });
   });

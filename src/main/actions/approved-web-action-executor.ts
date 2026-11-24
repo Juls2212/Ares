@@ -1,3 +1,4 @@
+import { failedOutcome, outcomeIdentity, succeededOutcome } from "../../shared/outcome-kit";
 import { shell } from "electron";
 
 import {
@@ -119,14 +120,7 @@ const failureOutcome = (
   policy: ActionPolicy,
   userSummary: string,
   errorCode: string
-): ActionOutcome => ({
-  actionId: proposal.actionId,
-  action: proposal.action,
-  riskLevel: policy.riskLevel,
-  status: "VALIDATION_FAILED",
-  errorCode,
-  userSummary
-});
+): ActionOutcome => failedOutcome(outcomeIdentity(proposal, policy), "VALIDATION_FAILED", errorCode, userSummary);
 
 export const createApprovedWebActionExecutor = (
   overrides: Partial<ApprovedWebActionExecutorDependencies> = {}
@@ -151,25 +145,11 @@ export const createApprovedWebActionExecutor = (
         await dependencies.openExternal(url.toString());
       } catch {
         dependencies.logError("Approved web action failed.");
-        return {
-          actionId: proposal.actionId,
-          action: proposal.action,
-          riskLevel: policy.riskLevel,
-          status: "EXECUTION_FAILED",
-          errorCode: "APPROVED_WEB_UNAVAILABLE",
-          userSummary: "No se pudo abrir el sitio aprobado."
-        };
+        return failedOutcome(outcomeIdentity(proposal, policy), "EXECUTION_FAILED", "APPROVED_WEB_UNAVAILABLE", "No pude abrir ese sitio. Inténtalo de nuevo.");
       }
 
       const site = validated.input.site;
-      return {
-        actionId: proposal.actionId,
-        action: proposal.action,
-        riskLevel: policy.riskLevel,
-        status: "SUCCEEDED",
-        data: { site, mode },
-        userSummary: mode === "HOME" ? `Listo, abrí ${siteNames[site]}.` : `Listo, busqué en ${siteNames[site]}.`
-      };
+      return succeededOutcome(outcomeIdentity(proposal, policy), mode === "HOME" ? `Listo, abrí ${siteNames[site]}.` : `Listo, busqué en ${siteNames[site]}.`, { data: { site, mode } });
     }
   };
 };

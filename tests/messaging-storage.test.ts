@@ -92,7 +92,7 @@ describe("the storage category in the service, the executor and the interpreter"
       ok: false,
       error: { code: "MESSAGING_STORAGE_UNAVAILABLE", userMessage: STORAGE_MESSAGE }
     });
-    expect(MESSAGING_FAILURES.MESSAGING_OPERATION_FAILED).toBe("No se pudo completar la operación con contactos.");
+    expect(MESSAGING_FAILURES.MESSAGING_OPERATION_FAILED).toBe("No pude completar eso con tus contactos.");
     expect(MESSAGING_FAILURES.MESSAGING_OPEN_FAILED).toBe("No pude abrir WhatsApp. Revisa que esté instalado.");
     expect(MESSAGING_FAILURES.MESSAGING_CONTACT_NOT_FOUND).toBe("No encontré ese contacto. Indica el nombre de uno de tus contactos guardados.");
   });
@@ -188,7 +188,7 @@ describe("the migration, snapshot and schema agree without a database", () => {
 
   it("lists every migration once, in order, with strictly increasing timestamps and one SQL file each", () => {
     expect(journal.entries.map((entry) => entry.idx)).toEqual(journal.entries.map((_entry, index) => index));
-    expect(journal.entries.at(-1)?.tag).toBe("0008_messaging_contacts");
+    expect(journal.entries.at(-1)?.tag).toBe("0009_remove_habits_and_weekly_schedules");
     for (let index = 1; index < journal.entries.length; index += 1) {
       expect(journal.entries[index]!.when).toBeGreaterThan(journal.entries[index - 1]!.when);
     }

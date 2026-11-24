@@ -1,3 +1,4 @@
+import { failedOutcome, outcomeIdentity, succeededOutcome } from "../../shared/outcome-kit";
 import type {
   ActionOutcome,
   ActionPolicy,
@@ -65,14 +66,13 @@ export const createMessagingActionExecutor = (
     proposal: MessagingActionProposal,
     policy: ActionPolicy,
     code: keyof typeof MESSAGING_FAILURES
-  ): ActionOutcome => ({
-    actionId: proposal.actionId,
-    action: proposal.action,
-    riskLevel: policy.riskLevel,
-    status: MESSAGING_EXECUTION_FAILURE_CODES.includes(code) ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
-    errorCode: code,
-    userSummary: MESSAGING_FAILURES[code]
-  });
+  ): ActionOutcome =>
+    failedOutcome(
+      outcomeIdentity(proposal, policy),
+      MESSAGING_EXECUTION_FAILURE_CODES.includes(code) ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
+      code,
+      MESSAGING_FAILURES[code]
+    );
 
   const successOutcome = (
     proposal: MessagingActionProposal,
@@ -80,15 +80,8 @@ export const createMessagingActionExecutor = (
     userSummary: string,
     data: MessagingActionData,
     errorCode?: string
-  ): ActionOutcome => ({
-    actionId: proposal.actionId,
-    action: proposal.action,
-    riskLevel: policy.riskLevel,
-    status: "SUCCEEDED",
-    userSummary,
-    data,
-    ...(errorCode ? { errorCode } : {})
-  });
+  ): ActionOutcome =>
+    succeededOutcome(outcomeIdentity(proposal, policy), userSummary, { data, ...(errorCode ? { errorCode } : {}) });
 
   return {
     release: (proposal) => {

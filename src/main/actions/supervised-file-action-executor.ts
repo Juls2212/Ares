@@ -1,3 +1,4 @@
+import { failedOutcome, outcomeIdentity, succeededOutcome } from "../../shared/outcome-kit";
 import type {
   ActionOutcome,
   ActionPolicy,
@@ -95,15 +96,14 @@ export const createSupervisedFileActionExecutor = (
     code: string,
     userMessage: string,
     counts?: FilesPartialCounts
-  ): ActionOutcome => ({
-    actionId: proposal.actionId,
-    action: proposal.action,
-    riskLevel: policy.riskLevel,
-    status: FILES_EXECUTION_FAILURE_CODES.includes(code) ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
-    errorCode: code,
-    userSummary: counts ? `${userMessage}${describePartialCounts(counts)}` : userMessage,
-    ...(counts ? { data: { movedCount: counts.moved, failedCount: counts.failed } } : {})
-  });
+  ): ActionOutcome =>
+    failedOutcome(
+      outcomeIdentity(proposal, policy),
+      FILES_EXECUTION_FAILURE_CODES.includes(code) ? "EXECUTION_FAILED" : "VALIDATION_FAILED",
+      code,
+      counts ? `${userMessage}${describePartialCounts(counts)}` : userMessage,
+      counts ? { movedCount: counts.moved, failedCount: counts.failed } : undefined
+    );
 
   const successOutcome = (
     proposal: SupervisedFilesActionProposal,
@@ -111,11 +111,7 @@ export const createSupervisedFileActionExecutor = (
     userSummary: string,
     extra: Partial<ActionOutcome> = {}
   ): ActionOutcome => ({
-    actionId: proposal.actionId,
-    action: proposal.action,
-    riskLevel: policy.riskLevel,
-    status: "SUCCEEDED",
-    userSummary,
+    ...succeededOutcome(outcomeIdentity(proposal, policy), userSummary),
     ...extra
   });
 

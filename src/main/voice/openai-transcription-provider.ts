@@ -24,6 +24,7 @@ export const createOpenAiTranscriptionProvider = (
           file,
           model: configuration.transcriptionModel,
           response_format: "json",
+          // No `prompt` is sent: a recognition hint biases the model toward its words and distorts names and letters.
           language: "es"
         },
         { signal }

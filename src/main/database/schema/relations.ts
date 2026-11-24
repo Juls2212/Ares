@@ -4,34 +4,13 @@ import { applications } from "./applications";
 import { categories } from "./categories";
 import { eventNotificationDeliveries } from "./event-notification-deliveries";
 import { events } from "./events";
-import { habitCompletions } from "./habit-completions";
-import { habits } from "./habits";
 import { messagingContactAliases, messagingContacts } from "./messaging-contacts";
 import { reminders } from "./reminders";
 import { tasks } from "./tasks";
-import { weeklyRoutines } from "./weekly-routines";
-import { weeklySchedules } from "./weekly-schedules";
 
 export const categoriesRelations = relations(categories, ({ many }) => ({
   tasks: many(tasks),
-  events: many(events),
-  habits: many(habits),
-  weeklyRoutines: many(weeklyRoutines)
-}));
-
-export const habitsRelations = relations(habits, ({ many, one }) => ({
-  category: one(categories, {
-    fields: [habits.categoryId],
-    references: [categories.id]
-  }),
-  completions: many(habitCompletions)
-}));
-
-export const habitCompletionsRelations = relations(habitCompletions, ({ one }) => ({
-  habit: one(habits, {
-    fields: [habitCompletions.habitId],
-    references: [habits.id]
-  })
+  events: many(events)
 }));
 
 export const tasksRelations = relations(tasks, ({ many, one }) => ({
@@ -59,21 +38,6 @@ export const eventsRelations = relations(events, ({ many, one }) => ({
     references: [categories.id]
   }),
   reminders: many(reminders)
-}));
-
-export const weeklyRoutinesRelations = relations(weeklyRoutines, ({ one }) => ({
-  weeklySchedule: one(weeklySchedules, {
-    fields: [weeklyRoutines.weeklyScheduleId],
-    references: [weeklySchedules.id]
-  }),
-  category: one(categories, {
-    fields: [weeklyRoutines.categoryId],
-    references: [categories.id]
-  })
-}));
-
-export const weeklySchedulesRelations = relations(weeklySchedules, ({ many }) => ({
-  routines: many(weeklyRoutines)
 }));
 
 export const remindersRelations = relations(reminders, ({ one }) => ({

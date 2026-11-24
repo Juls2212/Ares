@@ -391,7 +391,7 @@ describe("complete failure taxonomy", () => {
       FILES_DESTINATION_INVALID: "El destino no es válido o no está permitido. No se movió nada.",
       FILES_RECYCLE_UNAVAILABLE: "No pude enviar el elemento a la Papelera. No se eliminó nada.",
       FILES_PARTIAL_COMPLETION: "La operación se detuvo antes de terminar. Haz una nueva búsqueda para revisar el resultado.",
-      FILES_OPERATION_FAILED: "No se pudo completar la operación con archivos."
+      FILES_OPERATION_FAILED: "No pude completar eso con tus archivos."
     });
     const messages = Object.values(FILES_FAILURES);
     expect(new Set(messages).size).toBe(messages.length);

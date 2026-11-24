@@ -1,74 +1,90 @@
-# Ares Architecture
-
-## Architecture model
-
-Ares is a modular monolith: one Electron desktop project, one primary window, and no independent backend server. Its fixed trust path is:
+# Architecture
 
 ```text
-React + TypeScript renderer
-  -> window.ares
-  -> preload + contextBridge
-  -> typed Electron IPC
-  -> Node.js + TypeScript services in Electron Main
-  -> PostgreSQL through Drizzle ORM
+renderer (React)  ->  window.ares  ->  preload  ->  allowlisted IPC  ->  Electron Main services  ->  PostgreSQL (Drizzle)
 ```
 
-Electron packages the application and provides controlled operating-system integration. No REST API, Express, NestJS, Spring Boot, microservice, or external backend is permitted.
+The renderer is untrusted UI. It can call only the named methods of `window.ares`. The preload exposes exactly those methods with `contextBridge`, using one `ipcRenderer.invoke` (or one subscription) per method and a fixed channel name from `IPC_CHANNELS`. There is no generic `invoke`, `send` or `on`. Main owns every capability: database, filesystem, shell, network, credentials and the OpenAI client.
 
-## Responsibilities and boundaries
+## Folders that matter
 
-| Layer | Responsibilities | Must not do |
-| --- | --- | --- |
-| Renderer | Present approved UI, collect user input, show Spanish states, call the narrow preload API. | Access Node.js, filesystem, processes, shell, credentials, PostgreSQL, or raw exceptions. |
-| Preload | Expose typed, minimal, allowlisted `window.ares` methods and event subscriptions through `contextBridge`. | Expose generic Electron or Node.js capabilities. |
-| Electron Main | Own IPC handlers, validate requests, coordinate services, map technical failures to typed results, and enforce authorization. | Trust renderer input or execute arbitrary AI-produced commands. |
-| Internal services | Execute domain rules for planner, files, applications, AI interpretation, notifications, history, settings, and voice. | Bypass risk, validation, or audit rules. |
-| PostgreSQL | Persist Ares-owned metadata only through Drizzle in Main. | Store user documents or be reachable from the renderer. |
+| Folder | Role |
+| --- | --- |
+| `src/renderer` | The HUD: the Canvas 2D orb (`orb/`), the two themes as data (`theme/themes.ts`), the single microphone button and status text, voice recording and playback, the confirmation card and the messaging contact form. |
+| `src/preload/preload.ts` | The `window.ares` API (14 methods). |
+| `src/shared` | Contracts shared by all layers (`contracts.ts` holds `IPC_CHANNELS` and `AresApi`), plus the kits: `text-fold`, `phrase-kit`, `failure-taxonomy`, `outcome-kit`. |
+| `src/main/ipc` | One `register-*-ipc.ts` per area; each handler is registered exactly once. |
+| `src/main/actions` | Capability registry, policy, orchestrator, executors per domain, action history. |
+| `src/main/assistant` | Interpreter, OpenAI structured-output provider, deterministic phrase parsers, the offline local brain and its fuzzy matcher, context store, safety checks. |
+| `src/main/planner`, `reminders`, `events` | Planner services and repositories, reminder and event notification delivery. |
+| `src/main/applications`, `files`, `messaging`, `spotify`, `weather` | The services each domain executor uses. |
+| `src/main/voice`, `settings`, `background`, `system`, `config` | Transcription and speech, voice preferences, tray and close-to-tray, system status, environment reading. |
+| `src/main/database` | Drizzle client and schema (`schema/`). Migrations are in `drizzle/`. |
 
-## Internal modules
+## The 14 IPC channels
 
-Planned internal modules are Home, Assistant, Planner, Files, Applications, Settings, AI, Database, Notifications, History, Voice, and shared contracts. These names are conceptual; Phase 1 will choose a minimal directory structure without changing the architecture.
+Eight API groups (`system`, `actions`, `assistant`, `voice`, `speech`, `messaging`, `settings`, `theme`) with twelve invoke methods and two push subscriptions, all declared in `src/shared/contracts.ts`:
 
-## Dependency direction
+| Method | Channel |
+| --- | --- |
+| `system.getStatus` | `system:get-status` |
+| `system.getCapabilities` | `system:get-capabilities` |
+| `actions.propose` | `actions:propose` |
+| `actions.confirm` | `actions:confirm` |
+| `actions.cancel` | `actions:cancel` |
+| `assistant.interpret` | `assistant:interpret` |
+| `voice.transcribe` | `voice:transcribe` |
+| `voice.onGlobalShortcut` (push from Main) | `voice:global-shortcut-activated` |
+| `speech.speak` | `speech:speak` |
+| `messaging.onContactFormRequested` (push from Main) | `messaging:contact-form-requested` |
+| `messaging.submitContactForm` | `messaging:contact-form:submit` |
+| `messaging.cancelContactForm` | `messaging:contact-form:cancel` |
+| `settings.voice.get` | `settings:voice:get` |
+| `theme.setPreference` | `theme:set-preference` |
 
-Dependencies flow inward: renderer -> preload contracts -> IPC handlers -> services -> infrastructure. Shared TypeScript contract definitions may be consumed by renderer, preload, and Main, but must contain no privileged implementation. Services may depend on domain contracts and narrow infrastructure adapters; they must not depend on renderer modules. Infrastructure must not decide user-facing policy.
+Every channel is registered once in Main and used by exactly one preload method; a test enforces it.
 
-## Trust boundaries
+## The action flow
 
-- The renderer is untrusted for authorization and validation purposes.
-- Preload is a deliberate capability boundary, not a pass-through.
-- Main is the sole boundary for filesystem, application launching, notifications, environment values, OpenAI access, and database connections.
-- AI is an untrusted interpreter: its structured proposals are validated exactly as renderer input before any execution.
+1. `assistant.interpret` sends text to the interpreter in Main (typed text uses the same call as transcribed speech). The deterministic routers answer first; then the local brain answers obvious commands (see "Local mode"); otherwise the interpreter builds a prompt, asks OpenAI for a closed JSON object (strict schema), then parses and re-validates every draft in Main. The provider never executes anything.
+2. The renderer calls `actions.propose` with a draft. The orchestrator validates the shape again, evaluates the policy, and either executes a direct action or stores a pending proposal and returns a confirmation request with an opaque `confirmationId`.
+3. `actions.confirm` / `actions.cancel` resolve the pending proposal. Pending proposals expire after five minutes.
+4. The executor for the action's domain runs it. The orchestrator records one terminal history row with a generic sentence (see [SECURITY.md](SECURITY.md)).
 
-## Specialized boundaries
+## Local mode
 
-**Database:** only Main services use Drizzle and PostgreSQL. See [DATABASE.md](DATABASE.md).
+Ares stays useful without the OpenAI key and answers common commands faster, through an offline, deterministic **local brain** in Main (`src/main/assistant/local-intent-interpreter.ts`).
 
-**AI:** the AI receives only the minimum request and approved context needed to propose catalog actions. It receives no filesystem, process, shell, credential, or database capability. See [ACTIONS.md](ACTIONS.md) and [SECURITY.md](SECURITY.md).
+**What it is.** Rule-based intent matching over folded text (the shared text-fold kit) with a small fuzzy matcher (`local-fuzzy.ts`: bounded Levenshtein; a phrase of 8 to 15 characters tolerates one edit and a longer one two, and anything shorter must match exactly; an application alias of 5 to 8 characters tolerates one edit and a longer one two). It understands: open a registered application, search files, the time and the date, the agenda of a near day, computer information, help, and small talk (greetings, thanks, farewells, cancel). A match is turned into the very same provider-shaped JSON the cloud returns and goes through the same parser and validators, so policy, the orchestrator, confirmations and executors are unchanged. Only a high-confidence match acts; anything else is "not understood". An ambiguous application name asks a short question listing the candidates by name and never guesses.
 
-The OpenAI interpreter is a Main-only boundary. Its renderer surface consists of `window.ares.assistant.interpret({ text })` plus explicit `assistant.context.set` and `assistant.context.clear` selection methods. Context is a per-window in-memory validated handle, revalidated before each interpretation and never persisted. The provider receives only its kind, bounded public label, and a Main-only token; it never receives an ID, path, executable target, or record contents. The interpreter reaches a lazy single-flight Main composition and returns strictly structured, independently revalidated action drafts or a controlled clarification, rejection, or unavailable result. It does not call the action orchestrator, database, filesystem, launcher, Electron, or IPC. Interpretation is followed only by a separate explicit renderer call for each `actions.propose(draft)` and, for Level 2, a separate visible `actions.confirm` or `actions.cancel` call. There is no assistant execution, streaming, history, or conversation-memory API.
+**What it is not.** It is not a language model, it does not call the network, it never reads the computer (computer information is a normal `GET_SYSTEM_INFO` action run by its executor), it cannot produce any action outside five read-only or direct ones (`OPEN_APPLICATION` for an alias that is already registered, `SEARCH_FILES`, `GET_CURRENT_DATE_TIME`, `GET_TODAY_SCHEDULE`, `GET_SYSTEM_INFO`), and it never bypasses a confirmation, a validator or a closed schema.
 
-**Voice:** Phases 12A–12C implement manual push-to-talk only. Electron Main loads the one persisted, validated global-shortcut preference after readiness, then registers only its selected approved accelerator. The default is `CommandOrControl+Alt+Space`; the only alternatives are `CommandOrControl+Shift+Space` and `CommandOrControl+Alt+V`. The active shortcut focuses Ares and emits one no-payload notification that may start or stop the existing renderer capture. Its trust path is:
+**Routing.**
+- Local-first (`LOCAL_FIRST_ENABLED`, default `true`, in `src/main/assistant/local-brain-config.ts`): the exact-grammar commands above are answered without calling the provider, but only where the cloud flow would give the same capability. Everything else goes to the cloud provider exactly as before. Setting the constant to `false` sends every request to the provider again; that one line undoes a misrouting.
+- Fallback: if the key is missing, the provider fails or the provider times out, the local brain answers alone. If it does not understand, it says it is in local mode and names three commands it supports. This fallback is always on when the local brain is configured.
+- File searches without an explicit file noun or folder (for example "busca recetas") are left to the cloud in local-first routing and accepted only in the fallback.
 
-```text
-fixed Main-owned shortcut or explicit renderer button
--> renderer-controlled microphone access
--> bounded command capture
--> narrow preload/IPC transfer
--> Main-owned remote Speech-to-Text provider
--> normal assistant pipeline
-```
+**Typed input and voice without the key.** Transcription needs the OpenAI key, so `system.getCapabilities` reports `voice: false` without it (nothing about the key itself is returned). The renderer then shows "Modo local: escribe con Ctrl+K" and explains it if the microphone is pressed. Ctrl+K opens a one-line input; Enter submits through the same renderer function that submits a transcript to `assistant.interpret`, Escape closes it, and focus returns to the microphone button. No IPC channel was added. If no provider can synthesize speech (no OpenAI key and no ElevenLabs, or both failing), the renderer speaks the already-capped text with the Windows system voice (an installed Spanish voice, preferring es-CO, then es-MX, es-ES, any other Spanish voice); with no Spanish voice installed, the text stays on screen and one notice is shown per session. The system voice involves no IPC, no network and nothing persisted or logged.
 
-The shortcut does not capture keyboard data, select a device, or begin background audio. It only toggles the bounded manual recorder; while transcription is in progress it is ignored. The renderer continues to use constrained browser media APIs and receives no Node.js, filesystem, process, shell, environment, or unrestricted Electron capability. If the environment requires a user gesture for microphone capture, Ares fails closed and asks the user to use the visible recording button. The returned Spanish transcript enters the existing assistant input only; interpretation, proposals, and confirmations remain explicit user actions. The transcription provider is given the fixed Spanish hint `es`; that hint is Main-only and is not user-configurable. Wake-word and Text-to-Speech remain deferred. See [OPERATIONS.md](OPERATIONS.md).
+**Log.** One line per turn that reaches the local or cloud decision, with closed names only and never the text: `local-brain intent=<open-app|search-files|time|date|agenda|system-info|help|greeting|thanks|farewell|cancel|none> route=<local|cloud|local-fallback>`. Turns answered by the earlier deterministic routers (messaging, Spotify, found files) log no such line.
 
-**Applications:** application launch follows only this chain: interpreted application name -> registered alias -> validated enabled application record -> canonical verified executable path -> direct launch without command-shell interpretation. AI cannot provide an executable command or arbitrary path. Unknown names never fall back to a shell, and opening a terminal application does not authorize command execution inside it.
+**Constants.** `LOCAL_FIRST_ENABLED` (routing), `MAX_LOCAL_INPUT_LENGTH` = 200 characters (longer text is never a local command), `ASSISTANT_INSTRUCTION_MAX_LENGTH` = 2000 (the limit of a typed or transcribed instruction), `CPU_SAMPLE_INTERVAL_MS` = 300 (computer information), and the advice thresholds `SYSTEM_INFO_THRESHOLDS`.
 
-**Files:** Electron Main owns the only filesystem boundary. It resolves only the trusted Documents, Downloads, and Desktop roots, then works with a root identifier plus a safe relative reference. It canonicalizes each target, confirms case-insensitive containment in the selected root, and skips symbolic links, junctions, and inaccessible entries. No renderer, preload, shared contract, or action module receives an absolute or canonical path, a filesystem handle, or file contents. Search is metadata-only and bounded to depth 12 and 100 results. Main-only primitives may create one folder, rename one file or folder, or directly move one file after final revalidation; they never overwrite, copy, delete, or read content. The final Windows rename/move step uses a narrowly scoped native no-replace bridge so a destination collision fails atomically; cross-volume moves fail safely without a copy-and-delete fallback. The bridge is available only to the Main file-mutation service. `ORGANIZE_FILES` is a Level 2 action in the same supervised lifecycle: Main analyzes one folder's direct regular files, returns an immutable safe preview, and executes only its in-memory stored plan after opaque confirmation. No direct file IPC or `window.ares.files` surface exists.
+**Computer information.** The `SYSTEM_INFO` domain has one direct, risk 1 action, `GET_SYSTEM_INFO`, with the closed input `{ topic: "disk" | "memory" | "cpu" | "uptime" | "summary" }`. Main measures it with `os.totalmem`, `os.freemem`, two `os.cpus` samples at least 300 ms apart (an aggregate, no per-core detail), `os.uptime` and `fs.statfs` on the system drive (the path never leaves Main). Only rounded aggregates are returned: gigabytes with one decimal, whole percentages, hours or days. A deterministic advice layer adds a warning when the disk is under 10 % free, memory is over 90 % in use or the processor is over 90 % busy. History keeps the fixed sentence "Se consultó información del equipo."; the numbers exist only in the spoken and on-screen answer. There is no consent switch for it: it is gated like the other direct domains, by its approval class and the capability registry. Battery is not included: it can only be read in the renderer and passing it to Main would need a new IPC channel.
 
-**Notifications:** One lazy Electron Main scheduler owns local reminder and event-start delivery through Electron `Notification`. After app readiness it performs one catch-up check, then polls every 30 seconds in bounded deterministic batches. It conditionally claims a due reminder as `TRIGGERED` before one local notification; it claims a due event by atomically inserting a durable `(event_id, scheduled_at)` delivery record before notification. Event candidates are exact start instants within the previous five minutes, so a short restart may catch up once without notifying historical events. A notification-display failure does not reset either claim or retry automatically, preserving at-most-once delivery. The scheduler stops before the Main database pool closes. There is no renderer notification API, web notification, remote push, or external notification service.
+## Window and process security
 
-**Dashboard:** Electron Main composes a read-only, bounded home-summary query. It reuses the planner local-day boundary and injected clock semantics, returns at most five items per section, and aggregates today’s schedule, non-completed tasks, events and pending reminders due in the next seven days, and safe terminal action history. The renderer receives it only through one typed preload method; it never receives database access or raw persistence details.
+The main window uses `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` and `webSecurity: true`. A test pins these options. Credentials are read by Main from the environment only when needed.
 
-## Electron security baseline
+## The HUD (renderer and window)
 
-The final window configuration must preserve context isolation, disable renderer Node integration, and expose only the reviewed preload surface. All IPC channels are explicitly allowlisted and validated in Main. Direct renderer access to Node.js and operating-system APIs is prohibited.
+- **Window.** A portrait HUD, 480 x 740 by default and 420 x 620 at minimum, resizable. It has a solid background that matches the theme (`#02090b` dark, `#d4e4df` light); there is no Acrylic, transparency or vibrancy. The security options are unchanged. The native menu bar is removed in packaged builds (`Menu.setApplicationMenu(null)`) and kept in development so DevTools stay reachable.
+- **Title bar.** `USE_CUSTOM_TITLE_BAR` in `src/main/window-theme.ts` (default `true`) hides the native title bar and draws the Windows buttons over the renderer header with `titleBarOverlay`; the overlay colors follow the theme and are updated with `setTitleBarOverlay` when the theme changes. The header is the drag region. If the Electron version has no such API, the native frame is used automatically. Setting the constant to `false` returns to the native frame.
+- **Themes.** `src/renderer/theme/themes.ts` holds the two themes (`dark`, and the mint-gray `light`) as data. The same table writes the CSS custom properties and feeds the canvas, so a color is written once. The renderer follows `prefers-color-scheme` and its change events; no IPC channel and no preload method are involved.
+- **Theme button.** The header has a button (chamfered frame, lightbulb: off in dark, on in light) on the right, left of the Windows buttons. One press calls `window.ares.theme.setPreference({ preference })` with the opposite explicit theme. Main validates the closed payload and the sender, then runs the same `themePreferenceService.set` the tray uses; the renderer learns the new theme only through `prefers-color-scheme`. «Automático» stays in the tray menu.
+- **Header color.** `src/shared/theme-colors.ts` holds one header background per theme. The renderer header paints it and Main passes it as the title bar overlay color, so the Windows buttons area matches the header.
+- **Errors and questions.** An error shows the word «Atención» in amber over a thin amber rule; a clarification shows «Pregunta» tinted with accent2 and the question as the main text.
+- **Theme preference.** Main reads `"system" | "light" | "dark"` from the `settings` table (key `theme_preference`) before it creates the window and sets `nativeTheme.themeSource`. If the database is unavailable the preference is `system` and startup continues. The tray menu has a «Tema» submenu with three radio items (Automático, Claro, Oscuro); choosing one applies it, updates the window background and the title bar overlay, and saves it.
+- **Orb.** `src/renderer/orb/orb-renderer.ts` draws the orb with Canvas 2D from explicit parameters in a 440-unit design box scaled to the canvas; the only randomness is the seeded particle field. `orb-runtime.ts` holds the mutable signal (state and level) that the voice code writes and the loop reads, the frame scheduler (full rate while active, about 30 frames per second while idle, nothing while the page is hidden) and the adaptive particle budget. The microphone level comes from the analyser the recorder already runs; the speaking level comes from a Web Audio analyser attached to the playback element (only when the audio context is running, so the voice is never silenced). Without a real level the orb uses a simulated envelope. With forced colors, or without a 2D context, a plain CSS orb with a state ring is shown.
+- **One control.** The microphone button is the only control. Idle starts recording; while recording a second press stops and sends what was recorded (Escape cancels); while processing it is disabled; while speaking it stops the voice. The orb itself, the global shortcut and the tray activation follow the same rules.
+- **Theme change animation (renderer only).** When the effective theme changes (toggle, tray menu or Windows), `src/renderer/theme/theme-transition.ts` plays a circular wave with the View Transitions API (950 ms in total: 160 ms hold, 700 ms expansion with `cubic-bezier(0.65, 0, 0.35, 1)`, 90 ms settle). The new snapshot is visible only inside a circle the size of the orb sphere (R0 = 58 units scaled by the canvas CSS size) while the sphere pulses, then the circle grows to the farthest window corner (Rmax) and a thin ring travels with the front. **Origin:** the center of the orb CANVAS as displayed (`.orb-canvas`), measured once INSIDE the update callback after `flushSync` has committed the views (that read forces the layout), in viewport pixels; the clip-path (one `--wave-clip` custom property, set on every run and cleared when it ends) and the ring use the same values. **When it applies instantly:** only with no View Transitions API (`unsupported`), reduced motion (`reduced-motion`), a hidden window (`hidden`), no orb on screen (`no-rect`), a real window resize in the last 150 ms (`resize`), or the manual mode constant (`mode`). The resize guard counts only window `resize` events; the canvas observers and the resize events that the theme change itself causes (it ignores them for the length of the change) never count, and a canvas within 2 px of its drawn size is settled. **One run object:** everything a run owns (ring, clip variable, orb cost mode, pacing, watchdog) lives in one object that is ended completely when the run finishes, is skipped, is rejected or throws; a callback that runs after its run ended only applies the latest theme, so a rapid second toggle cannot leave a ring (two elements with the same view transition name would make the browser abort the next transition), a clip variable or the low-cost mode behind. **Watchdog:** a run still running after 2 s is ended by force (skip, ring removed, variable cleared, orb cost restored). The latest requested theme always wins. **Reduced-cost mode:** during a run the orb loop runs at about 30 fps with the minimum particle count and no shadow blur, and the static hex grid is not repainted; the ring is three plain strokes animated by transform and opacity only. **Log line:** every theme change logs one line to the renderer console, `theme-transition decision=<wave|fade|instant> reason=<ok|reduced-motion|hidden|no-rect|resize|unsupported|error|mode> origin-delta=<px> frames=<n> long=<n> maxMs=<n>` (a closed list of names and whole numbers, never stored; `long` counts frames above 24 ms). Frame pacing is only logged: it never changes the mode. **Mode constant:** `THEME_TRANSITION_MODE` in `theme-transition.ts` is `"wave"`; `"fade"` is a 250 ms opacity cross-fade and `"instant"` applies the theme at once (change that one line to flip it). The first theme at startup is never animated. Known limitation: the Windows title bar buttons are drawn by the OS and change color instantly; only the web content animates.

@@ -3,7 +3,8 @@ import {
   MAX_CONTACT_NAME_LENGTH,
   MAX_MESSAGE_BODY_LENGTH
 } from "../../shared/messaging-contracts";
-import { KNOWN_APPLICATION_CATALOG, normalizeApplicationAlias } from "../applications/known-application-catalog";
+import { KNOWN_APPLICATION_CATALOG } from "../applications/known-application-catalog";
+import { foldForAlias } from "../../shared/text-fold";
 import { messagingFailure, messagingSuccess, type MessagingResult } from "./messaging-failures";
 
 /** The single default country code: a 10-digit number starting with 3 is a Colombian mobile number. */
@@ -45,7 +46,7 @@ export const normalizePhoneNumber = (input: unknown): MessagingResult<string> =>
 export const maskPhoneDigits = (digits: string): string => `•••• ${digits.slice(-4)}`;
 
 /** Accent-, case- and punctuation-insensitive comparison key for names, aliases and spoken references. */
-export const toLookupKey = (value: string): string => normalizeApplicationAlias(value);
+export const toLookupKey = (value: string): string => foldForAlias(value);
 
 const RESERVED_APPLICATION_KEYS: ReadonlySet<string> = new Set(
   KNOWN_APPLICATION_CATALOG.flatMap((entry) =>

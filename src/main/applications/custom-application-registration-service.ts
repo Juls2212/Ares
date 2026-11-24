@@ -1,3 +1,4 @@
+import { lowerTrim, stripCompatibilityMarks } from "../../shared/text-fold";
 import { dialog } from "electron";
 import { randomUUID } from "node:crypto";
 import { realpath as resolveRealPath, stat as readPathStats } from "node:fs/promises";
@@ -81,12 +82,9 @@ const mapApplicationFailure = <T>(
       : APPLICATION_ERROR_CODES.conflict
   );
 
-const normalize = (value: string): string => value.trim().toLocaleLowerCase("en-US");
 
 const deriveAlias = (displayName: string): ApplicationOperationResult<string> => {
-  const alias = displayName
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
+  const alias = stripCompatibilityMarks(displayName)
     .toLocaleLowerCase("en-US")
     .replace(/[ ._\-]+/gu, "-")
     .replace(/[^a-z0-9-]/gu, "")
@@ -175,13 +173,13 @@ export const createCustomApplicationRegistrationService = (
     if (!listed.ok) return mapApplicationFailure(listed);
     const exact = listed.data.items.find(
       (record) =>
-        normalize(record.name) === normalize(displayName) &&
-        record.aliases.some((entry) => normalize(entry.alias) === normalize(alias))
+        lowerTrim(record.name) === lowerTrim(displayName) &&
+        record.aliases.some((entry) => lowerTrim(entry.alias) === lowerTrim(alias))
     );
     const conflict = listed.data.items.find(
       (record) =>
-        normalize(record.name) === normalize(displayName) ||
-        record.aliases.some((entry) => normalize(entry.alias) === normalize(alias))
+        lowerTrim(record.name) === lowerTrim(displayName) ||
+        record.aliases.some((entry) => lowerTrim(entry.alias) === lowerTrim(alias))
     );
     if (conflict && !exact) {
       return {

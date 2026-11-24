@@ -151,7 +151,7 @@ describe("unsupported variants produce a clarification with no action and no dia
       ["renombra el primero a a/b", "nombre válido"],
       ["organiza estos archivos en una carpeta llamada Facturas", "destino"],
       ["organiza estos archivos en una carpeta llamada Facturas en Marte", "destino"],
-      ["mueve el pdf al escritorio", "qué resultados"],
+      ["mueve el pdf al escritorio", "Cuáles quieres"],
       ["renombra informe a Final", "número"]
     ];
     for (const [instruction, fragment] of cases) {
@@ -185,7 +185,7 @@ describe("context handling", () => {
     const { run, interpret } = createInterpreter();
     const result = await run("mueve el pdf al escritorio");
     expect(result).toMatchObject({ ok: true, data: { state: "NEEDS_CLARIFICATION", drafts: [] } });
-    expect(result.ok && result.data.summary).toBe("Primero haz una búsqueda de archivos para poder elegir un resultado.");
+    expect(result.ok && result.data.summary).toBe("Primero dime qué archivo buscar y luego eliges uno de los resultados.");
     expect(interpret).not.toHaveBeenCalled();
   });
 
@@ -213,7 +213,7 @@ describe("context handling", () => {
 
 describe("drafts proposed by the model", () => {
   const draft = (action: string, filesAction: unknown) => ({
-    action, input: null, weeklyRoutine: null, habitAction: null, approvedWeb: null, catalogApplication: null, filesAction
+    action, input: null, approvedWeb: null, catalogApplication: null, filesAction
   });
   const provided = (drafts: unknown[]) => JSON.stringify({ state: "READY", summary: "Preparé las acciones solicitadas.", responseText: "", drafts, clarifications: [] });
 

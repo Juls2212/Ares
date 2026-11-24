@@ -15,19 +15,19 @@ it("renders Ares without audio APIs or automatic speech requests", () => {
       isInterpreting: false,
       draftStates: {},
       onStartRecording: vi.fn(),
-      onCancelRecording: vi.fn(),
+      onSendRecording: vi.fn(),
       onPropose: vi.fn(),
       onResolveConfirmation: vi.fn()
     })
   );
 
   expect(markup).toContain("Ares");
-  expect(markup).toContain('aria-label="Toca para hablar"');
+  expect(markup).toContain('aria-label="Hablar con Ares"');
   expect(markup).not.toContain("voice-button--microphone");
   expect(markup).not.toContain("voice-controls");
   expect(markup).toContain("Toca el orbe para hablar");
   expect(markup).not.toContain("Interpretar");
   expect(markup).not.toContain("assistant-instruction");
   expect(markup).not.toContain("textarea");
-  expect(markup).toContain("glass-orb__sphere");
+  expect(markup).toContain("orb-canvas");
 });

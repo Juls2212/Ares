@@ -276,7 +276,7 @@ describe("database schema and migration", () => {
     expect(migration.split("--> statement-breakpoint").length).toBeGreaterThan(4);
 
     const journal = JSON.parse(source("drizzle/meta/_journal.json")) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries.at(-1)).toMatchObject({ idx: 8, tag: "0008_messaging_contacts" });
+    expect(journal.entries[8]).toMatchObject({ idx: 8, tag: "0008_messaging_contacts" });
     expect(journal.entries.map((entry) => entry.idx)).toEqual([...journal.entries.keys()]);
 
     const previous = JSON.parse(source("drizzle/meta/0007_snapshot.json")) as { id: string };

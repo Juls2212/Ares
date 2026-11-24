@@ -1,19 +1,17 @@
+import { failedOutcome, type FailureOutcomeStatus, outcomeIdentity, succeededOutcome } from "../../shared/outcome-kit";
 import type {
   ActionOutcome,
   ActionPolicy,
   OpenApplicationActionProposal,
-  OpenWebPageActionProposal,
   RegisterCatalogApplicationActionProposal,
   RequestCustomApplicationRegistrationActionProposal,
   SearchSpotifyAppActionProposal,
-  SearchSpotifyAppInput,
-  TerminalActionStatus
+  SearchSpotifyAppInput
 } from "../../shared/action-contracts";
 import { createApplicationLauncher, type ApplicationLauncher } from "../applications/application-launcher";
 import { getApplicationService, getCustomApplicationRegistrationService } from "../applications/application-composition";
 import type { CustomApplicationRegistrationService } from "../applications/custom-application-registration-service";
 import { validateSpotifySearchQuery } from "../applications/spotify-search";
-import { createWebPageLauncher, type WebPageLauncher } from "../applications/web-page-launcher";
 import { CATALOG_REGISTRATION_EXECUTION_FAILURE_CODES } from "../applications/catalog-registration-failures";
 import {
   createCatalogApplicationRegistrationService,
@@ -23,7 +21,6 @@ import {
 type ApplicationActionProposal =
   | OpenApplicationActionProposal
   | SearchSpotifyAppActionProposal
-  | OpenWebPageActionProposal
   | RegisterCatalogApplicationActionProposal
   | RequestCustomApplicationRegistrationActionProposal;
 
@@ -42,17 +39,15 @@ export type ApplicationActionExecutor = {
 
 type ApplicationActionExecutorDependencies = {
   launcher?: ApplicationLauncher;
-  webPageLauncher?: WebPageLauncher;
   catalogRegistrationService?: CatalogApplicationRegistrationService;
   customRegistrationService?: CustomApplicationRegistrationService;
   logError: (message: string) => void;
 };
 
-const failureStatus = (errorCode: string): TerminalActionStatus =>
+const failureStatus = (errorCode: string): FailureOutcomeStatus =>
   CATALOG_REGISTRATION_EXECUTION_FAILURE_CODES.includes(errorCode) ||
   errorCode === "APPLICATION_DATABASE_UNAVAILABLE" ||
-  errorCode === "APPLICATION_LAUNCH_FAILED" ||
-  errorCode === "WEB_PAGE_LAUNCH_FAILED"
+  errorCode === "APPLICATION_LAUNCH_FAILED"
     ? "EXECUTION_FAILED"
     : "VALIDATION_FAILED";
 
@@ -77,7 +72,6 @@ export const createApplicationActionExecutor = (
 ): ApplicationActionExecutor => {
   const dependencies: ApplicationActionExecutorDependencies = {
     launcher: overrides.launcher,
-    webPageLauncher: overrides.webPageLauncher,
     catalogRegistrationService: overrides.catalogRegistrationService,
     customRegistrationService: overrides.customRegistrationService,
     logError:
@@ -87,7 +81,6 @@ export const createApplicationActionExecutor = (
       })
   };
   let launcher = dependencies.launcher;
-  let webPageLauncher = dependencies.webPageLauncher;
   let catalogRegistrationService = dependencies.catalogRegistrationService;
   let customRegistrationService = dependencies.customRegistrationService;
   const getCustomRegistrationService = (): CustomApplicationRegistrationService => {
@@ -97,10 +90,6 @@ export const createApplicationActionExecutor = (
   const getLauncher = (): ApplicationLauncher => {
     launcher ??= createApplicationLauncher();
     return launcher;
-  };
-  const getWebPageLauncher = (): WebPageLauncher => {
-    webPageLauncher ??= createWebPageLauncher();
-    return webPageLauncher;
   };
   const getCatalogRegistrationService = (): CatalogApplicationRegistrationService => {
     catalogRegistrationService ??= createCatalogApplicationRegistrationService({
@@ -113,28 +102,15 @@ export const createApplicationActionExecutor = (
     prepareCatalogRegistration: async (proposal) => getCatalogRegistrationService().prepare(proposal.input),
     prepareCustomRegistration: async (proposal) => getCustomRegistrationService().prepareSelection(proposal.input),
     execute: async (proposal, policy) => {
+      const identity = outcomeIdentity(proposal, policy);
       try {
         if (proposal.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION") {
           const selectionId = "selectionId" in proposal.input ? proposal.input.selectionId : undefined;
           const result = await getCustomRegistrationService().commitSelection({ selectionId });
           if (!result.ok) {
-            return {
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: failureStatus(result.error.code),
-              errorCode: result.error.code,
-              userSummary: result.error.userMessage
-            };
+            return failedOutcome(identity, failureStatus(result.error.code), result.error.code, result.error.userMessage);
           }
-          return {
-            actionId: proposal.actionId,
-            action: proposal.action,
-            riskLevel: policy.riskLevel,
-            status: "SUCCEEDED",
-            data: { applicationName: result.data.applicationName },
-            userSummary: `Listo, registré ${result.data.applicationName}.`
-          };
+          return succeededOutcome(identity, `Listo, registré ${result.data.applicationName}.`, { data: { applicationName: result.data.applicationName } });
         }
         if (proposal.action === "SEARCH_SPOTIFY_APP") {
           const query = validateSpotifySearchQuery(proposal.input.query);
@@ -145,102 +121,33 @@ export const createApplicationActionExecutor = (
             const error = result && !result.ok
               ? result.error
               : { code: "APPLICATION_SPOTIFY_QUERY_INVALID", userMessage: "Indica qué canción, artista o álbum quieres buscar en Spotify." };
-            return {
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: failureStatus(error.code),
-              errorCode: error.code,
-              userSummary: error.userMessage
-            };
+            return failedOutcome(identity, failureStatus(error.code), error.code, error.userMessage);
           }
-          return {
-            actionId: proposal.actionId,
-            action: proposal.action,
-            riskLevel: policy.riskLevel,
-            status: "SUCCEEDED",
-            data: { applicationName: result.data.applicationName },
-            userSummary: describeSpotifySearch(query, proposal.input)
-          };
+          return succeededOutcome(identity, describeSpotifySearch(query, proposal.input), { data: { applicationName: result.data.applicationName } });
         }
         if (proposal.action === "REGISTER_CATALOG_APPLICATION") {
           const result = await getCatalogRegistrationService().register(proposal.input);
           if (!result.ok) {
-            return {
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: failureStatus(result.error.code),
-              errorCode: result.error.code,
-              userSummary: result.error.userMessage
-            };
+            return failedOutcome(identity, failureStatus(result.error.code), result.error.code, result.error.userMessage);
           }
-          return {
-            actionId: proposal.actionId,
-            action: proposal.action,
-            riskLevel: policy.riskLevel,
-            status: "SUCCEEDED",
-            data: { applicationName: result.data.applicationName },
-            userSummary: `Listo, registré ${result.data.applicationName} como “${result.data.alias}”.`
-          };
+          return succeededOutcome(identity, `Listo, registré ${result.data.applicationName} como “${result.data.alias}”.`, { data: { applicationName: result.data.applicationName } });
         }
-        if (proposal.action === "OPEN_WEB_PAGE") {
-          const result = await getWebPageLauncher().launch(proposal.input);
-          if (!result.ok) {
-            return {
-              actionId: proposal.actionId,
-              action: proposal.action,
-              riskLevel: policy.riskLevel,
-              status: failureStatus(result.error.code),
-              errorCode: result.error.code,
-              userSummary: result.error.userMessage
-            };
-          }
-          return {
-            actionId: proposal.actionId,
-            action: proposal.action,
-            riskLevel: policy.riskLevel,
-            status: "SUCCEEDED",
-            data: { applicationName: result.data.applicationName, destination: result.data.destination },
-            userSummary: `Se abrió YouTube en ${result.data.applicationName}.`
-          };
-        }
-
         const result = await getLauncher().launchByAlias(proposal.input.alias);
         if (!result.ok) {
-          return {
-            actionId: proposal.actionId,
-            action: proposal.action,
-            riskLevel: policy.riskLevel,
-            status: failureStatus(result.error.code),
-            errorCode: result.error.code,
-            userSummary: result.error.userMessage
-          };
+          return failedOutcome(identity, failureStatus(result.error.code), result.error.code, result.error.userMessage);
         }
 
-        return {
-          actionId: proposal.actionId,
-          action: proposal.action,
-          riskLevel: policy.riskLevel,
-          status: "SUCCEEDED",
-          data: { applicationName: result.data.applicationName },
-          userSummary: `Se abrió ${result.data.applicationName}.`
-        };
+        return succeededOutcome(identity, `Se abrió ${result.data.applicationName}.`, { data: { applicationName: result.data.applicationName } });
       } catch {
         dependencies.logError("Registered application action execution failed.");
-        return {
-          actionId: proposal.actionId,
-          action: proposal.action,
-          riskLevel: policy.riskLevel,
-          status: "EXECUTION_FAILED",
-          errorCode: "ACTION_EXECUTION_UNAVAILABLE",
-          userSummary:
-            proposal.action === "OPEN_WEB_PAGE"
-              ? "No se pudo abrir la página web autorizada."
-              : proposal.action === "REGISTER_CATALOG_APPLICATION" || proposal.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION"
-                ? "No se pudo registrar la aplicación."
-              : "No se pudo abrir la aplicación registrada."
-        };
+        return failedOutcome(
+          identity,
+          "EXECUTION_FAILED",
+          "ACTION_EXECUTION_UNAVAILABLE",
+          proposal.action === "REGISTER_CATALOG_APPLICATION" || proposal.action === "REQUEST_CUSTOM_APPLICATION_REGISTRATION"
+              ? "No pude registrar esa aplicación. Inténtalo de nuevo."
+              : "No pude abrir esa aplicación. Revisa que esté instalada."
+        );
       }
     }
   };

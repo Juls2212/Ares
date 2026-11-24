@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { OperationResult } from "../../shared/contracts";
-import { SPEECH_LIMITS, type SpeechAudio, type SpokenResponse } from "../../shared/speech-contracts";
+import { AGENDA_TEXT_CHARACTERS, SPEECH_LIMITS, type SpeechAudio, type SpokenResponse } from "../../shared/speech-contracts";
+import { SPOKEN_CAP_AGENDA, SPOKEN_CAP_DEFAULT, capSpokenText } from "./spoken-text-cap";
 import { MainConfigurationError } from "../config/database-environment";
+
+/** Optional facts about the response, kept in Main only. An agenda is spoken with its own text and the agenda cap. */
+export type RememberOptions = { spokenText?: string; agenda?: boolean };
 
 export type SpeechProvider = (text: string, signal: AbortSignal) => Promise<SpeechAudio>;
 const failure = (code: string): OperationResult<SpeechAudio> => {
@@ -11,16 +15,21 @@ const failure = (code: string): OperationResult<SpeechAudio> => {
 };
 
 export const createSpeechService = (provider: () => SpeechProvider, clock = Date.now, timeoutMs: number = SPEECH_LIMITS.timeoutMs) => {
-  const responses = new Map<number, { response: SpokenResponse; expires: number; abort?: AbortController }>();
+  const responses = new Map<number, { response: SpokenResponse; expires: number; abort?: AbortController; spokenText?: string; agenda?: boolean }>();
   let busy = false;
   const clear = (windowId: number): void => { responses.get(windowId)?.abort?.abort(); responses.delete(windowId); };
   return {
     clear,
-    remember(windowId: number, text: string): SpokenResponse | undefined {
+    remember(windowId: number, text: string, options: RememberOptions = {}): SpokenResponse | undefined {
       clear(windowId);
-      if (!text.trim() || text.length > SPEECH_LIMITS.textCharacters) return undefined;
+      const limit = options.agenda ? AGENDA_TEXT_CHARACTERS : SPEECH_LIMITS.textCharacters;
+      if (!text.trim() || text.length > limit) return undefined;
+      if (options.spokenText !== undefined && (!options.spokenText.trim() || options.spokenText.length > limit)) return undefined;
       const response = { responseId: randomUUID(), text };
-      responses.set(windowId, { response, expires: clock() + SPEECH_LIMITS.responseLifetimeMs });
+      responses.set(windowId, {
+        response, expires: clock() + SPEECH_LIMITS.responseLifetimeMs,
+        ...(options.spokenText === undefined ? {} : { spokenText: options.spokenText }), ...(options.agenda ? { agenda: true } : {})
+      });
       return response;
     },
     async speak(windowId: number, input: unknown): Promise<OperationResult<SpeechAudio>> {
@@ -32,7 +41,7 @@ export const createSpeechService = (provider: () => SpeechProvider, clock = Date
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const audio = await Promise.race([
-          provider()(entry.response.text, abort.signal),
+          provider()(capSpokenText(entry.spokenText ?? entry.response.text, entry.agenda ? SPOKEN_CAP_AGENDA : SPOKEN_CAP_DEFAULT), abort.signal),
           new Promise<never>((_, reject) => { timer = setTimeout(() => { abort.abort(); reject(new Error("TIMEOUT")); }, timeoutMs); })
         ]);
         if (abort.signal.aborted || responses.get(windowId) !== entry) return failure("SPEECH_RESPONSE_INVALID");

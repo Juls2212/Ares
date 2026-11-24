@@ -33,5 +33,9 @@ describe("OpenAI transcription provider", () => {
       expect.objectContaining({ language: "es", response_format: "json" }),
       { signal }
     );
+    // No recognition hint is sent: the request has exactly these fields.
+    const sent = openAiMocks.create.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(Object.keys(sent).sort()).toEqual(["file", "language", "model", "response_format"]);
+    expect(sent).not.toHaveProperty("prompt");
   });
 });

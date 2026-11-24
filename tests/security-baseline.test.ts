@@ -33,20 +33,18 @@ describe("Electron security baseline", () => {
   });
 
   it("uses a compact resizable assistant window without weakening web preferences", () => {
-    expect(mainSource).toContain("width: 440");
-    expect(mainSource).toContain("height: 440");
-    expect(mainSource).toContain("minWidth: 360");
-    expect(mainSource).toContain("minHeight: 360");
+    expect(mainSource).toContain("width: 480, height: 740, minWidth: 420, minHeight: 620");
     expect(mainSource).toContain("useContentSize: true");
-    expect(mainSource).toContain("createdWindow.setAspectRatio(1)");
+    expect(mainSource).not.toContain("setAspectRatio");
     expect(mainSource).toContain("maximizable: false");
     expect(mainSource).toContain("fullscreenable: false");
-    expect(mainSource).toContain("Menu.getApplicationMenu()");
+    expect(mainSource).toContain("Menu.setApplicationMenu(null)");
     expect(mainSource).toContain("removeFullScreenMenuCommand(applicationMenu)");
     expect(mainSource).not.toContain("minimizable: false");
     expect(mainSource).not.toContain("closable: false");
     expect(mainSource).not.toContain("resizable: false");
-    expect(mainSource).not.toContain("Menu.setApplicationMenu(null)");
+    // The native menu bar is removed only in packaged builds; development keeps it so DevTools stay reachable.
+    expect(mainSource).toMatch(/if \(app\.isPackaged\) \{\s*Menu\.setApplicationMenu\(null\);/u);
     expect(mainSource).not.toContain("frame: false");
     expect(mainSource).not.toContain("alwaysOnTop: true");
     expect(mainSource).toContain("contextIsolation: true");

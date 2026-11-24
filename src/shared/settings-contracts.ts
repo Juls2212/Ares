@@ -42,6 +42,5 @@ export type SettingsOperationResult<T> = OperationResult<T>;
 export type SettingsApi = {
   voice: {
     get: () => Promise<SettingsOperationResult<VoicePreferencesData>>;
-    update: (input: UpdateVoicePreferencesInput) => Promise<SettingsOperationResult<VoicePreferencesData>>;
   };
 };

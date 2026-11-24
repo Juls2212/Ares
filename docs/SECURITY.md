@@ -1,53 +1,50 @@
-# Ares Security Policy
+# Security baseline and privacy rules
 
-## Security objective
+## Baseline
 
-Ares is supervised by design: the renderer, AI, and external inputs cannot directly perform privileged operating-system or database work. Main validates each request and invokes only allowlisted internal capabilities.
+- **Process isolation.** `contextIsolation`, `sandbox` and `webSecurity` are on, `nodeIntegration` is off. The renderer reaches Main only through the 14 named `window.ares` methods ([ARCHITECTURE.md](ARCHITECTURE.md)).
+- **Main owns every capability.** The renderer and the preload never touch the filesystem, shell, network, database, environment or credentials. `tests/call-site-allowlist.test.ts` fails if any other file uses `shell.openExternal`, `shell.openPath`, `shell.showItemInFolder`, `shell.trashItem`, `child_process`, `fetch(`, an HTTP server, `safeStorage`, file deletion, `process.env` or `new BrowserWindow`.
+- **The model is untrusted.** The interpreter sends a closed strict JSON schema (`additionalProperties: false` everywhere), then Main parses and validates every draft again. A provider-authored place, file name or alias is only used when it appears in the person's own words or in a trusted Main list.
+- **Closed inputs.** Actions take enums, bounded text and ordinals. No action accepts a URL, a path, a command, a coordinate or a provider identifier from the caller.
+- **Confirmation.** See [CAPABILITIES.md](CAPABILITIES.md).
 
-## Electron and IPC rules
+## Network call sites
 
-- Renderer Node integration is disabled; context isolation is enabled.
-- Only reviewed, typed methods are exposed through `contextBridge` as `window.ares`.
-- IPC channels and payloads are allowlisted and validated in Main; sender-provided input is never trusted.
-- The renderer receives neither `fs`, `child_process`, `shell`, raw Electron APIs, environment variables, PostgreSQL connections, nor OpenAI credentials.
-- Raw exceptions stay internal. Stable typed codes cross the boundary and are translated to Spanish user-facing messages.
+Only these places make network requests, each confined to its own hosts:
 
-## Action risk matrix
-
-| Level | Policy | MVP actions |
+| Module | Purpose | Hosts |
 | --- | --- | --- |
-| Level 1 Safe | Execute after the user submits an explicit, fully resolved request. Clarify missing essential details. | Opening known applications, search, schedule queries, and explicit creation of planner information or folders. |
-| Level 2 Modification | Show a clear Spanish summary and require visible UI confirmation before execution. | Rename, move, organization, task update, event update, and every task completion. |
-| Level 3 Destructive | Reserved for future expansion. | None. Destructive file behavior is explicitly excluded from the MVP. |
+| `src/main/spotify/spotify-api-client.ts` | The only Spotify Web API client. | `accounts.spotify.com`, `api.spotify.com` |
+| `src/main/weather/weather-service.ts` | The only weather client; the only `fetch(` besides Spotify. | `geocoding-api.open-meteo.com`, `api.open-meteo.com` |
+| `src/main/voice/elevenlabs-speech-provider.ts` | The only ElevenLabs client (one text-to-speech request per spoken answer, when configured). | `api.elevenlabs.io` |
+| OpenAI client modules in `src/main/assistant` and `src/main/voice` | Interpretation, transcription and speech through the OpenAI SDK, in Main only. | The SDK's endpoint |
 
-## Filesystem safeguards
+Opening a browser or an app is not a request by Ares: `shell.openExternal` is allowed only in `approved-web-action-executor.ts`, `catalog-application-adapter.ts`, `whatsapp-chat-launcher.ts` and `spotify-authorize-launcher.ts`, each with a fixed target.
 
-For the MVP, Main may access only the trusted Electron-resolved Windows Documents, Downloads, and Desktop folders. A request crosses the boundary as an approved root identifier plus a root-relative path, never as a renderer- or AI-supplied absolute path. Main canonicalizes the selected root and final target, verifies case-insensitive containment within that root, and rejects absolute, drive-qualified, UNC, traversal, null-byte, malformed, and escaping paths. Symbolic links, junctions, and other reparse-point-like candidates are not followed. Network shares, system locations, arbitrary folders, and external locations remain out of scope.
+The Spotify connection uses PKCE with a loopback receiver on `127.0.0.1:8888` and the scopes `user-read-playback-state` and `user-modify-playback-state`. Its tokens are encrypted with Electron `safeStorage` and stored as one opaque value in the `settings` table.
 
-The current file capability performs metadata-only recursive name search in one approved root at a time. It never reads file contents and stops at depth 12 or 100 returned results, reporting safe truncation and aggregate skipped-entry information rather than raw filesystem errors or paths. Main-only mutation primitives support one folder creation, one file rename, one folder rename, or one file move from safe root-relative references. They recheck canonical containment, expected object types, reparse-point rejection, and collisions immediately before mutation; they never overwrite, delete, copy, truncate, or read content. Windows rename and move operations use a narrow Main-only native `MoveFileW` bridge without a replace-existing or copy-allowed flag, so a final destination collision fails atomically and preserves both items. Cross-volume moves fail safely rather than copying and deleting. `ORGANIZE_FILES` is a Level 2 action: Main analyzes one approved folder's direct regular files without mutation, stores the exact safe plan only with the opaque pending confirmation, and executes only that plan after confirmation. It skips directories, reparse points, unsafe entries, exclusions, and execution-time conflicts; category folders are created only during confirmed execution. The plan never recurses, reads contents, overwrites, or uses copy/delete fallback. There is no direct file IPC or renderer file API. Terminal history retains only allowlisted aggregate metadata, never file references, paths, query text, or filesystem details. Deletion, indexing, watching, custom organization rules, and bulk behavior beyond the confirmed plan remain deferred.
+## What history, logs and speech never contain
 
-## Application safeguards
+History (`action_history`) keeps, per action: the action name, risk level, terminal status, a **generic fixed sentence**, an error code and a small allowlisted metadata object (counts and category names). For the planner, files, messaging, music, weather and computer information domains the sentence is chosen by domain and status (for example "Se creó una tarea." or "La consulta del clima no se completó."), never from the outcome text. For applications and web the stored text is a Main-composed sentence that names only the public application display name or the approved site (Google, YouTube, Spotify). The person still hears and sees the real answer; only what is persisted is generic.
 
-Only registered, safely discovered, or explicitly user-approved applications may open. Launch resolution is limited to: interpreted application name -> registered alias -> validated enabled application record -> canonical verified executable path -> direct launch without command-shell interpretation. Paths are validated by controlled platform-specific logic, and aliases resolve only to registered entries.
+Never persisted or logged, in any domain:
 
-AI can identify a requested application name but cannot provide an executable command or arbitrary executable path. Unknown names return a controlled Spanish unavailable message and never fall back to shell execution. Before a registered application opens, Electron Main canonicalizes its stored path and verifies that the canonical target is an existing regular `.exe` file. It invokes only that target with an empty argument array and `shell: false`; Ares never passes AI-produced text to PowerShell, Command Prompt, PATH lookup, or another shell. `child_process` is never exposed to the renderer. A successful `OPEN_APPLICATION` result or history entry may contain only the trusted registered public display name; aliases, paths, arguments, process IDs, commands, and raw technical failures remain private. Arguments are unsupported unless a later approved action defines and validates an explicit allowlisted argument contract. Opening a terminal application does not authorize executing commands inside it, and Ares never controls an external application's internals.
+- task, event, reminder or contact titles and names, message text, phone numbers;
+- file and folder names, queries, paths, URLs;
+- the typed weather place, coordinates, provider payloads or temperatures;
+- computer information numbers (disk, memory, processor, uptime): history stores only "Se consultó información del equipo."; the module never reads processes, files, users, host names, addresses, serial numbers, installed software or paths;
+- the text of a typed or spoken instruction in the local-brain log line (it carries only a closed intent name and a closed route), and anything the system voice speaks (it runs in the renderer with no IPC, network, storage or logging);
+- the aliases a person typed for an application, executable paths, tokens, authorization codes, response bodies;
+- raw exceptions: executors log one constant line (for example `Weather action execution failed.`).
 
-`OPEN_WEB_PAGE` is a separate allowlisted action, not a generic URL opener. Its initial catalog contains only `YOUTUBE`, resolved in Main to one fixed HTTPS destination, and only `CHROME`, resolved to the enabled registered `chrome` alias. Main re-resolves both immediately before launch and passes exactly that fixed catalog URL as Chrome's sole argument with `shell: false`. URLs, protocols, fragments, encoded bypasses, localhost or private-network targets, browser flags, user arguments, default-browser fallback, and arbitrary external opening are rejected. Public results and history retain only the trusted application display name and a safe Spanish summary.
+Failure messages come from closed taxonomies of fixed Spanish sentences that contain no user data ([KITS.md](KITS.md)); a test walks every taxonomy and rejects digit runs, paths, URLs and interpolation placeholders.
 
-## AI containment and validation
+An agenda answer (GET_TODAY_SCHEDULE, for today or a day up to 14 days ahead) necessarily contains the person's own titles and times. It is built for the on-screen and spoken response only and is spoken through the configured speech provider like any other answer, with its own bounded cap (about 600 characters, never cutting inside a sentence); history keeps the fixed sentence «Se consultó la agenda.» and nothing from the answer is logged. Speech receives only text Main composed for the response, already capped to about two sentences. That text goes to OpenAI, or to ElevenLabs when `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are set (and to OpenAI if ElevenLabs fails for that sentence). Nothing else is sent to ElevenLabs: no history and no identifiers, only what the spoken sentence itself says. Its key and voice id are read in Main only, never logged, and failures log only a closed code. Weather answers are spoken because the person just asked for them; they are not stored.
 
-AI is limited to interpretation and structured proposals from [ACTIONS.md](ACTIONS.md). The model has no tools or authority to initiate arbitrary network requests and cannot access arbitrary URLs, the filesystem, database, processes, credentials, or operating-system commands. Main's OpenAI client may make the controlled network request required for the configured OpenAI API, with only approved minimal context. Main validates the action name, fields, authorization, dependencies, risk, proposal immutability, and confirmation state before service execution. Unsupported actions are rejected.
+## Credentials
 
-The interpreter can only return drafts for already approved implemented actions. It never executes, proposes, confirms, cancels, or records an action itself. `window.ares.assistant` exposes only `interpret({ text })`; no execution or provider API exists in preload. The temporary renderer requires an explicit proposal click for each returned draft, followed by a separate visible confirmation or cancellation click for a Level 2 proposal. Main permits only one in-flight interpretation request, preventing concurrent renderer requests from creating parallel provider charges. Trusted Main reference data supplies the current instant and IANA time zone for Spanish relative dates; missing or ambiguous identifiers, aliases, and file references require clarification rather than guessing. User text, registered aliases, file references, and future external content are untrusted data: they cannot change the fixed action catalog, output schema, approved roots, confirmation policy, or system instructions. Requests for secrets, internal instructions, SQL, shell behavior, hidden APIs, or confirmation bypasses are rejected before they can become drafts. Provider output, prompts, credentials, model information, request identifiers, token usage, and raw provider errors never cross the Main boundary.
+Credentials live in the environment of the Main process: the OpenAI key and models, the optional ElevenLabs key and voice id, the database URL and the Spotify client id (names in [SETUP.md](SETUP.md)). They are read in Main when first needed, never exposed to Vite, preload or renderer, and never logged. Spotify tokens are the only credential Ares stores, encrypted.
 
-## Secrets, privacy, and logging
+## Files and deletion
 
-Development secrets come only from environment variables and are never committed or exposed through `window.ares`. OpenAI credentials remain in Main; database credentials remain outside the renderer. Logs are English, use stable codes, contain no secrets, and avoid unnecessary personal file content. User-facing errors are Spanish and must not expose raw technical messages.
-
-## Voice privacy
-
-Manual push-to-talk remains available. Wake-word mode is disabled by default and can operate only after the user explicitly enables it in Settings and explicitly grants microphone permission. While the Ares process is running, including while its window is minimized, the configured local detector may monitor for the activation phrase. Waiting-mode audio remains local, is not persisted, is not sent to OpenAI or another remote provider, and is not included in technical logs. Ares does not listen after its process is closed and this decision does not approve Windows auto-start.
-
-After a local activation event, one bounded command-recording session may begin. The renderer requests and uses microphone access through constrained browser media APIs; it receives no Node.js, filesystem, process, shell, environment, or unrestricted Electron access. A narrow validated preload/IPC method transfers only bounded command audio to Main, which owns provider credentials. If detector state is uncertain, it fails closed and remote capture does not begin. The user has an immediate mute or disable control, and microphone loss or permission denial produces a controlled Spanish state. Temporary command audio is removed after processing unless a development configuration explicitly authorizes short-lived diagnostic retention after a failure.
-
-Wake-word detection only begins capture. It never confirms an action, and voice input never bypasses validation, risk classification, or confirmation. Transcribed text follows the same pipeline as typed input. Level 2 confirmation remains visible UI, correlated by an opaque confirmation identifier; optional spoken output cannot bypass it.
+Search is limited to six known folders (Desktop, Documents, Downloads, Pictures, Music, Videos). Results are addressed by ordinal (1 to 10) from the last search, which expires after ten minutes; prepared actions expire after five. Opening blocks executable-like extensions. Rename, move and create never overwrite (`FILES_ALREADY_EXISTS`). The only deletion is sending one found item to the Recycle Bin after a reinforced confirmation; there is no permanent deletion.

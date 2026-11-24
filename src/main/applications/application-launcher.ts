@@ -8,7 +8,6 @@ import { validateExecutablePath } from "./application-validation";
 import { getApplicationService } from "./application-composition";
 import type { ApplicationService } from "./application-service";
 import type { ResolvedApplicationTarget } from "./application-repositories";
-import type { TrustedWebDestination } from "./trusted-web-destinations";
 import { createCatalogApplicationAdapter, type CatalogApplicationAdapter } from "./catalog-application-adapter";
 import { CATALOG_LAUNCH_FAILURE } from "./catalog-registration-failures";
 
@@ -53,10 +52,6 @@ export type ApplicationLauncher = {
   ) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
   /** Opens the registered, enabled Spotify app on a search; the query is validated again by the adapter. */
   searchSpotifyApp: (query: unknown) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
-  launchResolvedBrowserTarget: (
-    target: ResolvedApplicationTarget,
-    destination: TrustedWebDestination
-  ) => Promise<ApplicationOperationResult<ApplicationLaunchData>>;
 };
 
 const launcherMessages = {
@@ -64,11 +59,11 @@ const launcherMessages = {
   APPLICATION_EXECUTABLE_NOT_FOUND: "No se encontró el ejecutable de la aplicación registrada.",
   APPLICATION_EXECUTABLE_NOT_FILE: "El ejecutable registrado no es un archivo válido.",
   APPLICATION_EXECUTABLE_EXTENSION_INVALID: "El archivo registrado no es un ejecutable válido.",
-  APPLICATION_LAUNCH_FAILED: "No se pudo abrir la aplicación registrada.",
+  APPLICATION_LAUNCH_FAILED: "No pude abrir esa aplicación. Revisa que esté instalada.",
   APPLICATION_DISABLED: "La aplicación está deshabilitada.",
   APPLICATION_CATALOG_UNAVAILABLE: "No encontré esa aplicación disponible en este equipo.",
   APPLICATION_CATALOG_LAUNCH_FAILED: CATALOG_LAUNCH_FAILURE.userMessage,
-  APPLICATION_SPOTIFY_NOT_REGISTERED: "Primero debes registrar esa aplicación para poder abrirla.",
+  APPLICATION_SPOTIFY_NOT_REGISTERED: "Aún no tengo esa aplicación registrada. Pídeme que la registre primero.",
   APPLICATION_SPOTIFY_QUERY_INVALID: "Indica qué canción, artista o álbum quieres buscar en Spotify."
 } as const;
 
@@ -219,7 +214,6 @@ export const createApplicationLauncher = (
             : "APPLICATION_CATALOG_UNAVAILABLE"
       );
     },
-    launchResolvedTarget: (target) => launchResolvedTarget(target, []),
-    launchResolvedBrowserTarget: (target, destination) => launchResolvedTarget(target, [destination.url])
+    launchResolvedTarget: (target) => launchResolvedTarget(target, [])
   };
 };

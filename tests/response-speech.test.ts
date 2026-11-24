@@ -123,7 +123,7 @@ describe("trusted response speech", () => {
     expect(composeFinalResponse({ ...outcome, data: undefined })).toBeUndefined();
     expect(composeFinalResponse({ ...outcome, action: "DELETE_EVENT", data: { deleted: true } })).toBe("Listo, eliminé el evento.");
     expect(composeFinalResponse({ ...outcome, action: "DELETE_EVENT", data: {} })).toBeUndefined();
-    expect(composeFinalResponse({ ...outcome, action: "ORGANIZE_FILES" })).toBeUndefined();
+    expect(composeFinalResponse({ ...outcome, action: "GET_TODAY_SCHEDULE" })).toBeUndefined();
   });
   it("uses only the Main-resolved application display name and keeps it eligible for response-ID speech", async () => {
     const outcome = {
@@ -172,7 +172,7 @@ describe("trusted response speech", () => {
       data: { site: "YOUTUBE", mode: "HOME" }
     } as ActionOutcome);
 
-    expect(search).toBe("Busqué en Spotify en la web. Pulsa reproducir cuando quieras. Si registras la app de Spotify, el resultado es mejor.");
+    expect(search).toBe("Busqué en Spotify en la web. Pulsa reproducir cuando quieras.");
     expect(home).toBe("Listo, abrí YouTube.");
     expect(JSON.stringify({ search, home })).not.toContain("http");
     expect(composeFinalResponse({ action: "SEARCH_APPROVED_SITE", status: "EXECUTION_FAILED", data: { site: "SPOTIFY", mode: "SEARCH" } } as ActionOutcome)).toBeUndefined();
@@ -182,7 +182,7 @@ describe("trusted response speech", () => {
       action: "OPEN_APPLICATION",
       status: "EXECUTION_FAILED",
       data: { applicationName: "Google Chrome" },
-      userSummary: "No se pudo abrir la aplicación registrada."
+      userSummary: "No pude abrir esa aplicación. Revisa que esté instalada."
     } as ActionOutcome;
     expect(composeFinalResponse(outcome)).toBeUndefined();
     expect(composeFinalResponse({ ...outcome, status: "SUCCEEDED", data: undefined })).toBeUndefined();

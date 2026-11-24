@@ -7,7 +7,6 @@ import {
 import type { ApplicationService } from "../src/main/applications/application-service";
 import type { AssistantContextService } from "../src/main/assistant/assistant-context-service";
 import type { ApplicationRecord } from "../src/shared/application-contracts";
-import type { PlannerService } from "../src/main/planner/planner-service";
 
 const readyResult = {
   ok: true as const,
@@ -65,10 +64,6 @@ const customRecord: ApplicationRecord = {
 const applicationServiceFor = (items: ApplicationRecord[] = []) => ({
   listApplications: vi.fn(async () => ({ ok: true as const, data: { items, total: items.length } }))
 }) as unknown as Pick<ApplicationService, "listApplications">;
-
-const weeklyScheduleServiceFor = (items: unknown[] = []) => ({
-  listWeeklySchedules: vi.fn(async () => ({ ok: true as const, data: { items, total: items.length } }))
-}) as unknown as Pick<PlannerService, "listWeeklySchedules">;
 
 describe("assistant interpretation composition", () => {
   it("maps the public text request to the internal instruction contract", async () => {
@@ -165,7 +160,7 @@ describe("assistant interpretation composition", () => {
       ok: true as const,
       data: {
         state: "READY" as const,
-        summary: "Preparé los borradores solicitados.",
+        summary: "Listo, esto es lo que preparé.",
         drafts: [{ action: "OPEN_APPLICATION" as const, input: { alias: "chrome" } }],
         clarifications: []
       }
@@ -214,70 +209,15 @@ describe("assistant interpretation composition", () => {
     expect(interpret).toHaveBeenCalledOnce();
   });
 
-  it("supplies a bounded weekly schedule-title context without identifiers, routine details, or configuration values", async () => {
-    const privateSchedule = {
-      id: "550e8400-e29b-41d4-a716-446655440099",
-      title: "  Universidad  ",
-      description: "private description",
-      color: "#123456",
-      createdAt: "2026-10-03T00:00:00.000Z",
-      updatedAt: "2026-10-03T00:00:00.000Z"
-    };
-    const interpret = vi.fn(async (_input, reference) => {
-      expect(reference).toMatchObject({ knownApplicationAliases: [], knownWeeklyScheduleTitles: ["Universidad"], knownCatalogApplications: expect.any(Array) });
-      return readyResult;
-    });
+  it("never supplies weekly schedule or habit references to the provider", async () => {
+    const interpret = vi.fn(async (_input: unknown, _reference: unknown) => readyResult);
     const service = createAssistantInterpretationService({
       getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
-      getApplicationService: () => applicationServiceFor(),
-      getPlannerService: () => weeklyScheduleServiceFor([privateSchedule])
+      getApplicationService: () => applicationServiceFor()
     });
-
-    await expect(service.interpret({ text: "¿Qué tengo en mi horario de Universidad?" })).resolves.toEqual(readyResult);
-    const providerReference = interpret.mock.calls[0]?.[1];
-    expect(JSON.stringify(providerReference)).not.toContain(privateSchedule.id);
-    expect(JSON.stringify(providerReference)).not.toContain("private description");
-    expect(JSON.stringify(providerReference)).not.toContain("#123456");
-  });
-
-  it("supplies only bounded active habit titles and fixed icon keys to interpretation", async () => {
-    const privateHabit = {
-      id: "550e8400-e29b-41d4-a716-446655440088", title: "  Leer  ", description: "private description", categoryId: "550e8400-e29b-41d4-a716-446655440089",
-      icon: "BOOK" as const, frequency: "DAILY" as const, targetCount: 1, active: true,
-      createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z"
-    };
-    const interpret = vi.fn(async (_input, providerReference) => {
-      expect(providerReference).toMatchObject({ knownHabitTitles: ["Leer"], allowedHabitIcons: expect.arrayContaining(["BOOK", "DUMBBELL"]) });
-      return readyResult;
-    });
-    const service = createAssistantInterpretationService({
-      getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
-      getApplicationService: () => applicationServiceFor(),
-      getHabitService: () => ({ list: vi.fn(async () => ({ ok: true as const, data: { items: [privateHabit], total: 1 } })) } as never)
-    });
-
-    await expect(service.interpret({ text: "Muéstrame el progreso de Leer" })).resolves.toEqual(readyResult);
-    const serialized = JSON.stringify(interpret.mock.calls[0]?.[1]);
-    expect(serialized).not.toContain(privateHabit.id);
-    expect(serialized).not.toContain("private description");
-    expect(serialized).not.toContain(privateHabit.categoryId);
-  });
-
-  it("continues a conversational interpretation when weekly-title lookup fails", async () => {
-    const interpret = vi.fn(async () => ({
-      ok: true as const,
-      data: { state: "CONVERSATIONAL" as const, summary: "Hola, Juli.", drafts: [], clarifications: [] }
-    }));
-    const service = createAssistantInterpretationService({
-      getInterpreter: () => ({ interpret } as unknown as AssistantInterpreter),
-      getApplicationService: () => applicationServiceFor(),
-      getPlannerService: () => ({
-        listWeeklySchedules: vi.fn(async () => ({ ok: false as const, error: { code: "PLANNER_DATABASE_UNAVAILABLE", userMessage: "private" } }))
-      } as unknown as Pick<PlannerService, "listWeeklySchedules">)
-    });
-
-    await expect(service.interpret({ text: "Hola" })).resolves.toMatchObject({ ok: true, data: { state: "CONVERSATIONAL" } });
-    expect(interpret).toHaveBeenCalledWith({ instruction: "Hola" }, expect.objectContaining({ knownApplicationAliases: [], knownWeeklyScheduleTitles: [], knownCatalogApplications: expect.any(Array) }), undefined, expect.any(Function));
+    await service.interpret({ text: "Hola" });
+    const providerReference = interpret.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(Object.keys(providerReference).sort()).toEqual(["knownApplicationAliases", "knownCatalogApplications"]);
   });
 
   it("does not pass a legacy file context to the provider boundary", async () => {

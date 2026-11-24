@@ -19,16 +19,24 @@ const createOperationFailure = (code: string, userMessage: string): OperationFai
 });
 
 export const getSystemStatusResult = (
-  getMetadata: () => SystemMetadata
+  getMetadata: () => SystemMetadata,
+  readMicrophoneAccess?: () => SystemStatusData["microphoneAccess"]
 ): OperationResult<SystemStatusData> => {
   try {
     const metadata = getMetadata();
+    let microphoneAccess: SystemStatusData["microphoneAccess"];
+    try {
+      microphoneAccess = readMicrophoneAccess?.();
+    } catch {
+      microphoneAccess = "unknown";
+    }
 
     return {
       ok: true,
       data: {
         ...metadata,
-        readiness: "READY"
+        readiness: "READY",
+        ...(microphoneAccess === undefined ? {} : { microphoneAccess })
       }
     };
   } catch {
@@ -40,7 +48,12 @@ export const getSystemStatusResult = (
   }
 };
 
-export const getSystemCapabilitiesResult = (): OperationResult<SystemCapabilities> => ({
+/**
+ * `voice` says whether spoken input can work right now: transcription needs the OpenAI key, so it is false without it and the
+ * renderer offers typed input instead. `assistant` stays true because the offline local brain always answers. Nothing about
+ * the key itself (not even its presence in detail) is returned.
+ */
+export const getSystemCapabilitiesResult = (isVoiceConfigured: () => boolean = () => true): OperationResult<SystemCapabilities> => ({
   ok: true,
   data: {
     database: false,
@@ -49,7 +62,7 @@ export const getSystemCapabilitiesResult = (): OperationResult<SystemCapabilitie
     files: true,
     applications: true,
     assistant: true,
-    voice: true,
+    voice: ((): boolean => { try { return isVoiceConfigured(); } catch { return false; } })(),
     notifications: true
   }
 });

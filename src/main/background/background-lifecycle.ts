@@ -5,8 +5,15 @@
 export const TRAY_LABELS = Object.freeze({
   open: "Abrir Ares",
   quit: "Salir",
+  theme: "Tema",
   tooltip: "Ares"
 });
+
+export const THEME_MENU_CHOICES = Object.freeze([
+  { value: "system", label: "Automático" },
+  { value: "light", label: "Claro" },
+  { value: "dark", label: "Oscuro" }
+] as const);
 
 type CloseEventLike = { preventDefault: () => void };
 
@@ -30,8 +37,11 @@ export type ManagedTray = {
   destroy: () => void;
 };
 
+export type TrayThemeItem = { label: string; type: "radio"; checked: boolean; click: () => void };
+
 export type TrayMenuItem =
   | { label: string; click: () => void }
+  | { label: string; submenu: TrayThemeItem[] }
   | { type: "separator" };
 
 export type BackgroundLifecycleDependencies = {
@@ -47,6 +57,8 @@ export type BackgroundLifecycleDependencies = {
   logError: (message: string) => void;
   /** The display form of the active global shortcut, or undefined when none is registered. */
   getShortcutLabel?: () => string | undefined;
+  /** Optional theme submenu: the current preference and how to choose another. Absent means no submenu. */
+  theme?: { current: () => "system" | "light" | "dark"; choose: (preference: "system" | "light" | "dark") => void };
 };
 
 export type BackgroundLifecycle = {
@@ -108,12 +120,33 @@ export const createBackgroundLifecycle = (dependencies: BackgroundLifecycleDepen
 
   const buildTrayMenu = (): unknown => {
     const label = shortcutLabel();
+    const theme = dependencies.theme;
+    const themeItems: TrayMenuItem[] = theme
+      ? [{
+        label: TRAY_LABELS.theme,
+        submenu: THEME_MENU_CHOICES.map((choice) => ({
+          label: choice.label, type: "radio" as const, checked: theme.current() === choice.value,
+          click: () => { theme.choose(choice.value); refreshTray(); }
+        }))
+      }]
+      : [];
     return dependencies.buildMenu([
       { label: label ? `${TRAY_LABELS.open} (${label})` : TRAY_LABELS.open, click: showMainWindow },
+      ...themeItems,
       { type: "separator" },
       { label: TRAY_LABELS.quit, click: quit }
     ]);
   };
+
+  function refreshTray(): void {
+    if (!tray) return;
+    try {
+      tray.setToolTip(trayTooltip());
+      tray.setContextMenu(buildTrayMenu());
+    } catch {
+      dependencies.logError("Tray refresh failed.");
+    }
+  }
 
   const dispose = (): void => {
     const current = tray;
@@ -152,15 +185,7 @@ export const createBackgroundLifecycle = (dependencies: BackgroundLifecycleDepen
         dependencies.logError("Tray creation failed.");
       }
     },
-    refreshTray: () => {
-      if (!tray) return;
-      try {
-        tray.setToolTip(trayTooltip());
-        tray.setContextMenu(buildTrayMenu());
-      } catch {
-        dependencies.logError("Tray refresh failed.");
-      }
-    },
+    refreshTray,
     attachWindow: (window) => {
       window.on("close", (event) => {
         if (quitting || !tray) return;

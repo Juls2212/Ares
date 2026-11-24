@@ -1,14 +1,10 @@
 import { app, BrowserWindow, globalShortcut, Menu, nativeImage, nativeTheme, session, Tray } from "electron";
-import os from "node:os";
 import path from "node:path";
 import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
 import { registerAssistantIpcHandlers } from "./ipc/register-assistant-ipc";
-import { registerApplicationIpcHandlers } from "./ipc/register-application-ipc";
-import { registerDashboardIpcHandlers } from "./ipc/register-dashboard-ipc";
-import { registerHabitIpcHandlers } from "./ipc/register-habit-ipc";
-import { registerPlannerIpcHandlers } from "./ipc/register-planner-ipc";
 import { registerSettingsIpcHandlers } from "./ipc/register-settings-ipc";
 import { registerSystemIpcHandlers } from "./ipc/register-system-ipc";
+import { registerThemeIpcHandlers } from "./ipc/register-theme-ipc";
 import { registerVoiceIpcHandlers } from "./ipc/register-voice-ipc";
 import { registerSpeechIpcHandlers } from "./ipc/register-speech-ipc";
 import { registerMessagingIpcHandlers } from "./ipc/register-messaging-ipc";
@@ -22,8 +18,11 @@ import {
 } from "./voice/microphone-permission";
 import { createGlobalVoiceShortcutLifecycle } from "./voice/global-voice-shortcut";
 import { configureVoicePreferencesService } from "./settings/voice-preferences-composition";
+import { getApplicationService } from "./applications/application-composition";
+import { seedKnownApplications } from "./applications/known-application-seeder";
 import { removeFullScreenMenuCommand } from "./compact-window-menu";
-import { getWindowAppearance } from "./window-appearance";
+import { getTitleBarOverlay, getWindowChrome } from "./window-theme";
+import { createThemePreferenceService, createThemePreferenceStore } from "./settings/theme-preference-service";
 import { formatShortcutForDisplay } from "../shared/settings-contracts";
 import {
   createBackgroundLifecycle,
@@ -36,6 +35,25 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 
 const trustedRendererWebContents = new Set<number>();
 let mainWindow: BrowserWindow | undefined;
+
+/** Window size: a portrait HUD that can be resized down to the minimum. */
+const WINDOW_SIZE = { width: 480, height: 740, minWidth: 420, minHeight: 620 } as const;
+
+/** Follows the persisted preference ("system", "light" or "dark") and keeps the window colors in step with it. */
+const themePreferenceService = createThemePreferenceService({
+  store: createThemePreferenceStore,
+  nativeTheme,
+  onApplied: () => { applyWindowTheme(); backgroundLifecycle.refreshTray(); },
+  logError: (message) => console.error(message)
+});
+
+const applyWindowTheme = (): void => {
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) return;
+  const chrome = readWindowChrome();
+  window.setBackgroundColor(chrome.backgroundColor);
+  if (chrome.customTitleBar && typeof window.setTitleBarOverlay === "function") window.setTitleBarOverlay(getTitleBarOverlay(nativeTheme.shouldUseDarkColors));
+};
 
 const globalVoiceShortcutLifecycle = createGlobalVoiceShortcutLifecycle({
   globalShortcut,
@@ -86,8 +104,9 @@ const backgroundLifecycle = createBackgroundLifecycle({
   },
   buildMenu: (items) =>
     Menu.buildFromTemplate(
-      items.map((item) => ("type" in item ? { type: "separator" as const } : { label: item.label, click: item.click }))
+      items.map((item) => ("type" in item ? { type: "separator" as const } : "submenu" in item ? { label: item.label, submenu: item.submenu } : { label: item.label, click: item.click }))
     ),
+  theme: { current: () => themePreferenceService.get(), choose: (preference) => { void themePreferenceService.set(preference); } },
   logError: (message) => console.error(message)
 });
 
@@ -137,26 +156,21 @@ const configureSessionSecurity = (): void => {
   });
 };
 
-/** Reads only values Electron exposes (no registry): platform, OS build and the accessibility settings. */
-const readWindowAppearance = () => getWindowAppearance({
+/** Reads only values Electron exposes: platform, Electron version and whether the system uses dark colors. */
+const readWindowChrome = () => getWindowChrome({
   platform: process.platform,
-  release: os.release(),
-  shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
-  shouldUseHighContrastColors: nativeTheme.shouldUseHighContrastColors,
-  prefersReducedTransparency: nativeTheme.prefersReducedTransparency
+  electronVersion: process.versions.electron,
+  shouldUseDarkColors: nativeTheme.shouldUseDarkColors
 });
 
 const createMainWindow = async (): Promise<void> => {
-  const windowAppearance = readWindowAppearance();
+  const windowChrome = readWindowChrome();
   const createdWindow = new BrowserWindow({
-    width: 440,
-    height: 440,
-    minWidth: 360,
-    minHeight: 360,
+    ...WINDOW_SIZE,
     useContentSize: true,
     maximizable: false,
     fullscreenable: false,
-    ...windowAppearance.options,
+    ...windowChrome.options,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -167,21 +181,18 @@ const createMainWindow = async (): Promise<void> => {
       preload: path.join(__dirname, "preload.js")
     }
   });
-  createdWindow.setAspectRatio(1);
-  // Glass (Acrylic) when the system supports it; otherwise an opaque surface that follows the system theme.
-  // No stylesheet is injected: the opaque surface is the window background, and the translucent tint stays legible over it.
-  const applyWindowAppearance = (): void => {
-    if (createdWindow.isDestroyed()) return;
-    const appearance = readWindowAppearance();
-    if (process.platform === "win32") createdWindow.setBackgroundMaterial(appearance.material === "acrylic" ? "acrylic" : "none");
-    createdWindow.setBackgroundColor(appearance.backgroundColor);
-  };
-  nativeTheme.on("updated", applyWindowAppearance);
-  createdWindow.once("closed", () => nativeTheme.removeListener("updated", applyWindowAppearance));
-  createdWindow.webContents.on("did-finish-load", applyWindowAppearance);
-  const applicationMenu = Menu.getApplicationMenu();
-  if (applicationMenu && removeFullScreenMenuCommand(applicationMenu)) Menu.setApplicationMenu(applicationMenu);
+  // A solid background that follows the system theme; the title bar overlay follows it too.
+  nativeTheme.on("updated", applyWindowTheme);
+  createdWindow.once("closed", () => nativeTheme.removeListener("updated", applyWindowTheme));
+  // The native menu bar only exists in development, so DevTools stay reachable there.
+  if (app.isPackaged) {
+    Menu.setApplicationMenu(null);
+  } else {
+    const applicationMenu = Menu.getApplicationMenu();
+    if (applicationMenu && removeFullScreenMenuCommand(applicationMenu)) Menu.setApplicationMenu(applicationMenu);
+  }
   mainWindow = createdWindow;
+  applyWindowTheme();
   backgroundLifecycle.attachWindow(toManagedWindow(createdWindow));
   const createdWebContents = createdWindow.webContents;
   const createdWebContentsId = createdWebContents.id;
@@ -220,8 +231,6 @@ app.whenReady().then(async () => {
   if (!isPrimaryInstance) return;
   configureSessionSecurity();
   registerSystemIpcHandlers();
-  registerPlannerIpcHandlers();
-  registerHabitIpcHandlers();
   registerActionIpcHandlers();
   registerMessagingIpcHandlers();
   // The contact form is shown by the one trusted window; the renderer receives only a friendly name.
@@ -236,14 +245,21 @@ app.whenReady().then(async () => {
   registerSpeechIpcHandlers();
   const voicePreferencesService = configureVoicePreferencesService(globalVoiceShortcutLifecycle);
   registerSettingsIpcHandlers();
-  registerApplicationIpcHandlers();
-  registerDashboardIpcHandlers();
+  // The toggle button uses the same service as the tray menu; only the trusted window's top frame may call it.
+  registerThemeIpcHandlers(() => themePreferenceService, (event) => {
+    const sender = event as Electron.IpcMainInvokeEvent;
+    return trustedRendererWebContents.has(sender.sender.id) && sender.senderFrame === sender.sender.mainFrame;
+  });
   registerReminderDeliveryShutdown(app);
   getReminderDeliveryScheduler().start();
   const voicePreferences = await voicePreferencesService.initialize();
   if (!voicePreferences.ok) {
     console.error("Voice preferences startup initialization failed.");
   }
+  // Bundled first-run data from the trusted catalog; it never throws and is not reachable from IPC or the interpreter.
+  await seedKnownApplications({ applicationService: getApplicationService() });
+  // The saved theme is applied before the window exists; a database problem leaves the system theme and never fails startup.
+  await themePreferenceService.initialize();
   backgroundLifecycle.createTray();
   await createMainWindow();
 

@@ -1,5 +1,7 @@
-import { app, ipcMain } from "electron";
+import { app, ipcMain, systemPreferences } from "electron";
+import { normalizeMicrophoneAccess } from "../../shared/voice-diagnostics";
 import { IPC_CHANNELS } from "../../shared/contracts";
+import { getOpenAiSpeechConfiguration } from "../config/openai-environment";
 import { getSystemCapabilitiesResult, getSystemStatusResult } from "../system/system-service";
 
 let handlersRegistered = false;
@@ -14,11 +16,15 @@ export const registerSystemIpcHandlers = (): void => {
       applicationName: app.getName(),
       applicationVersion: app.getVersion(),
       runtimePlatform: process.platform
-    }));
+    }), () => normalizeMicrophoneAccess(systemPreferences.getMediaAccessStatus("microphone")));
   });
 
   ipcMain.handle(IPC_CHANNELS.system.getCapabilities, async () => {
-    return getSystemCapabilitiesResult();
+    // Transcription needs only the OpenAI key; the check reads the same configuration the transcription itself will read.
+    return getSystemCapabilitiesResult(() => {
+      getOpenAiSpeechConfiguration();
+      return true;
+    });
   });
 
   handlersRegistered = true;

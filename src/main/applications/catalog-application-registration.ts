@@ -1,3 +1,4 @@
+import { lowerTrim } from "../../shared/text-fold";
 import type {
   ApplicationCatalogKey,
   ApplicationOperationResult
@@ -39,7 +40,6 @@ const parse = (input: unknown): CatalogApplicationRegistrationInput | undefined 
   return { catalogKey: value.catalogKey as ApplicationCatalogKey, ...(value.alias === undefined ? {} : { alias: value.alias }) };
 };
 
-const normalize = (value: string): string => value.trim().toLocaleLowerCase("en-US");
 
 export const createCatalogApplicationRegistrationService = (
   overrides: Partial<Dependencies> & Pick<Dependencies, "applicationService">
@@ -65,14 +65,14 @@ export const createCatalogApplicationRegistrationService = (
         dependencies.logError("Catalog application registration could not list applications.");
         return catalogRegistrationFailure("PERSISTENCE_FAILED");
       }
-      const normalizedAlias = normalize(aliasResult.data);
-      const normalizedName = normalize(definition.displayName);
+      const normalizedAlias = lowerTrim(aliasResult.data);
+      const normalizedName = lowerTrim(definition.displayName);
       if (applications.data.items.some((record) => record.catalogKey === definition.key)) {
         return catalogRegistrationFailure("ALREADY_REGISTERED");
       }
       // Registration rejects a repeated name, so it is reported here rather than after the user confirms.
       if (applications.data.items.some((record) =>
-        normalize(record.name) === normalizedName || record.aliases.some((entry) => normalize(entry.alias) === normalizedAlias)
+        lowerTrim(record.name) === normalizedName || record.aliases.some((entry) => lowerTrim(entry.alias) === normalizedAlias)
       )) {
         return catalogRegistrationFailure("ALIAS_CONFLICT");
       }

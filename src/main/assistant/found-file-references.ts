@@ -1,4 +1,5 @@
-import { normalizeApplicationAlias } from "../applications/known-application-catalog";
+import { createPhraseSet } from "../../shared/phrase-kit";
+import { foldForAlias } from "../../shared/text-fold";
 
 /**
  * Deterministic parsing of «abre/muestra el segundo archivo» and «abre <nombre>» phrases. It only
@@ -15,8 +16,8 @@ export type FoundFileCommand = {
     | { kind: "NAME"; name: string };
 };
 
-const OPEN_VERBS = ["abre", "abrir", "abreme", "abrelo", "abrela"];
-const REVEAL_VERBS = ["muestra", "muestrame", "mostrar", "ensename", "ensena", "enseñame"];
+const OPEN_VERBS = createPhraseSet(["abre", "abrir", "abreme", "abrelo", "abrela"], foldForAlias);
+const REVEAL_VERBS = createPhraseSet(["muestra", "muestrame", "mostrar", "ensename", "ensena", "enseñame"], foldForAlias);
 
 const ORDINAL_WORDS: Readonly<Record<string, number | "LAST">> = {
   primero: 1, primer: 1, primera: 1,
@@ -48,32 +49,32 @@ const parseOrdinalTokens = (tokens: string[]): number | "LAST" | undefined => {
   if (rest.length > 1 && RESULT_NOUNS.has(rest[rest.length - 1] as string)) rest = rest.slice(0, -1);
   if (rest.length === 1) {
     const word = rest[0] as string;
-    if (word in ORDINAL_WORDS) return ORDINAL_WORDS[word];
+    if (Object.hasOwn(ORDINAL_WORDS, word)) return ORDINAL_WORDS[word];
     if (/^\d{1,2}$/u.test(word)) return Number(word);
     return undefined;
   }
   if (rest.length === 2 && (rest[0] === "numero" || rest[0] === "n")) {
     const word = rest[1] as string;
     if (/^\d{1,2}$/u.test(word)) return Number(word);
-    if (word in CARDINAL_WORDS) return CARDINAL_WORDS[word];
+    if (Object.hasOwn(CARDINAL_WORDS, word)) return CARDINAL_WORDS[word];
   }
   return undefined;
 };
 
 /** Reads one ordinal phrase such as «el segundo archivo», «el último» or «el número 3». */
 export const parseOrdinalPhrase = (phrase: string): OrdinalReference | undefined => {
-  const tokens = normalizeApplicationAlias(phrase).split(" ").filter((token) => token.length > 0);
+  const tokens = foldForAlias(phrase).split(" ").filter((token) => token.length > 0);
   return tokens.length === 0 ? undefined : parseOrdinalTokens(dropLeading(tokens, ARTICLES));
 };
 
 export const parseFoundFileCommand = (instruction: string): FoundFileCommand | undefined => {
-  let tokens = normalizeApplicationAlias(instruction).split(" ").filter((token) => token.length > 0);
+  let tokens = foldForAlias(instruction).split(" ").filter((token) => token.length > 0);
   if (tokens[0] === "por" && tokens[1] === "favor") tokens = tokens.slice(2);
   if (tokens.length < 2) return undefined;
   const verb = tokens[0] as string;
-  const action: FoundFileCommandAction | undefined = OPEN_VERBS.includes(verb)
+  const action: FoundFileCommandAction | undefined = OPEN_VERBS.has(verb)
     ? "OPEN_FOUND_FILE"
-    : REVEAL_VERBS.map((candidate) => normalizeApplicationAlias(candidate)).includes(verb)
+    : REVEAL_VERBS.has(verb)
       ? "REVEAL_FOUND_FILE"
       : undefined;
   if (!action) return undefined;

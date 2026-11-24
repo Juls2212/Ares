@@ -7,11 +7,9 @@ import {
   type AssistantContextData,
   type AssistantContextKind,
   type AssistantContextSelection,
-  type AssistantContextSetInput,
   type AssistantCurrentContext,
   type AssistantOperationResult
 } from "../../shared/assistant-contracts";
-import type { SafeFileReference } from "../../shared/file-contracts";
 import { validateApplicationAlias } from "../applications/application-validation";
 import { getApplicationService } from "../applications/application-composition";
 import type { ApplicationService } from "../applications/application-service";

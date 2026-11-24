@@ -1,4 +1,5 @@
 import { SPEECH_LIMITS, type SpeechApi } from "../../../shared/speech-contracts";
+import { SYSTEM_VOICE_FALLBACK_CODES, type SystemVoiceHandlers, type SystemVoiceStart } from "./system-voice";
 
 export type PlaybackState = "IDLE" | "LOADING" | "PLAYING" | "FINISHED" | "ERROR";
 export type PlaybackEvent = {
@@ -9,8 +10,17 @@ export type PlaybackEvent = {
 export type PlaybackFailure = "MAIN_RESULT" | "AUDIO_VALIDATION" | "OBJECT_URL" | "AUDIO_PLAYBACK" | "PLAY_NOT_ALLOWED" | "PLAY_NOT_SUPPORTED" | "PLAY_ABORTED" | "PLAY_START_TIMEOUT" | "NO_PLAYING_EVENT";
 export type PlaybackDiagnostic = "MP3_RECEIVED" | "BLOB_READY" | "LOADED_METADATA" | "CAN_PLAY" | "PLAYING" | "ENDED" | "STOPPED" | "MEDIA_ABORTED" | "MEDIA_NETWORK" | "MEDIA_DECODE" | "MEDIA_UNSUPPORTED" | "MEDIA_UNKNOWN";
 
+/** The system voice as the last resort: used only when the speech channel reports that no provider can speak. */
+export type SystemVoiceFallback = {
+  speak: (responseId: string, handlers: SystemVoiceHandlers) => Promise<SystemVoiceStart>;
+  cancel: () => void;
+  /** Called when the answer stays text-only because there is no Spanish voice (the caller shows its message once). */
+  onNoVoice?: () => void;
+};
+
 export const createResponsePlayback = (dependencies: {
   speak: SpeechApi["speak"];
+  systemVoice?: SystemVoiceFallback;
   createUrl: (blob: Blob) => string;
   revokeUrl: (url: string) => void;
   createAudio: (url: string) => HTMLAudioElement;
@@ -25,11 +35,13 @@ export const createResponsePlayback = (dependencies: {
   let busy = false;
   let activeResponseId: string | undefined;
   let startTimer: ReturnType<typeof setTimeout> | undefined;
+  let systemVoiceActive = false;
   const release = (event?: PlaybackEvent["type"]): void => {
     const responseId = activeResponseId;
     generation++; busy = false;
     if (startTimer) clearTimeout(startTimer);
     startTimer = undefined;
+    if (systemVoiceActive) { systemVoiceActive = false; try { dependencies.systemVoice?.cancel(); } catch { /* nothing to cancel */ } }
     if (audio) {
       audio.onloadedmetadata = null; audio.oncanplay = null; audio.onplaying = null;
       audio.onended = null; audio.onerror = null;
@@ -42,6 +54,38 @@ export const createResponsePlayback = (dependencies: {
     dependencies.onState("IDLE");
   };
   const stop = (): void => release("STOPPED");
+
+  /** No provider can speak: the same already-capped text goes to the system voice, or stays text-only without a Spanish voice. */
+  const speakWithSystemVoice = async (responseId: string, current: number, fallback: SystemVoiceFallback): Promise<void> => {
+    systemVoiceActive = true;
+    startTimer = setTimeout(() => {
+      if (current !== generation) return;
+      dependencies.onFailure?.("PLAY_START_TIMEOUT"); release("FAILED"); dependencies.onState("ERROR");
+    }, SPEECH_LIMITS.timeoutMs);
+    const outcome = await fallback.speak(responseId, {
+      onStart: () => {
+        if (current !== generation) return;
+        if (startTimer) clearTimeout(startTimer);
+        startTimer = undefined;
+        dependencies.onDiagnostic?.("PLAYING");
+        dependencies.onState("PLAYING");
+        dependencies.onPlaybackEvent?.({ type: "PLAYING", responseId });
+      },
+      onEnd: () => {
+        if (current !== generation) return;
+        dependencies.onDiagnostic?.("ENDED");
+        release("ENDED"); dependencies.onState("FINISHED");
+      },
+      onError: () => {
+        if (current !== generation) return;
+        dependencies.onFailure?.("AUDIO_PLAYBACK"); release("FAILED"); dependencies.onState("ERROR");
+      }
+    });
+    if (current !== generation || outcome === "STARTED") return;
+    // No Spanish voice (or no speech synthesis): the answer stays on screen as text, which is not a failure.
+    release();
+    fallback.onNoVoice?.();
+  };
   return {
     stop,
     async play(responseId: string): Promise<void> {
@@ -53,7 +97,13 @@ export const createResponsePlayback = (dependencies: {
       try {
         const result = await dependencies.speak({ responseId });
         if (current !== generation) return;
-        if (!result.ok) throw new Error("PLAYBACK_UNAVAILABLE");
+        if (!result.ok) {
+          if (dependencies.systemVoice && SYSTEM_VOICE_FALLBACK_CODES.includes(result.error.code)) {
+            await speakWithSystemVoice(responseId, current, dependencies.systemVoice);
+            return;
+          }
+          throw new Error("PLAYBACK_UNAVAILABLE");
+        }
         category = "AUDIO_VALIDATION";
         if (result.data.mimeType !== "audio/mpeg" || !(result.data.audio instanceof ArrayBuffer) || !result.data.audio.byteLength || result.data.audio.byteLength > SPEECH_LIMITS.audioBytes) throw new Error("PLAYBACK_UNAVAILABLE");
         dependencies.onDiagnostic?.("MP3_RECEIVED");

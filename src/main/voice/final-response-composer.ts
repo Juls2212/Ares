@@ -1,4 +1,5 @@
 import type { ActionOutcome } from "../../shared/action-contracts";
+import { firstVariant, type VariantPicker } from "../../shared/phrase-variation";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -77,7 +78,7 @@ const composeMessagingResponse = (outcome: ActionOutcome): string | undefined =>
 };
 
 /** Uses only completed Main-side outcome data; it never consumes provider prose or launch targets. */
-export const composeFinalResponse = (outcome: ActionOutcome): string | undefined => {
+export const composeFinalResponse = (outcome: ActionOutcome, pick: VariantPicker = firstVariant): string | undefined => {
   if (outcome.status !== "SUCCEEDED") return undefined;
   if (
     outcome.action === "SAVE_CONTACT" || outcome.action === "LIST_CONTACTS" || outcome.action === "DELETE_CONTACT" ||
@@ -88,7 +89,7 @@ export const composeFinalResponse = (outcome: ActionOutcome): string | undefined
   }
   if (outcome.action === "OPEN_APPLICATION") {
     const name = getResolvedApplicationName(outcome);
-    return name ? `Listo, abrí ${name}.` : undefined;
+    return name ? pick([`Listo, abrí ${name}.`, `Ya abrí ${name}.`, `Hecho, abrí ${name}.`]) : undefined;
   }
   if (outcome.action === "REGISTER_CATALOG_APPLICATION") {
     const name = getResolvedApplicationName(outcome);
@@ -105,26 +106,22 @@ export const composeFinalResponse = (outcome: ActionOutcome): string | undefined
   if (outcome.action === "SEARCH_APPROVED_SITE") {
     const site = getApprovedWebSiteName(outcome);
     if (isRecord(outcome.data) && (outcome.data as Record<string, unknown>).site === "SPOTIFY") {
-      return "Busqué en Spotify en la web. Pulsa reproducir cuando quieras. Si registras la app de Spotify, el resultado es mejor.";
+      return "Busqué en Spotify en la web. Pulsa reproducir cuando quieras.";
     }
-    return site ? `Listo, busqué en ${site}.` : undefined;
+    return site ? pick([`Listo, busqué en ${site}.`, `Ya busqué en ${site}.`, `Hecho, busqué en ${site}.`]) : undefined;
   }
 
-  if (outcome.action === "CREATE_TASK") return hasConfirmedPlannerRecord(outcome) ? "Listo, agregué la tarea." : undefined;
+  if (outcome.action === "CREATE_TASK") return hasConfirmedPlannerRecord(outcome) ? pick(["Listo, agregué la tarea.", "Hecho, ya agregué la tarea.", "Tarea agregada."]) : undefined;
   if (outcome.action === "UPDATE_TASK") return hasConfirmedPlannerRecord(outcome) ? "Listo, actualicé la tarea." : undefined;
   if (outcome.action === "COMPLETE_TASK") return hasConfirmedPlannerRecord(outcome) ? "Listo, marqué la tarea como completada." : undefined;
-  if (outcome.action === "CREATE_EVENT") return hasConfirmedPlannerRecord(outcome) ? "Listo, agregué el evento." : undefined;
+  if (outcome.action === "CREATE_EVENT") return hasConfirmedPlannerRecord(outcome) ? pick(["Listo, agregué el evento.", "Hecho, ya agregué el evento.", "Evento agregado."]) : undefined;
   if (outcome.action === "UPDATE_EVENT") return hasConfirmedPlannerRecord(outcome) ? "Listo, actualicé el evento." : undefined;
   if (outcome.action === "CREATE_REMINDER") return hasConfirmedPlannerRecord(outcome) ? "Listo, agregué el recordatorio." : undefined;
   if (outcome.action === "DELETE_TASK") return hasConfirmedDeletion(outcome) ? "Listo, eliminé la tarea." : undefined;
   if (outcome.action === "DELETE_EVENT") return hasConfirmedDeletion(outcome) ? "Listo, eliminé el evento." : undefined;
 
   const messages: Partial<Record<ActionOutcome["action"], string>> = {
-    OPEN_WEB_PAGE: "Listo, abrí la página.",
-    CREATE_FOLDER: "Listo, creé la carpeta.",
-    RENAME_FILE: "Listo, cambié el nombre del archivo.",
-    RENAME_FOLDER: "Listo, cambié el nombre de la carpeta.",
-    MOVE_FILE: "Listo, moví el archivo."
+    CREATE_FOLDER: "Listo, creé la carpeta."
   };
   return messages[outcome.action];
 };

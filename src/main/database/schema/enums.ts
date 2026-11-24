@@ -27,8 +27,6 @@ export const applicationCatalogKeyValues = [
   "CLAUDE"
 ] as const;
 export const riskLevelValues = [1, 2, 3] as const;
-export const weekdayValues = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const;
-export const habitFrequencyValues = ["DAILY", "WEEKLY"] as const;
 
 export const taskStatusEnum = pgEnum("task_status", taskStatusValues);
 export const taskPriorityEnum = pgEnum("task_priority", taskPriorityValues);
@@ -49,8 +47,6 @@ export const applicationCatalogKeyEnum = pgEnum(
   "application_catalog_key",
   applicationCatalogKeyValues
 );
-export const weekdayEnum = pgEnum("weekday", weekdayValues);
-export const habitFrequencyEnum = pgEnum("habit_frequency", habitFrequencyValues);
 
 export type TaskStatus = (typeof taskStatusValues)[number];
 export type TaskPriority = (typeof taskPriorityValues)[number];
@@ -60,5 +56,3 @@ export type ApplicationPlatform = (typeof applicationPlatformValues)[number];
 export type ApplicationLaunchMode = (typeof applicationLaunchModeValues)[number];
 export type ApplicationCatalogKey = (typeof applicationCatalogKeyValues)[number];
 export type RiskLevel = (typeof riskLevelValues)[number];
-export type Weekday = (typeof weekdayValues)[number];
-export type HabitFrequency = (typeof habitFrequencyValues)[number];

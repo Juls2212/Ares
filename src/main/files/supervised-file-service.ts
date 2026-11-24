@@ -1,10 +1,10 @@
+import { foldCaseAndDiacritics } from "../../shared/text-fold";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
   MAX_FOUND_ORDINAL,
   SUPERVISED_FILE_ROOTS,
   SUPERVISED_FILE_ROOT_LABELS,
-  type CreateSupervisedFolderInput,
   type SupervisedFileMutationData,
   type FoundEntryKind,
   type FoundFileSummary,
@@ -23,7 +23,6 @@ import {
   isSkippedEntryName,
   isSupervisedFileRoot,
   matchesKind,
-  normalizeForMatching,
   parseSelection,
   validateFolderName,
   validateSearchQuery
@@ -169,7 +168,7 @@ const samePath = (left: string, right: string): boolean =>
 
 /** Punctuation-insensitive comparison form, so «informe_final.pdf» matches «informe final». */
 const comparable = (value: string): string =>
-  normalizeForMatching(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  foldCaseAndDiacritics(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 const withoutExtension = (value: string): string => value.replace(/\.[^.]+$/u, "");
 
@@ -306,7 +305,7 @@ export const createSupervisedFileService = (
       ...(input.kind === undefined ? {} : { kind: input.kind })
     };
     const filter = request.kind ?? "ANY";
-    const needle = normalizeForMatching(query);
+    const needle = foldCaseAndDiacritics(query);
     const roots = request.root ? [request.root] : [...SUPERVISED_FILE_ROOTS];
 
     const startedAt = dependencies.now();
@@ -350,7 +349,7 @@ export const createSupervisedFileService = (
           if (isSkippedEntryName(entry.name) || entry.isSymbolicLink()) continue;
           const isDirectory = entry.isDirectory();
           const kind = classifyEntry(entry.name, isDirectory);
-          if (matchesKind(filter, kind) && normalizeForMatching(entry.name).includes(needle)) {
+          if (matchesKind(filter, kind) && foldCaseAndDiacritics(entry.name).includes(needle)) {
             if (found.length >= MAX_SEARCH_RESULTS) {
               partial = true;
               stop = true;

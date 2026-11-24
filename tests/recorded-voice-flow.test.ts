@@ -45,18 +45,14 @@ describe("supervised recorded transcription", () => {
 
   it("keeps the active control recorded-only and transcription separate from supervised actions", () => {
     const view = readFileSync("src/renderer/views/ares-view.tsx", "utf8");
-    expect(view).not.toContain("BrowserSpeechControls"); expect(view).not.toContain("VoiceCommandControls"); expect(view).toContain("<GlassOrb");
+    expect(view).not.toContain("BrowserSpeechControls"); expect(view).not.toContain("VoiceCommandControls"); expect(view).toContain("<OrbCanvas");
     const app = readFileSync("src/renderer/app/App.tsx", "utf8");
     const transcription = app.slice(app.indexOf("const transcribeAudio"), app.indexOf("const startRecording"));
     expect(transcription).toContain("showTranscript: () => undefined"); expect(transcription).toContain("voiceSubmission.current.submit"); expect(transcription).not.toMatch(/actions\.confirm|actions\.cancel/);
     // The orb is the recording control: its interaction states record, cancel, and stop speech only.
-    const orbNames = readFileSync("src/renderer/components/orb-visuals.ts", "utf8");
-    expect(orbNames).toContain("Toca para hablar");
-    expect(orbNames).toContain("Escuchando. Toca para cancelar");
-    expect(view).toContain("orbAccessibleName(state, reviewOpen)");
+    expect(view).toContain("Hablar con Ares");
+    expect(view).toContain("Enviar lo que dije");
+    expect(view).toContain("micLabelFor(state, reviewOpen)");
     expect(view).not.toMatch(/window\.ares\.(actions|assistant|voice)/);
-    const controls = readFileSync("src/renderer/features/voice/voice-command-controls.tsx", "utf8");
-    expect(controls).toContain('aria-label="Iniciar grabación por voz"');
-    expect(controls).not.toContain("audio se enviará a OpenAI");
   });
 });

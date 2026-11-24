@@ -85,7 +85,7 @@ describe("approved web action executor", () => {
       getActionPolicy("OPEN_APPROVED_PAGE")
     );
 
-    expect(outcome).toMatchObject({ status: "EXECUTION_FAILED", userSummary: "No se pudo abrir el sitio aprobado." });
+    expect(outcome).toMatchObject({ status: "EXECUTION_FAILED", userSummary: "No pude abrir ese sitio. Inténtalo de nuevo." });
     expect(JSON.stringify(outcome)).not.toContain("system detail");
   });
 });

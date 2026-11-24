@@ -1,13 +1,24 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { markCurrentTurn } from "../../../shared/turn-timing";
 import type { SpokenResponse } from "../../../shared/speech-contracts";
 import { createResponsePlayback, type PlaybackEvent, type PlaybackState } from "./response-playback";
 import { shouldAutomaticallySpeak } from "./speech-eligibility";
+import { attachPlaybackLevel } from "./playback-level";
+import { orbSignal } from "../../orb/orb-runtime";
+import { NO_SYSTEM_VOICE_MESSAGE, browserSynthesis, browserUtterance, createSystemVoice } from "./system-voice";
 
-export const ResponseSpeechControls = ({ response, blocked, onPlaybackEvent, onPlaybackState, stopRef, headless = false }: {
+/** The no-Spanish-voice notice is shown once per session, however many answers follow. */
+let noVoiceNoticeShown = false;
+/** For tests. */
+export const resetNoVoiceNotice = (): void => { noVoiceNoticeShown = false; };
+
+export const ResponseSpeechControls = ({ response, blocked, onPlaybackEvent, onPlaybackState, onNotice, stopRef, headless = false }: {
   response?: SpokenResponse;
   blocked: boolean;
   onPlaybackEvent?: (event: PlaybackEvent) => void;
   onPlaybackState?: (state: PlaybackState) => void;
+  /** A bounded Spanish notice for the person (shown by the caller). */
+  onNotice?: (message: string) => void;
   stopRef?: RefObject<(() => void) | undefined>;
   headless?: boolean;
 }) => {
@@ -18,10 +29,28 @@ export const ResponseSpeechControls = ({ response, blocked, onPlaybackEvent, onP
   const playbackState = useRef(onPlaybackState);
   playbackEvent.current = onPlaybackEvent;
   playbackState.current = onPlaybackState;
+  const responseText = useRef<{ responseId: string; text: string } | undefined>(undefined);
+  responseText.current = response ? { responseId: response.responseId, text: response.text } : undefined;
+  const notice = useRef(onNotice);
+  notice.current = onNotice;
   useEffect(() => {
+    const systemVoice = createSystemVoice({ getSynthesis: browserSynthesis, createUtterance: browserUtterance });
     const controller = createResponsePlayback({
-      speak: (input) => window.ares.speech.speak(input), createUrl: (blob) => URL.createObjectURL(blob),
-      revokeUrl: (url) => URL.revokeObjectURL(url), createAudio: (url) => new Audio(url), onState: (nextState) => { setState(nextState); playbackState.current?.(nextState); },
+      systemVoice: {
+        // The text is the one already on screen; the same cap the providers use is applied by the system voice itself.
+        speak: async (responseId, handlers) => {
+          const current = responseText.current;
+          return current && current.responseId === responseId ? systemVoice.speak(current.text, handlers) : "UNAVAILABLE";
+        },
+        cancel: systemVoice.cancel,
+        onNoVoice: () => {
+          if (noVoiceNoticeShown) return;
+          noVoiceNoticeShown = true;
+          notice.current?.(NO_SYSTEM_VOICE_MESSAGE);
+        }
+      },
+      speak: async (input) => { const spoken = await window.ares.speech.speak(input); markCurrentTurn("tts_first_audio"); return spoken; }, createUrl: (blob) => URL.createObjectURL(blob),
+      revokeUrl: (url) => URL.revokeObjectURL(url), createAudio: (url) => { const audio = new Audio(url); attachPlaybackLevel(audio, orbSignal); return audio; }, onState: (nextState) => { setState(nextState); playbackState.current?.(nextState); },
       onFailure: (category) => { if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) console.error(`Response playback failed [${category}].`); },
       onDiagnostic: (category) => { if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) console.info(`Response playback event [${category}].`); },
       onPlaybackEvent: (event) => playbackEvent.current?.(event)

@@ -27,8 +27,10 @@ import {
   SPOTIFY_VOLUME_STEP,
   toDisplayText
 } from "../src/main/spotify/spotify-playback-service";
+import { IPC_CHANNELS } from "../src/shared/contracts";
+import { readSource } from "./helpers/read-source";
 
-const source = (file: string): string => readFileSync(path.resolve(process.cwd(), file), "utf8");
+const source = (file: string): string => readSource(file);
 const ok = <T>(data: T) => ({ ok: true as const, data });
 
 const track = (name: string, artist: string | undefined, id: string): SpotifySearchCandidate => ({
@@ -627,8 +629,6 @@ describe("voice routing", () => {
     const providerDraft = (action: string, extra: Record<string, unknown>) => ({
       action,
       input: null,
-      weeklyRoutine: null,
-      habitAction: null,
       approvedWeb: null,
       catalogApplication: null,
       filesAction: null,
@@ -764,9 +764,22 @@ describe("strict schema and source confinement", () => {
   it("adds no renderer, preload or IPC surface and never reads the environment file", () => {
     expect(source("src/preload/preload.ts")).not.toMatch(/spotify/iu);
     expect(source("src/shared/contracts.ts")).not.toMatch(/spotify/iu);
-    // Only the action label table mentions Spotify in the renderer; there is no component, state or channel.
-    expect(listSources("src/renderer").filter((file) => /spotify/iu.test(source(file))).map(base)).toEqual(["app-state.ts"]);
-    expect(source("src/renderer/app/app-state.ts").match(/spotify/giu)?.length).toBeGreaterThan(0);
+    // No IPC channel is Spotify-specific: the only way to reach the music capability is the generic action channels.
+    const channelNames: string[] = [];
+    const collect = (value: unknown, prefix: string): void => {
+      if (typeof value === "string") channelNames.push(`${prefix}=${value}`);
+      else if (value && typeof value === "object") for (const [key, child] of Object.entries(value)) collect(child, `${prefix}.${key}`);
+    };
+    collect(IPC_CHANNELS, "IPC_CHANNELS");
+    expect(channelNames.filter((name) => /spotify|music/iu.test(name))).toEqual([]);
+    // The renderer only names Spotify in display text and in the action label tables: one app-state label table
+    // and one action-to-area map. None of them calls window.ares or reads the environment.
+    const rendererMentions = listSources("src/renderer").filter((file) => /spotify/iu.test(source(file))).map(base).sort();
+    expect(rendererMentions).toEqual(["app-state.ts", "response-area.ts"]);
+    for (const file of listSources("src/renderer")) {
+      expect(source(file), file).not.toMatch(/process\.env|\.env["'`]|import\.meta\.env/u);
+      if (/spotify/iu.test(source(file))) expect(source(file), file).not.toMatch(/window\.ares|ipcRenderer/u);
+    }
     expect(spotifyFiles.map(source).join("\n")).not.toMatch(/readFileSync|\.env["'`]/u);
     expect(source("src/main/spotify/spotify-config.ts")).toContain("process.env");
   });

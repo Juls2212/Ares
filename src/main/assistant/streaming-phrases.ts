@@ -1,4 +1,6 @@
 import type { SpotifySearchKind } from "../../shared/action-contracts";
+import { POLITE_PREFIX } from "../../shared/phrase-kit";
+import { trimQuotesAndTrailingPunctuation } from "../../shared/text-fold";
 
 /**
  * Deterministic classification of «busca/pon/reproduce … en Spotify», «busca … en Google/YouTube» and
@@ -9,7 +11,7 @@ export type StreamingCommand =
   | { kind: "WEB_SEARCH"; site: "GOOGLE" | "YOUTUBE"; query: string }
   | { kind: "WEB_OPEN"; site: "GOOGLE" | "YOUTUBE" };
 
-const POLITE = "(?:por\\s+favor,?\\s+)?";
+const POLITE = POLITE_PREFIX;
 const SEARCH = "(?:busca|buscar|b[uú]scame|buscame)";
 const PLAY = "(?:pon|poner|ponme|p[oó]nme|reproduce|reproducir|reprod[uú]ceme|toca|tocar|play)";
 const SPOTIFY_TAIL = "(?:en|con|desde|por|a\\s+trav[eé]s\\s+de)\\s+(?:el\\s+)?spotify";
@@ -34,21 +36,18 @@ const kindOf = (word: string): SpotifySearchKind => {
   return "PLAYLIST";
 };
 
-const cleanQuery = (value: string): string =>
-  value.trim().replace(/^[«"“'‘]+/u, "").replace(/[»"”'’.,;:!?¡¿]+$/u, "").trim();
-
 const WEB_PATTERNS: ReadonlyArray<{ pattern: RegExp; build: (match: RegExpMatchArray) => StreamingCommand }> = [
   {
     pattern: new RegExp(`^${POLITE}(?:busca|buscar|b[uú]scame|buscame|investiga)\\s+(.+?)\\s+(?:en|con|por)\\s+(?:el\\s+)?(google|youtube)$`, "iu"),
-    build: (match) => ({ kind: "WEB_SEARCH", site: match[2].toUpperCase() as "GOOGLE" | "YOUTUBE", query: cleanQuery(match[1]) })
+    build: (match) => ({ kind: "WEB_SEARCH", site: match[2].toUpperCase() as "GOOGLE" | "YOUTUBE", query: trimQuotesAndTrailingPunctuation(match[1]) })
   },
   {
     pattern: new RegExp(`^${POLITE}(?:busca|buscar|b[uú]scame|buscame)\\s+en\\s+(?:el\\s+)?(google|youtube)\\s+(.+)$`, "iu"),
-    build: (match) => ({ kind: "WEB_SEARCH", site: match[1].toUpperCase() as "GOOGLE" | "YOUTUBE", query: cleanQuery(match[2]) })
+    build: (match) => ({ kind: "WEB_SEARCH", site: match[1].toUpperCase() as "GOOGLE" | "YOUTUBE", query: trimQuotesAndTrailingPunctuation(match[2]) })
   },
   {
     pattern: new RegExp(`^${POLITE}${PLAY}\\s+(.+?)\\s+en\\s+(?:el\\s+)?youtube$`, "iu"),
-    build: (match) => ({ kind: "WEB_SEARCH", site: "YOUTUBE", query: cleanQuery(match[1]) })
+    build: (match) => ({ kind: "WEB_SEARCH", site: "YOUTUBE", query: trimQuotesAndTrailingPunctuation(match[1]) })
   },
   {
     pattern: new RegExp(`^${POLITE}(?:abre|abrir|[aá]breme|abreme|ve\\s+a|ir\\s+a)\\s+(?:el\\s+|la\\s+)?(?:p[aá]gina\\s+de\\s+)?(google|youtube)$`, "iu"),
@@ -62,12 +61,12 @@ const BARE_EXCLUDED =
   /^(?:un|una|unos|unas|el|la|lo|los|las|mi|mis|este|esta|esto|ese|esa|eso|volumen|pausa|alarma|temporizador|recordatorio|tarea|evento|m[uú]sica$|algo|todo|todos|todas|nada)\b|\ben\s+(?:google|youtube|spotify|el\s+navegador|la\s+web)$/iu;
 
 const toSpotifyCommand = (verb: string, rawQuery: string): StreamingCommand | undefined => {
-  let query = cleanQuery(rawQuery);
+  let query = trimQuotesAndTrailingPunctuation(rawQuery);
   let searchKind: SpotifySearchKind = "ANY";
   const prefixed = query.match(KIND_PREFIX);
-  if (prefixed && cleanQuery(prefixed[2]).length > 0) {
+  if (prefixed && trimQuotesAndTrailingPunctuation(prefixed[2]).length > 0) {
     searchKind = kindOf(prefixed[1]);
-    query = cleanQuery(prefixed[2]);
+    query = trimQuotesAndTrailingPunctuation(prefixed[2]);
   }
   return query.length === 0
     ? undefined
@@ -83,7 +82,7 @@ export const parseStreamingCommand = (instruction: string): StreamingCommand | u
   }
   const music = text.match(MUSIC_PATTERN);
   if (music && !OTHER_PLATFORM_TAIL.test(text)) {
-    const query = cleanQuery(music[2]);
+    const query = trimQuotesAndTrailingPunctuation(music[2]);
     return query.length === 0 ? undefined : { kind: "SPOTIFY_SEARCH", query, searchKind: "ARTIST", playRequested: true };
   }
   for (const { pattern, build } of WEB_PATTERNS) {
@@ -92,7 +91,7 @@ export const parseStreamingCommand = (instruction: string): StreamingCommand | u
   }
   const bare = text.match(BARE_PLAY);
   if (bare && PLAY_VERB.test(bare[1])) {
-    const rest = cleanQuery(bare[2]);
+    const rest = trimQuotesAndTrailingPunctuation(bare[2]);
     if (rest.length > 0 && (KIND_PREFIX.test(rest) || !BARE_EXCLUDED.test(rest))) return toSpotifyCommand(bare[1], rest);
   }
   return undefined;

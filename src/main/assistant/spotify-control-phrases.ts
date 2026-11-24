@@ -1,4 +1,5 @@
-import { normalizeApplicationAlias } from "../applications/known-application-catalog";
+import { POLITE_PREFIX_FOLDED } from "../../shared/phrase-kit";
+import { foldForAlias } from "../../shared/text-fold";
 
 /**
  * Deterministic classification of the Spotify connection and playback-control phrases. It only classifies
@@ -17,7 +18,7 @@ export type SpotifyControlCommand =
   | { kind: "VOLUME_LEVEL"; level: number }
   | { kind: "VOLUME_INVALID" };
 
-const POLITE = "(?:por favor )?";
+const POLITE = POLITE_PREFIX_FOLDED;
 
 const PATTERNS: ReadonlyArray<readonly [RegExp, SpotifyControlCommand]> = [
   [new RegExp(`^${POLITE}(?:conecta|conectar|conectate|conectame|vincula|vincular|enlaza|enlazar)(?: te)?(?: a| con)?(?: mi| la)?(?: cuenta de)? spotify$`, "u"), { kind: "CONNECT" }],
@@ -39,7 +40,7 @@ const LEVEL_PATTERN = new RegExp(
 );
 
 export const parseSpotifyControlCommand = (instruction: string): SpotifyControlCommand | undefined => {
-  const normalized = normalizeApplicationAlias(instruction);
+  const normalized = foldForAlias(instruction);
   if (normalized.length === 0) return undefined;
   for (const [pattern, command] of PATTERNS) {
     if (pattern.test(normalized)) return command;

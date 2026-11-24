@@ -1,3 +1,5 @@
+import { clarificationInterpretation } from "../../shared/outcome-kit";
+import { lowerTrim } from "../../shared/text-fold";
 import {
   ASSISTANT_ERROR_CODES,
   type AssistantInterpretation,
@@ -6,15 +8,11 @@ import {
 import type { ApplicationService } from "../applications/application-service";
 import { getApplicationService } from "../applications/application-composition";
 import { createAssistantInterpreter } from "./assistant-interpreter";
+import { formatInterpretationDiagnostic } from "./interpretation-diagnostic";
+import { LOCAL_FIRST_ENABLED } from "./local-brain-config";
+import { createRotatingPicker } from "../../shared/phrase-variation";
 import { createEventDeletionResolver } from "./assistant-event-reference";
 import { getPlannerService } from "../planner/planner-composition";
-import type { PlannerService } from "../planner/planner-service";
-import { createWeeklyScheduleReferenceResolver } from "../actions/weekly-schedule-analysis";
-import { createWeeklyScheduleMutationReferences } from "../actions/weekly-schedule-mutation-references";
-import { createHabitMutationReferences } from "../actions/habit-mutation-references";
-import { getHabitService } from "../habits/habit-composition";
-import type { HabitService } from "../habits/habit-service";
-import { HABIT_ICON_KEYS } from "../../shared/habit-contracts";
 import { getKnownApplicationProviderReferences } from "../applications/known-application-catalog";
 import { getSupervisedFileService } from "../files/supervised-file-composition";
 import { getMessagingService } from "../messaging/messaging-composition";
@@ -33,16 +31,14 @@ export type AssistantInterpretationService = {
 type AssistantInterpretationServiceDependencies = {
   getInterpreter: () => AssistantInterpreter;
   getApplicationService: () => Pick<ApplicationService, "listApplications">;
-  getPlannerService?: () => Pick<PlannerService, "listWeeklySchedules">;
-  getHabitService?: () => Pick<HabitService, "list">;
   getContextService?: () => AssistantContextService;
   /** Count-only view of the last file search; it never exposes names or paths. */
   getActiveFileSearch?: () => { resultCount: number } | undefined;
+  /** Receives one closed-enum line per turn (never text); defaults to the console. */
+  logInfo?: (line: string) => void;
 };
 
 const maximumTrustedApplicationAliases = 100;
-const maximumTrustedWeeklyScheduleTitles = 50;
-const maximumTrustedHabitTitles = 100;
 const requiresTrustedApplicationReferences = (actions: readonly string[]): boolean =>
   actions.some((action) => action === "OPEN_APPLICATION");
 
@@ -52,30 +48,9 @@ const toTrustedApplicationAliases = (
   if (!applications.ok) return [];
   return [...new Set(applications.data.items
     .filter((record) => record.isEnabled)
-    .flatMap((record) => record.aliases.map((entry) => entry.alias.trim().toLocaleLowerCase("en-US"))))]
+    .flatMap((record) => record.aliases.map((entry) => lowerTrim(entry.alias))))]
     .filter((alias) => alias.length > 0)
     .slice(0, maximumTrustedApplicationAliases);
-};
-
-const toTrustedWeeklyScheduleTitles = (
-  schedules: Awaited<ReturnType<PlannerService["listWeeklySchedules"]>>
-): string[] => {
-  if (!schedules.ok) return [];
-  return [...new Set(schedules.data.items
-    .map((schedule) => schedule.title.trim().replace(/\s+/g, " "))
-    .filter((title) => title.length > 0))]
-    .slice(0, maximumTrustedWeeklyScheduleTitles);
-};
-
-const toTrustedHabitTitles = (
-  habits: Awaited<ReturnType<HabitService["list"]>>
-): string[] => {
-  if (!habits.ok) return [];
-  return [...new Set(habits.data.items
-    .filter((habit) => habit.active)
-    .map((habit) => habit.title.trim().replace(/\s+/g, " "))
-    .filter((title) => title.length > 0))]
-    .slice(0, maximumTrustedHabitTitles);
 };
 
 const supportedProviderContext = (context: ReturnType<AssistantContextService["getCachedProviderContext"]>) =>
@@ -101,12 +76,7 @@ const unavailable = (
 
 const clarification = (): AssistantOperationResult<AssistantInterpretation> => ({
   ok: true,
-  data: {
-    state: "NEEDS_CLARIFICATION",
-    summary: "Necesito una instrucción de texto para interpretarla.",
-    drafts: [],
-    clarifications: [{ question: "¿Qué quieres que haga Ares?" }]
-  }
+  data: clarificationInterpretation("¿Qué quieres que haga Ares?", "Necesito una instrucción de texto para interpretarla.")
 });
 
 const normalizeRequest = (input: unknown): { instruction: string } | undefined => {
@@ -123,9 +93,19 @@ export const createAssistantInterpretationService = (
   dependencies: AssistantInterpretationServiceDependencies
 ): AssistantInterpretationService => {
   let inFlight = false;
+  const logInfo = dependencies.logInfo ?? ((line: string) => console.info(line));
+  const reported = (result: AssistantOperationResult<AssistantInterpretation>): AssistantOperationResult<AssistantInterpretation> => {
+    try { logInfo(formatInterpretationDiagnostic(result)); } catch { /* diagnostics never affect the turn */ }
+    return result;
+  };
 
   return {
     async interpret(input: unknown, webContentsId?: number): Promise<AssistantOperationResult<AssistantInterpretation>> {
+      return reported(await interpretTurn(input, webContentsId));
+    }
+  };
+
+  async function interpretTurn(input: unknown, webContentsId?: number): Promise<AssistantOperationResult<AssistantInterpretation>> {
       const normalizedInput = normalizeRequest(input);
       if (!normalizedInput) return clarification();
       if (inFlight) return unavailable(ASSISTANT_ERROR_CODES.busy);
@@ -139,22 +119,10 @@ export const createAssistantInterpretationService = (
           enabled: true,
           limit: maximumTrustedApplicationAliases
         }).catch(() => undefined);
-        const plannerService = dependencies.getPlannerService?.();
-        const initialWeeklySchedules = plannerService
-          ? await plannerService.listWeeklySchedules({}).catch(() => undefined)
-          : undefined;
-        const initialHabits = dependencies.getHabitService
-          ? await dependencies.getHabitService().list({}).catch(() => undefined)
-          : undefined;
         const reference = {
           knownApplicationAliases: initialApplications ? toTrustedApplicationAliases(initialApplications) : [],
           knownCatalogApplications: getKnownApplicationProviderReferences(),
           ...(dependencies.getActiveFileSearch?.() ? { activeFileSearch: dependencies.getActiveFileSearch() } : {}),
-          ...(plannerService ? { knownWeeklyScheduleTitles: initialWeeklySchedules ? toTrustedWeeklyScheduleTitles(initialWeeklySchedules) : [] } : {}),
-          ...(dependencies.getHabitService ? {
-            knownHabitTitles: initialHabits ? toTrustedHabitTitles(initialHabits) : [],
-            allowedHabitIcons: [...HABIT_ICON_KEYS]
-          } : {}),
           ...(supportedProviderContext(cachedContext) ? { currentContext: supportedProviderContext(cachedContext) } : {})
         };
         return await dependencies.getInterpreter().interpret(
@@ -193,22 +161,19 @@ export const createAssistantInterpretationService = (
       } finally {
         inFlight = false;
       }
-    }
-  };
+  }
 };
 
 let assistantInterpretationService: AssistantInterpretationService | undefined;
 
+/** Rotates between equivalent small-talk phrasings; the seed only decides where the rotation starts. */
+const localBrainPicker = createRotatingPicker(Date.now() % 97);
+
 export const getAssistantInterpretationService = (): AssistantInterpretationService => {
   assistantInterpretationService ??= createAssistantInterpretationService({
     getInterpreter: () => createAssistantInterpreter({
+      localBrain: { localFirst: LOCAL_FIRST_ENABLED, pick: localBrainPicker },
       resolveEventDeletion: createEventDeletionResolver(getPlannerService),
-      resolveWeeklyScheduleTitle: createWeeklyScheduleReferenceResolver(getPlannerService),
-      resolveWeeklyScheduleMutationReferences: createWeeklyScheduleMutationReferences(getPlannerService),
-      resolveHabitMutationReferences: createHabitMutationReferences(() => ({
-        ...getHabitService(),
-        listCategories: getPlannerService().listCategories
-      })),
       getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
       resolveFoundFileName: (name) => getSupervisedFileService().resolveFoundFileByName(name),
       resolveFoundFolderName: (name) => getSupervisedFileService().resolveFoundFolderByName(name),
@@ -224,8 +189,6 @@ export const getAssistantInterpretationService = (): AssistantInterpretationServ
     }),
     getActiveFileSearch: () => getSupervisedFileService().getActiveSearchInfo(),
     getApplicationService,
-    getPlannerService,
-    getHabitService,
     getContextService: getAssistantContextService
   });
   return assistantInterpretationService;

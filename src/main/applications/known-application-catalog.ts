@@ -179,16 +179,6 @@ export const toWindowsLaunchCandidate = (
   return { executablePath: win32.join(root, ...rule.segments), arguments: rule.arguments ?? [] };
 };
 
-/** Lowercases, strips diacritics and punctuation, and collapses whitespace for exact alias comparison. */
-export const normalizeApplicationAlias = (value: string): string =>
-  value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLocaleLowerCase("en-US")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
-
 /** This is the bounded provider-safe projection; it intentionally excludes platform targets. */
 export const getKnownApplicationProviderReferences = () =>
   KNOWN_APPLICATION_CATALOG.map(({ key, displayName, recognitionAliases }) => ({

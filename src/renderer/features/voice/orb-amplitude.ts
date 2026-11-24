@@ -6,18 +6,11 @@ export const NOISE_FLOOR_WINDOW_MS = 300;
 export const AMPLITUDE_RANGE = 0.25;
 export const AMPLITUDE_ATTACK_MS = 60;
 export const AMPLITUDE_RELEASE_MS = 220;
-/** Speaking uses the same mapping, attenuated for a softer pulse. */
-export const SPEAKING_ATTENUATION = 0.55;
-export const BLOB_SPEED_AMPLITUDE_GAIN = 1.2;
 
 export const clampAmplitude = (value: number): number => (Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0);
 
 /** amp = clamp((rms − floor) / 0.25, 0, 1). */
 export const amplitudeFromRms = (rms: number, floor: number): number => clampAmplitude((rms - floor) / AMPLITUDE_RANGE);
-
-/** animation.playbackRate = stateSpeed × (1 + amp × 1.2). */
-export const blobPlaybackRate = (stateSpeed: number, amplitude: number): number =>
-  stateSpeed * (1 + clampAmplitude(amplitude) * BLOB_SPEED_AMPLITUDE_GAIN);
 
 export type AmplitudeMapper = {
   /** Feeds one RMS measurement taken at `timeMs` and returns the smoothed amplitude (0..1). */
@@ -66,10 +59,6 @@ export const createAmplitudeMapper = (): AmplitudeMapper => {
     value: () => current
   };
 };
-
-/** Gentle synthetic pulse for speaking when no real output level is read. Same shape as the prototype. */
-export const syntheticSpeechAmplitude = (timeSeconds: number): number =>
-  clampAmplitude((0.3 + 0.7 * Math.pow(Math.abs(Math.sin(timeSeconds * 3.4)), 3)) * SPEAKING_ATTENUATION);
 
 export type OrbAmplitudeSource = {
   /** Called by the silence detector's existing analyser loop with the raw RMS. */

@@ -1,8 +1,10 @@
+import { defineFailureTaxonomy } from "../../shared/failure-taxonomy";
+
 /**
  * Closed failure taxonomy for the supervised FILES domain. Messages are fixed Spanish text and never
  * carry paths, file or folder names, queries, raw exceptions, or operating-system error text.
  */
-export const FILES_FAILURES = {
+const taxonomy = defineFailureTaxonomy({
   FILES_NO_RESULTS: "No encontré archivos que coincidan con tu búsqueda.",
   FILES_SEARCH_PARTIAL: "Los resultados pueden ser parciales.",
   FILES_STALE_SELECTION: "Esa selección ya no está disponible. Haz una nueva búsqueda.",
@@ -15,8 +17,10 @@ export const FILES_FAILURES = {
   FILES_DESTINATION_INVALID: "El destino no es válido o no está permitido. No se movió nada.",
   FILES_RECYCLE_UNAVAILABLE: "No pude enviar el elemento a la Papelera. No se eliminó nada.",
   FILES_PARTIAL_COMPLETION: "La operación se detuvo antes de terminar. Haz una nueva búsqueda para revisar el resultado.",
-  FILES_OPERATION_FAILED: "No se pudo completar la operación con archivos."
-} as const;
+  FILES_OPERATION_FAILED: "No pude completar eso con tus archivos."
+});
+
+export const FILES_FAILURES = taxonomy.messages;
 
 export type FilesFailureCode = keyof typeof FILES_FAILURES;
 
@@ -27,9 +31,10 @@ export type FilesResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: { code: FilesFailureCode; userMessage: string; counts?: FilesPartialCounts } };
 
+/** Kept local on top of the shared taxonomy because a files failure may carry the partial-completion counts. */
 export const filesFailure = <T>(code: FilesFailureCode, counts?: FilesPartialCounts): FilesResult<T> => ({
   ok: false,
-  error: { code, userMessage: FILES_FAILURES[code], ...(counts ? { counts } : {}) }
+  error: { code, userMessage: taxonomy.messageFor(code), ...(counts ? { counts } : {}) }
 });
 
 export const filesSuccess = <T>(data: T): FilesResult<T> => ({ ok: true, data });

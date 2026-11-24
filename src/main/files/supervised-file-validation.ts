@@ -1,3 +1,4 @@
+import { foldCaseAndDiacritics } from "../../shared/text-fold";
 import {
   FILE_SEARCH_KINDS,
   MAX_FOUND_ORDINAL,
@@ -15,10 +16,6 @@ const QUERY_FORBIDDEN_CHARACTERS = /[\\/:*?"<>|]/u;
 const FOLDER_FORBIDDEN_CHARACTERS = /[<>:"/\\|?*]/u;
 const RESERVED_DEVICE_NAMES = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu;
 
-/** Lowercases and strips diacritics so matching is case- and accent-insensitive. */
-export const normalizeForMatching = (value: string): string =>
-  value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("en-US");
-
 export const isSupervisedFileRoot = (value: unknown): value is SupervisedFileRoot =>
   typeof value === "string" && (SUPERVISED_FILE_ROOTS as readonly string[]).includes(value);
 
@@ -35,7 +32,7 @@ export const validateSearchQuery = (value: unknown): string | undefined => {
   if (query.length === 0 || query.length > MAX_QUERY_LENGTH) return undefined;
   if (CONTROL_CHARACTERS.test(query) || QUERY_FORBIDDEN_CHARACTERS.test(query)) return undefined;
   if (query.includes("..") || query.startsWith("~") || /^www\./iu.test(query)) return undefined;
-  return normalizeForMatching(query).trim().length === 0 ? undefined : query;
+  return foldCaseAndDiacritics(query).trim().length === 0 ? undefined : query;
 };
 
 /** A folder name is exactly one valid Windows path segment. */

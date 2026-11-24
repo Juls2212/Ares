@@ -4,14 +4,11 @@ import {
   ACTION_ERROR_CODES,
   type ActionOperationResult
 } from "../../shared/action-contracts";
-import {
-  getActionHistoryService,
-  getActionOrchestrator
-} from "../actions/action-composition";
-import type { ActionHistoryService } from "../actions/action-history-service";
+import { getActionOrchestrator } from "../actions/action-composition";
 import type { ActionOrchestrator } from "../actions/action-orchestrator";
 import { speechService } from "../voice/speech-composition";
 import { composeFinalResponse, preservesDisplaySummary } from "../voice/final-response-composer";
+import { createRotatingPicker, firstVariant, type VariantPicker } from "../../shared/phrase-variation";
 
 export type ActionIpcHandler = (input: unknown) => Promise<OperationResult<unknown>>;
 export type ActionIpcHandlerRegistrar = (channel: string, handler: ActionIpcHandler) => void;
@@ -19,7 +16,6 @@ export type ActionIpcHandlerRegistrar = (channel: string, handler: ActionIpcHand
 type ActionIpcDependencies = {
   registerHandler: ActionIpcHandlerRegistrar;
   getOrchestrator: () => ActionOrchestrator;
-  getHistoryService: () => ActionHistoryService;
   logError: (message: string) => void;
 };
 
@@ -61,17 +57,23 @@ export const createActionIpcRegistration = (dependencies: ActionIpcDependencies)
       IPC_CHANNELS.actions.cancel,
       createHandler((input) => dependencies.getOrchestrator().cancel(input), dependencies.logError)
     );
-    dependencies.registerHandler(
-      IPC_CHANNELS.actions.history.list,
-      createHandler((input) => dependencies.getHistoryService().list(input), dependencies.logError)
-    );
 
     registered = true;
   };
 };
 
 const speechWindows = new WeakSet<Electron.WebContents>();
+/** Rotates between equivalent success phrasings; the seed only decides where the rotation starts. */
+const successPhrasePicker = createRotatingPicker(Date.now() % 97);
 type SpeechResponseStore = Pick<typeof speechService, "clear" | "remember">;
+
+/** An agenda answer: the on-screen text (up to 12 items) and a shorter spoken text, spoken with the agenda cap. */
+const agendaTexts = (outcome: import("../../shared/action-contracts").ActionOutcome): { text: string; spokenText: string } | undefined => {
+  const spoken = outcome.action === "GET_TODAY_SCHEDULE" && typeof outcome.data === "object" && outcome.data !== null
+    ? (outcome.data as { spokenSummary?: unknown }).spokenSummary
+    : undefined;
+  return typeof spoken === "string" ? { text: outcome.userSummary, spokenText: spoken } : undefined;
+};
 
 const isSilentConfirmationFailure = (code: string): boolean =>
   code === ACTION_ERROR_CODES.confirmationInvalid || code === ACTION_ERROR_CODES.confirmationUnavailable;
@@ -86,7 +88,8 @@ const isAwaitingConfirmation = (value: unknown): value is import("../../shared/a
 export const attachSpokenActionResponse = (
   windowId: number,
   result: ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult>,
-  responses: SpeechResponseStore = speechService
+  responses: SpeechResponseStore = speechService,
+  pick: VariantPicker = firstVariant
 ): ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult> => {
   responses.clear(windowId);
   if (!result.ok) {
@@ -98,7 +101,12 @@ export const attachSpokenActionResponse = (
   if (isAwaitingConfirmation(result.data) || !isTerminalActionOutcome(result.data) || result.data.status === "CANCELLED") {
     return result;
   }
-  const composed = composeFinalResponse(result.data);
+  const agenda = result.data.status === "SUCCEEDED" ? agendaTexts(result.data) : undefined;
+  if (agenda) {
+    result.data.spokenResponse = responses.remember(windowId, agenda.text, { spokenText: agenda.spokenText, agenda: true });
+    return result;
+  }
+  const composed = composeFinalResponse(result.data, pick);
   const text = composed ?? result.data.userSummary;
   if (composed && !preservesDisplaySummary(result.data.action)) result.data.userSummary = composed;
   result.data.spokenResponse = responses.remember(windowId, text);
@@ -116,7 +124,9 @@ const registerElectronHandler: ActionIpcHandlerRegistrar = (channel, handler): v
     if ([IPC_CHANNELS.actions.propose, IPC_CHANNELS.actions.confirm, IPC_CHANNELS.actions.cancel].includes(channel as never)) {
       return attachSpokenActionResponse(
         event.sender.id,
-        result as ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult>
+        result as ActionOperationResult<import("../../shared/action-contracts").ActionLifecycleResult>,
+        speechService,
+        successPhrasePicker
       );
     }
     return result;
@@ -126,7 +136,6 @@ const registerElectronHandler: ActionIpcHandlerRegistrar = (channel, handler): v
 export const registerActionIpcHandlers = createActionIpcRegistration({
   registerHandler: registerElectronHandler,
   getOrchestrator: getActionOrchestrator,
-  getHistoryService: getActionHistoryService,
   logError: (message) => {
     console.error(message);
   }

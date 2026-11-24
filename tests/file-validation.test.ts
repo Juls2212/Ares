@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  validateFileSearchInput,
-  validateRootRelativePath
+  isApprovedFileRoot,
+  validateRootRelativePath,
+  validateSafeFileReference
 } from "../src/main/files/file-validation";
 
-const expectFailureCode = <T>(
+const expectFailureCode = (
   result: { ok: boolean; error?: { code: string } },
   code: string
 ): void => {
@@ -12,49 +13,22 @@ const expectFailureCode = <T>(
   if (!result.ok) expect(result.error?.code).toBe(code);
 };
 
-describe("file search validation", () => {
-  it("accepts approved roots and normalizes only safe search filters", () => {
-    expect(
-      validateFileSearchInput({
-        rootId: "DOCUMENTS",
-        query: "  informe  ",
-        extensions: [".PDF", "docx", "pdf"],
-        relativePath: "Proyectos\\2026",
-        limit: 25
-      })
-    ).toEqual({
-      ok: true,
-      data: {
-        rootId: "DOCUMENTS",
-        query: "informe",
-        extensions: ["pdf", "docx"],
-        relativePath: "Proyectos\\2026",
-        limit: 25
-      }
-    });
+describe("approved-root and root-relative path validation", () => {
+  it("accepts only the three approved file roots", () => {
+    for (const root of ["DOCUMENTS", "DOWNLOADS", "DESKTOP"]) expect(isApprovedFileRoot(root)).toBe(true);
+    for (const root of ["SYSTEM", "documents", "", 1, null, undefined, {}]) expect(isApprovedFileRoot(root)).toBe(false);
   });
 
-  it("rejects unknown roots, blank queries, malformed filters, and unsupported keys", () => {
-    expectFailureCode(
-      validateFileSearchInput({ rootId: "SYSTEM", query: "informe" }),
-      "FILE_ROOT_INVALID"
-    );
-    expectFailureCode(
-      validateFileSearchInput({ rootId: "DOCUMENTS", query: "   " }),
-      "FILE_QUERY_INVALID"
-    );
-    expectFailureCode(
-      validateFileSearchInput({ rootId: "DOCUMENTS", query: "informe", extensions: [".pdf.exe"] }),
-      "FILE_EXTENSION_INVALID"
-    );
-    expectFailureCode(
-      validateFileSearchInput({ rootId: "DOCUMENTS", query: "informe", includeContents: true }),
-      "FILE_UNKNOWN_FIELD"
-    );
-    expectFailureCode(
-      validateFileSearchInput({ rootId: "DOCUMENTS", query: "informe", limit: 101 }),
-      "FILE_LIMIT_INVALID"
-    );
+  it("accepts a closed root-id and relative-path reference and rejects anything else", () => {
+    expect(validateSafeFileReference({ rootId: "DOCUMENTS", relativePath: "Proyectos\\2026" })).toEqual({
+      ok: true,
+      data: { rootId: "DOCUMENTS", relativePath: "Proyectos\\2026" }
+    });
+    expectFailureCode(validateSafeFileReference({ rootId: "SYSTEM", relativePath: "a" }), "FILE_ROOT_INVALID");
+    expectFailureCode(validateSafeFileReference({ rootId: "DOCUMENTS", relativePath: "..\\a" }), "FILE_RELATIVE_PATH_INVALID");
+    expectFailureCode(validateSafeFileReference({ rootId: "DOCUMENTS", relativePath: "a", extra: true }), "FILE_UNKNOWN_FIELD");
+    expectFailureCode(validateSafeFileReference("DOCUMENTS"), "FILE_INPUT_INVALID");
+    expectFailureCode(validateSafeFileReference([]), "FILE_INPUT_INVALID");
   });
 
   it.each([

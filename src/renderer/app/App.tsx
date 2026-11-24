@@ -6,20 +6,9 @@ import type {
   ActionSubmission,
   AwaitingActionConfirmation
 } from "../../shared/action-contracts";
-import {
-  type CatalogApplicationRegistrationData,
-  type CustomApplicationRegistrationData,
-  type RegisterableCatalogApplication
-} from "../../shared/application-contracts";
 import type { SystemCapabilities, SystemStatusData } from "../../shared/contracts";
+import { formatShortcutForDisplay, type VoiceShortcutEffectiveStatus } from "../../shared/settings-contracts";
 import {
-  formatShortcutForDisplay,
-  VOICE_SHORTCUTS,
-  type VoiceShortcut,
-  type VoiceShortcutEffectiveStatus
-} from "../../shared/settings-contracts";
-import {
-  catalogApplicationLabels,
   orbStateFor,
   type VoiceState,
   voiceLabelFor
@@ -27,18 +16,28 @@ import {
 import { createGlobalVoiceShortcutController } from "../features/voice/global-voice-shortcut-controller";
 import { createManualVoiceRecorder, type ManualVoiceRecorder } from "../features/voice/manual-voice-recorder";
 import { bindRecordingCancellation } from "../features/voice/recording-cancellation";
-import { createSpeechEndDetector, type SpeechEndDetector } from "../features/voice/speech-end-detector";
+import { beginCurrentTurn, markCurrentTurn } from "../../shared/turn-timing";
+import { SPEECH_ACTIVITY_THRESHOLD, createSpeechEndDetector, type SpeechEndDetector } from "../features/voice/speech-end-detector";
+import {
+  VOICE_CAPTURE_FAILURES,
+  createVoiceAttempt,
+  failureCodeForTranscription,
+  normalizeMicrophoneAccess,
+  peakLevelOf,
+  type MicrophoneAccessStatus,
+  type VoiceAttempt
+} from "../../shared/voice-diagnostics";
 import { orbAmplitudeSource } from "../features/voice/orb-amplitude";
 import { LIVE_RECORDING_LIMIT_MS } from "../features/voice/recording-limits";
 import { createVoiceTranscriptSubmission } from "../features/voice/voice-transcript-submission";
-import type { VoiceMimeType } from "../../shared/voice-contracts";
-import { hasAssistantReview, type DraftActionState } from "../features/assistant/interpretation-result";
+import { VOICE_ERROR_CODES, type VoiceMimeType } from "../../shared/voice-contracts";
+import { type DraftActionState } from "../features/assistant/interpretation-result";
 import type { ContactFormRequest } from "../../shared/messaging-contracts";
 import { ContactFormDialog, type ContactFormValues } from "../features/messaging/contact-form-dialog";
-import { ColorSchemeButton } from "../features/settings/color-scheme-button";
-import { colorChangeAnnouncement } from "../features/settings/color-schemes";
-import { useThemePreference } from "../features/settings/use-theme-preference";
 import { AresView } from "../views/ares-view";
+import { ThemeToggle } from "../features/theme/theme-toggle";
+import { LOCAL_MODE_HINT, VOICE_NEEDS_KEY_MESSAGE, isCommandShortcut } from "../features/assistant/command-input";
+import { useThemeName } from "../orb/orb-canvas";
 
 type ViewState =
   | { kind: "LOADING" }
@@ -64,21 +63,15 @@ let shortcutHintShown = false;
 const SHORTCUT_HINT_DURATION_MS = 8_000;
 
 export const App = () => {
-  const { scheme, next: nextColorScheme, cycleScheme } = useThemePreference();
-  const [colorNotice, setColorNotice] = useState<string>();
   const [viewState, setViewState] = useState<ViewState>({ kind: "LOADING" });
   const [interpretation, setInterpretation] = useState<AssistantInterpretation>();
   const [isInterpreting, setIsInterpreting] = useState(false);
   const [draftStates, setDraftStates] = useState<Record<number, DraftActionState>>({});
   const [spokenResponse, setSpokenResponse] = useState<import("../../shared/speech-contracts").SpokenResponse>();
-  const [selectedCatalogApplication, setSelectedCatalogApplication] = useState<RegisterableCatalogApplication>("GOOGLE_CHROME");
-  const [isRegisteringCatalogApplication, setIsRegisteringCatalogApplication] = useState(false);
-  const [catalogRegistrationMessage, setCatalogRegistrationMessage] = useState<string>();
-  const [customDisplayName, setCustomDisplayName] = useState("");
-  const [isRegisteringCustomApplication, setIsRegisteringCustomApplication] = useState(false);
-  const [customRegistrationMessage, setCustomRegistrationMessage] = useState<string>();
   const [contactForm, setContactForm] = useState<ContactFormRequest>();
   const [voiceMessage, setVoiceMessage] = useState<string>();
+  /** What the last transcription heard. Transient renderer state only: never stored, logged or sent anywhere. */
+  const [heardText, setHeardText] = useState<string>();
   const [shortcutHint, setShortcutHint] = useState<string>();
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
   const voiceRecorder = useRef<ManualVoiceRecorder | undefined>(undefined);
@@ -89,11 +82,11 @@ export const App = () => {
   const voiceUploadGeneration = useRef(-1);
   const voiceSubmission = useRef(createVoiceTranscriptSubmission());
   const interpretationInFlight = useRef(false);
-  const [voiceShortcutEnabled, setVoiceShortcutEnabled] = useState(true);
-  const [selectedVoiceShortcut, setSelectedVoiceShortcut] = useState<VoiceShortcut>(VOICE_SHORTCUTS[0]);
   const [voiceShortcutStatus, setVoiceShortcutStatus] = useState<VoiceShortcutEffectiveStatus>();
-  const [voicePreferencesMessage, setVoicePreferencesMessage] = useState<string>();
-  const [isUpdatingVoicePreferences, setIsUpdatingVoicePreferences] = useState(false);
+  /** The typed command input is hidden until Ctrl+K. */
+  const [commandOpen, setCommandOpen] = useState(false);
+  /** False when spoken input cannot work (no OpenAI key): the microphone then explains it and typed input is offered. */
+  const voiceConfigured = useRef(true);
 
   useEffect(() => {
     const loadTechnicalStatus = async (): Promise<void> => {
@@ -101,6 +94,10 @@ export const App = () => {
       if (!statusResult.ok) return setViewState({ kind: "ERROR", userMessage: statusResult.error.userMessage });
       if (!capabilitiesResult.ok) return setViewState({ kind: "ERROR", userMessage: capabilitiesResult.error.userMessage });
       setViewState({ kind: "SUCCESS", status: statusResult.data, capabilities: capabilitiesResult.data });
+      if (!capabilitiesResult.data.voice) {
+        voiceConfigured.current = false;
+        setVoiceMessage(LOCAL_MODE_HINT);
+      }
     };
     void loadTechnicalStatus().catch(() => setViewState({ kind: "ERROR", userMessage: "No se pudo consultar el estado técnico de Ares." }));
   }, []);
@@ -109,9 +106,7 @@ export const App = () => {
     const loadVoicePreferences = async (): Promise<void> => {
       try {
         const result = await window.ares.settings.voice.get();
-        if (!result.ok) return setVoicePreferencesMessage(result.error.userMessage);
-        setVoiceShortcutEnabled(result.data.preferences.enabled);
-        setSelectedVoiceShortcut(result.data.preferences.shortcut);
+        if (!result.ok) return;
         setVoiceShortcutStatus(result.data.effectiveStatus);
         if (result.data.effectiveStatus === "UNAVAILABLE") setVoiceMessage("El atajo global no está disponible. Puedes usar el orbe.");
         if (result.data.effectiveStatus === "ACTIVE" && !shortcutHintShown) {
@@ -120,11 +115,16 @@ export const App = () => {
           window.setTimeout(() => setShortcutHint(undefined), SHORTCUT_HINT_DURATION_MS);
         }
       } catch {
-        setVoicePreferencesMessage("La configuración de voz no está disponible.");
+        // The shortcut hint is optional: without the preferences the view simply shows no hint.
       }
     };
     void loadVoicePreferences();
   }, []);
+
+  /** A second press while recording stops it and sends what was recorded (Escape still cancels). */
+  const sendRecording = (): void => {
+    if (voiceStateReference.current === "RECORDING") voiceRecorder.current?.stop();
+  };
 
   const cancelRecording = (): void => {
     orbAmplitudeSource.reset();
@@ -148,15 +148,27 @@ export const App = () => {
     if (voiceState !== "RECORDING") orbAmplitudeSource.reset();
   }, [voiceState]);
 
-  const transcribeAudio = async (audio: Blob, mimeType: VoiceMimeType, durationMs: number, generation: number): Promise<void> => {
-    if (generation !== voiceGeneration.current || generation <= voiceUploadGeneration.current) return;
+  const transcribeAudio = async (audio: Blob, mimeType: VoiceMimeType, durationMs: number, generation: number, attempt: VoiceAttempt): Promise<void> => {
+    if (generation !== voiceGeneration.current || generation <= voiceUploadGeneration.current) { attempt.finish(); return; }
     voiceUploadGeneration.current = generation;
     try {
       const bytes = await audio.arrayBuffer();
       if (generation !== voiceGeneration.current) return;
+      attempt.reach("ipc_submitted");
       const result = await window.ares.voice.transcribe({ audio: bytes, mimeType, durationMs });
       if (generation !== voiceGeneration.current) return;
-      if (!result.ok) return setVoiceMessage(result.error.userMessage);
+      if (!result.ok) {
+        attempt.fail(failureCodeForTranscription(result.error.code));
+        if (result.error.code === VOICE_ERROR_CODES.configuration) {
+          voiceConfigured.current = false;
+          return setVoiceMessage(VOICE_NEEDS_KEY_MESSAGE);
+        }
+        return setVoiceMessage(result.error.userMessage);
+      }
+      attempt.reach("transcription_done");
+      markCurrentTurn("transcription_done");
+      attempt.finish();
+      setHeardText(result.data.text);
       setVoiceMessage("Procesando instrucción…");
       await voiceSubmission.current.submit({
         generation, text: result.data.text, isCurrent: () => generation === voiceGeneration.current,
@@ -166,30 +178,74 @@ export const App = () => {
       });
       if (generation === voiceGeneration.current) setVoiceMessage("Instrucción procesada. Revisa el resultado y confirma si se requiere.");
     } catch {
-      if (generation === voiceGeneration.current) setVoiceMessage("La transcripción no está disponible en este momento.");
+      attempt.fail("VOICE_TRANSCRIPTION_FAILED");
+      if (generation === voiceGeneration.current) setVoiceMessage(VOICE_CAPTURE_FAILURES.messageFor("VOICE_TRANSCRIPTION_FAILED"));
     } finally {
+      attempt.finish();
       if (generation === voiceGeneration.current) { voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); orbAmplitudeSource.reset(); }
     }
   };
 
+  useEffect(() => {
+    if (spokenResponse) markCurrentTurn("response_composed");
+  }, [spokenResponse?.responseId]);
+
+  useEffect(() => {
+    if (heardText === undefined) return undefined;
+    const timer = setTimeout(() => setHeardText(undefined), 8000);
+    return () => clearTimeout(timer);
+  }, [heardText]);
+
   const startRecording = async (fromGlobalShortcut = false): Promise<void> => {
+    if (!voiceConfigured.current) {
+      setVoiceMessage(VOICE_NEEDS_KEY_MESSAGE);
+      return;
+    }
+    setHeardText(undefined);
     setSpokenResponse(undefined);
     orbAmplitudeSource.reset();
     if (voiceStateReference.current !== "IDLE" || voiceStartInFlight.current || interpretationInFlight.current) return;
     voiceStartInFlight.current = true;
     const generation = ++voiceGeneration.current;
     setVoiceMessage(fromGlobalShortcut ? "Ares está grabando." : undefined);
+    // One privacy-safe diagnostic line per attempt (fixed enums and bounded numbers only), logged to the renderer console.
+    const rawAttempt = createVoiceAttempt((line) => console.info(line));
+    let peakRms = 0;
+    let microphone: MicrophoneAccessStatus = "unknown";
+    let levelAnalysisAvailable = true;
+    const applyLevelFacts = (): void => rawAttempt.facts({ peak: peakLevelOf(peakRms, SPEECH_ACTIVITY_THRESHOLD), analysis: levelAnalysisAvailable ? "ok" : "unavailable" });
+    const attempt: VoiceAttempt = {
+      reach: rawAttempt.reach,
+      facts: rawAttempt.facts,
+      fail: (failure, errorName) => { applyLevelFacts(); rawAttempt.fail(failure, errorName); },
+      finish: () => { applyLevelFacts(); rawAttempt.finish(); }
+    };
+    attempt.reach("shortcut_or_click");
+    attempt.facts({ microphone });
+    try {
+      void window.ares.system.getStatus().then((status) => {
+        microphone = status.ok ? normalizeMicrophoneAccess(status.data.microphoneAccess) : "unknown";
+        attempt.facts({ microphone });
+        attempt.reach("permission_checked");
+      }).catch(() => undefined);
+      void navigator.mediaDevices?.enumerateDevices?.().then((devices) => {
+        attempt.facts({ devices: devices.filter((device) => device.kind === "audioinput").length });
+      }).catch(() => undefined);
+    } catch {
+      // Diagnostics never affect the attempt.
+    }
     const browserMedia = navigator.mediaDevices;
     if (!browserMedia || typeof MediaRecorder === "undefined") {
-      setVoiceMessage("Este navegador no puede grabar audio compatible.");
+      attempt.fail("VOICE_CAPTURE_RECORDER_UNSUPPORTED");
+      setVoiceMessage(VOICE_CAPTURE_FAILURES.messageFor("VOICE_CAPTURE_RECORDER_UNSUPPORTED"));
       voiceStartInFlight.current = false;
       return;
     }
-    let levelAnalysisAvailable = true;
     let maximumWithoutSpeech = false;
     const detector = createSpeechEndDetector({
       // The orb maps this raw level to its own amplitude and writes it as a CSS variable, with no React re-render.
       onRms: (rms) => {
+        peakRms = Math.max(peakRms, rms);
         if (generation === voiceGeneration.current) orbAmplitudeSource.pushMicRms(rms);
       },
       onSpeechEnded: () => {
@@ -204,6 +260,8 @@ export const App = () => {
       createBlob: (parts, options) => new Blob(parts, options),
       setTimer: (callback, delay) => setTimeout(callback, delay), clearTimer: (timer) => clearTimeout(timer),
       maximumDurationMs: LIVE_RECORDING_LIMIT_MS,
+      diagnostics: attempt,
+      getMicrophoneAccess: () => microphone,
       onMaximumDuration: () => {
         if (!levelAnalysisAvailable || detector.hasDetectedSpeech()) {
           voiceRecorder.current?.stop();
@@ -221,35 +279,18 @@ export const App = () => {
       onRecording: () => { voiceStateReference.current = "RECORDING"; setVoiceState("RECORDING"); },
       onProcessing: () => { detector.dispose(); orbAmplitudeSource.reset(); voiceStateReference.current = "PROCESSING"; setVoiceState("PROCESSING"); setVoiceMessage("Procesando…"); },
       onUnavailable: (message, reason) => {
+        attempt.finish();
         orbAmplitudeSource.reset();
         voiceStartInFlight.current = false;
         setVoiceState("IDLE");
         setVoiceMessage(fromGlobalShortcut && reason === "USER_GESTURE_REQUIRED" ? "Para iniciar la grabación, usa el botón visible." : message);
       },
       isUserActivationActive: () => navigator.userActivation?.isActive ?? false,
-      onCancelled: () => { detector.dispose(); orbAmplitudeSource.reset(); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); },
-      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); orbAmplitudeSource.reset(); void transcribeAudio(recording, recordingMimeType, durationMs, generation); }
+      onCancelled: () => { detector.dispose(); orbAmplitudeSource.reset(); voiceStartInFlight.current = false; voiceStateReference.current = "IDLE"; setVoiceState("IDLE"); setVoiceMessage(maximumWithoutSpeech ? "No se entendió la instrucción." : "Grabación cancelada"); attempt.finish(); },
+      onAudio: (recording, recordingMimeType, durationMs) => { detector.dispose(); orbAmplitudeSource.reset(); beginCurrentTurn((line) => console.info(line)); markCurrentTurn("recording_stopped"); void transcribeAudio(recording, recordingMimeType, durationMs, generation, attempt); }
     });
     await voiceRecorder.current.start();
     voiceStartInFlight.current = false;
-  };
-
-  const updateVoicePreferences = async (): Promise<void> => {
-    if (isUpdatingVoicePreferences) return;
-    setIsUpdatingVoicePreferences(true);
-    setVoicePreferencesMessage(undefined);
-    try {
-      const result = await window.ares.settings.voice.update({ enabled: voiceShortcutEnabled, shortcut: selectedVoiceShortcut });
-      if (!result.ok) return setVoicePreferencesMessage(result.error.userMessage);
-      setVoiceShortcutEnabled(result.data.preferences.enabled);
-      setSelectedVoiceShortcut(result.data.preferences.shortcut);
-      setVoiceShortcutStatus(result.data.effectiveStatus);
-      setVoicePreferencesMessage("La configuración de voz se actualizó.");
-    } catch {
-      setVoicePreferencesMessage("La configuración de voz no está disponible.");
-    } finally {
-      setIsUpdatingVoicePreferences(false);
-    }
   };
 
   useEffect(() => {
@@ -257,10 +298,46 @@ export const App = () => {
 
     const controller = createGlobalVoiceShortcutController({
       getState: () => voiceStateReference.current,
-      startRecording: () => { void startRecording(true); }, stopRecording: cancelRecording
+      startRecording: () => { void startRecording(true); }, stopRecording: sendRecording
     });
     return window.ares.voice.onGlobalShortcut(controller.activate);
   }, []);
+
+  // Ctrl+K opens the typed command input, which is hidden otherwise.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!isCommandShortcut(event)) return;
+      event.preventDefault();
+      setCommandOpen(true);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  /**
+   * A typed instruction goes through the same submission as a transcribed one (the same interpret call and the same proposals),
+   * and is shown through the same transient «Escuché» line. It is not stored or logged.
+   */
+  const submitTypedInstruction = (text: string): void => {
+    if (voiceStateReference.current !== "IDLE" || voiceStartInFlight.current || interpretationInFlight.current) {
+      setVoiceMessage("Espera a que Ares termine.");
+      return;
+    }
+    setSpokenResponse(undefined);
+    const generation = ++voiceGeneration.current;
+    setHeardText(text);
+    setVoiceMessage("Procesando instrucción…");
+    void voiceSubmission.current.submit({
+      generation, text, isCurrent: () => generation === voiceGeneration.current,
+      showTranscript: () => undefined,
+      interpret: (instruction) => submitInstruction(instruction, true, () => generation === voiceGeneration.current),
+      propose: (index, draft) => requestProposal(index, draft, () => generation === voiceGeneration.current)
+    }).then(() => {
+      if (generation === voiceGeneration.current) setVoiceMessage("Instrucción procesada. Revisa el resultado y confirma si se requiere.");
+    }).catch(() => {
+      if (generation === voiceGeneration.current) setVoiceMessage("No pude entenderte ahora. Inténtalo de nuevo en un momento.");
+    });
+  };
 
   const submitInstruction = async (instruction: string, automaticProposal = false, isCurrent = () => true): Promise<AssistantInterpretation | undefined> => {
     setSpokenResponse(undefined);
@@ -270,12 +347,13 @@ export const App = () => {
     try {
       const result = getInterpretationMessage(await window.ares.assistant.interpret({ text: instruction }));
       if (!isCurrent()) return;
+      markCurrentTurn("interpretation_done");
       if (automaticProposal && result.state === "READY") setDraftStates(Object.fromEntries(result.drafts.map((_draft, index) => [index, { busy: true, resolved: false }])));
       setInterpretation(result);
       setSpokenResponse(result.spokenResponse);
       return result;
     } catch {
-      if (isCurrent()) setVoiceMessage("La interpretación no está disponible en este momento.");
+      if (isCurrent()) setVoiceMessage("No pude entenderte ahora. Inténtalo de nuevo en un momento.");
     } finally {
       interpretationInFlight.current = false;
       setIsInterpreting(false);
@@ -314,37 +392,6 @@ export const App = () => {
 
   const updateDraftState = (index: number, state: DraftActionState): void => setDraftStates((current) => ({ ...current, [index]: state }));
 
-  const registerCatalogApplication = async (): Promise<void> => {
-    if (isRegisteringCatalogApplication) return;
-    setIsRegisteringCatalogApplication(true); setCatalogRegistrationMessage(undefined);
-    try {
-      const result = await window.ares.applications.registerCatalogApplication({ application: selectedCatalogApplication });
-      if (!result.ok) return setCatalogRegistrationMessage(result.error.userMessage);
-      const data: CatalogApplicationRegistrationData = result.data;
-      const label = catalogApplicationLabels[data.application];
-      setCatalogRegistrationMessage(data.status === "CANCELLED" ? `La selección de ${label} se canceló.` : data.status === "ALREADY_REGISTERED" ? `${label} ya está registrado.` : `${label} se registró correctamente.`);
-    } catch {
-      setCatalogRegistrationMessage("No se pudo registrar la aplicación.");
-    } finally {
-      setIsRegisteringCatalogApplication(false);
-    }
-  };
-
-  const registerCustomApplication = async (): Promise<void> => {
-    if (isRegisteringCustomApplication) return;
-    setIsRegisteringCustomApplication(true); setCustomRegistrationMessage(undefined);
-    try {
-      const result = await window.ares.applications.registerCustomApplication({ displayName: customDisplayName });
-      if (!result.ok) return setCustomRegistrationMessage(result.error.userMessage);
-      const data: CustomApplicationRegistrationData = result.data;
-      setCustomRegistrationMessage(data.status === "CANCELLED" ? "El registro de la aplicación se canceló." : data.status === "ALREADY_REGISTERED" ? "La aplicación ya está registrada." : "La aplicación se registró correctamente.");
-    } catch {
-      setCustomRegistrationMessage("No se pudo registrar la aplicación.");
-    } finally {
-      setIsRegisteringCustomApplication(false);
-    }
-  };
-
   const requestProposal = async (index: number, draft: ActionSubmission, isCurrent = () => true): Promise<void> => {
     if (!isCurrent()) return;
     setSpokenResponse(undefined);
@@ -352,6 +399,7 @@ export const App = () => {
     try {
       const result = await window.ares.actions.propose(draft);
       if (!isCurrent()) return;
+      markCurrentTurn("execution_done");
       if (!result.ok) {
         updateDraftState(index, { busy: false, resolved: true, userMessage: result.error.userMessage });
         setSpokenResponse(result.error.spokenResponse);
@@ -365,7 +413,7 @@ export const App = () => {
       updateDraftState(index, { busy: false, resolved: true, userMessage: result.data.userSummary, spokenResponse: result.data.spokenResponse });
       setSpokenResponse(result.data.spokenResponse);
     } catch {
-      if (isCurrent()) setVoiceMessage("No se pudo proponer la acción.");
+      if (isCurrent()) setVoiceMessage("No pude preparar eso. Inténtalo de nuevo.");
     }
   };
 
@@ -389,46 +437,39 @@ export const App = () => {
     }
   };
 
-  // The color button is not rendered while a dialog (the confirmation card or the contact form) is open.
-  const dialogOpen = Boolean(contactForm) || hasAssistantReview(interpretation, draftStates);
-  const changeColor = (): void => {
-    setColorNotice(colorChangeAnnouncement(cycleScheme()));
+  const themeName = useThemeName();
+  // The effective theme comes back through prefers-color-scheme, so nothing else is stored here.
+  const toggleTheme = (preference: "light" | "dark"): void => {
+    void window.ares.theme.setPreference({ preference }).catch(() => undefined);
   };
-  useEffect(() => {
-    if (!colorNotice) return;
-    const timer = window.setTimeout(() => setColorNotice(undefined), 3_000);
-    return () => window.clearTimeout(timer);
-  }, [colorNotice]);
-
   const orbState = orbStateFor(voiceState, isInterpreting);
   const voiceLabel = voiceLabelFor(voiceState, isInterpreting);
 
-  return <main className="ares-shell ares-glass-shell">
+  return <main className="ares-shell">
     <header className="ares-header">
       <span aria-label="Ares" className="wordmark">ARES</span>
-      {!dialogOpen && <div className="header-utilities">
-        <ColorSchemeButton current={scheme} next={nextColorScheme} onCycle={changeColor} />
-      </div>}
+      <ThemeToggle current={themeName} onToggle={toggleTheme} />
     </header>
-
-    {/* The settings panel (UtilityPanel) is no longer mounted; its source stays in features/settings. */}
 
     <AresView
       spokenResponse={spokenResponse}
       draftStates={draftStates}
       interpretation={interpretation}
       isInterpreting={isInterpreting}
-      onCancelRecording={cancelRecording}
+      onSendRecording={sendRecording}
+      onSpeechNotice={setVoiceMessage}
+      commandOpen={commandOpen}
+      onCommandSubmit={submitTypedInstruction}
+      onCommandClose={() => setCommandOpen(false)}
       onPropose={(index, draft) => void propose(index, draft)}
       onResolveConfirmation={(index, confirmation, decision) => void resolveConfirmation(index, confirmation, decision)}
       onStartRecording={() => void startRecording()}
-      colorNotice={colorNotice}
       orbState={orbState}
-      scheme={scheme.id}
       technicalMessage={viewState.kind === "ERROR" ? viewState.userMessage : undefined}
       technicalState={viewState.kind}
       voiceLabel={voiceLabel}
       voiceMessage={voiceMessage}
+      heardText={heardText}
       shortcutHint={shortcutHint}
       voiceShortcutStatus={voiceShortcutStatus}
       voiceState={voiceState}
