@@ -19,6 +19,9 @@
     "tests",
     "drizzle.config.ts",
     "forge.config.ts",
-    "vite.*.config.ts"
+    "vite.*.config.ts",
+    "vite.externals.ts",
+    "vite.stubs.ts",
+    "scripts"
   ]
 }
