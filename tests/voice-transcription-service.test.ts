@@ -90,17 +90,22 @@ describe("Main-only voice transcription service", () => {
     const logInfo = vi.fn();
     const service = serviceFor({ createProvider: () => ({ transcribe: async () => "Crear una tarea privada de Ana" }), logInfo });
     await service.transcribe({ audio, mimeType: "audio/webm;codecs=opus", durationMs: 2300 });
-    expect(logInfo.mock.calls.map((call) => call[0])).toEqual([
+    const lines = logInfo.mock.calls.map((call) => String(call[0]));
+    // The per-stage lines are unchanged; the new "transcribe" line (model, language, numbers, outcome) is separate.
+    expect(lines.filter((line) => line.startsWith("voice-diag"))).toEqual([
       "voice-diag side=main stage=transcription_started mime=webm size=<1KB durationMs=2300",
       "voice-diag side=main stage=transcription_done mime=webm size=<1KB durationMs=2300"
     ]);
-    expect(JSON.stringify(logInfo.mock.calls)).not.toMatch(/Ana|tarea|private/u);
+    expect(lines.filter((line) => line.startsWith("transcribe "))).toEqual(["transcribe model=private-model lang=es durationMs=2300 bytes=3 outcome=TRANSCRIPT_OK"]);
+    expect(JSON.stringify(logInfo.mock.calls)).not.toMatch(/Ana|tarea/u);
 
     const failing = vi.fn();
     const failingService = serviceFor({ createProvider: () => ({ transcribe: async () => { throw { status: 429, message: "private-detail" }; } }), logInfo: failing });
     await failingService.transcribe({ audio, mimeType: "audio/webm", durationMs: 1000 });
-    expect(failing.mock.calls.map((call) => call[0]).at(-1)).toBe("voice-diag side=main stage=transcription_started mime=webm size=<1KB durationMs=1000 failure=VOICE_TRANSCRIPTION_FAILED");
-    expect(JSON.stringify(failing.mock.calls)).not.toContain("private");
+    const failingLines = failing.mock.calls.map((call) => String(call[0]));
+    expect(failingLines.filter((line) => line.startsWith("voice-diag")).at(-1)).toBe("voice-diag side=main stage=transcription_started mime=webm size=<1KB durationMs=1000 failure=VOICE_TRANSCRIPTION_FAILED");
+    expect(failingLines.filter((line) => line.startsWith("transcribe "))).toEqual(["transcribe model=private-model lang=es durationMs=1000 bytes=3 outcome=PROVIDER_FAILED"]);
+    expect(JSON.stringify(failing.mock.calls)).not.toContain("private-detail");
 
     const invalid = vi.fn();
     await serviceFor({ logInfo: invalid }).transcribe({ audio: new ArrayBuffer(0), mimeType: "audio/webm", durationMs: 1000 });

@@ -1,6 +1,7 @@
 import { type ReactElement } from "react";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VOICE_AUDIO_CONSTRAINTS } from "../src/shared/voice-capture";
 
 // Exercise component callbacks and retained local state without a browser or mounted effects.
 const hooks = vi.hoisted(() => ({ scope: "", index: 0, values: new Map<string, unknown[]>() }));
@@ -112,7 +113,7 @@ describe("compact shell regressions", () => {
     expect(orb.props.onKeyDown).toBeUndefined();
     orb.props.onClick({ type: "click", detail: activation === "click" ? 1 : 0 });
     await Promise.resolve();
-    expect(getUserMedia).toHaveBeenCalledExactlyOnceWith({ audio: true });
+    expect(getUserMedia).toHaveBeenCalledExactlyOnceWith({ audio: VOICE_AUDIO_CONSTRAINTS });
     expect(recorderStart).toHaveBeenCalledOnce();
     const listening = renderAppOrb();
     // A second press now stops the recording and sends it, instead of cancelling.

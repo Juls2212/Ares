@@ -14,13 +14,15 @@ describe("background operation wiring in the main process", () => {
     expect(main).not.toMatch(/frame:\s*false|alwaysOnTop|skipTaskbar/);
   });
 
-  it("holds the single-instance lock, creates the tray before the window, and attaches close-to-tray", () => {
+  it("holds the single-instance lock, creates the tray before the window, and attaches the close-quits-the-app policy", () => {
     expect(main).toContain("backgroundLifecycle.start()");
-    expect(main).toContain("if (!isPrimaryInstance) app.quit()");
+    // A Squirrel event launch (install/update/uninstall) never takes the lock and quits by itself after Update.exe.
+    expect(main).toContain("const isPrimaryInstance = !squirrelHandled && backgroundLifecycle.start();");
+    expect(main).toContain("if (!isPrimaryInstance && !squirrelHandled) app.quit()");
     expect(main).toContain("if (!isPrimaryInstance) return;");
     expect(main.indexOf("backgroundLifecycle.createTray()")).toBeLessThan(main.indexOf("await createMainWindow()"));
     expect(main).toContain("backgroundLifecycle.attachWindow(toManagedWindow(createdWindow))");
-    expect(main).toContain("globalVoiceShortcutLifecycle.stop()");
+    expect(main).toContain("() => globalVoiceShortcutLifecycle.stop()");
   });
 
   it("never auto-starts, listens continuously, or captures audio in Main", () => {
@@ -42,7 +44,7 @@ describe("background operation wiring in the main process", () => {
     expect(main).toContain("getShortcutLabel: () => {");
     expect(main).toContain("formatShortcutForDisplay(active)");
     expect(main).toContain("onChange: () => backgroundLifecycle.refreshTray()");
-    expect(main).toContain("displayBalloon: (options) => tray.displayBalloon(options)");
+    expect(main).not.toContain("displayBalloon");
     for (const option of ["contextIsolation: true", "nodeIntegration: false", "sandbox: true", "webSecurity: true", "backgroundThrottling: false"]) {
       expect(main).toContain(option);
     }

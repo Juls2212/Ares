@@ -25,7 +25,6 @@ const createWindow = () => {
     restore: vi.fn(),
     show: vi.fn(),
     focus: vi.fn(),
-    hide: vi.fn(() => { state.visible = false; }),
     on: (event, listener) => { listeners.set(event, listener); }
   };
   const close = () => {
@@ -38,16 +37,13 @@ const createWindow = () => {
 
 const createHarness = (
   label: { current: string | undefined },
-  options: { balloon?: "ok" | "throws" | "absent"; window?: ManagedWindow } = {}
+  options: { window?: ManagedWindow } = {}
 ) => {
   const tray: ManagedTray = {
     setToolTip: vi.fn(),
     setContextMenu: vi.fn(),
     on: vi.fn(),
-    destroy: vi.fn(),
-    ...(options.balloon === "absent" ? {} : {
-      displayBalloon: vi.fn(() => { if (options.balloon === "throws") throw new Error("private C:\\detail"); })
-    })
+    destroy: vi.fn()
   };
   const menus: TrayMenuItem[][] = [];
   const lifecycle = createBackgroundLifecycle({

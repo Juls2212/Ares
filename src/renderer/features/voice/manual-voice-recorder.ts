@@ -4,6 +4,7 @@ import {
   VOICE_MAX_RECORDING_DURATION_MS,
   type VoiceMimeType
 } from "../../../shared/voice-contracts";
+import { VOICE_TOO_SHORT_RECORDING_MESSAGE } from "../../../shared/voice-capture";
 import {
   VOICE_CAPTURE_FAILURES,
   errorNameOf,
@@ -48,6 +49,8 @@ export type ManualVoiceRecorderDependencies = {
   onAudio: (audio: Blob, mimeType: VoiceMimeType, durationMs: number) => void;
   onStream?: (stream: StreamLike) => void;
   maximumDurationMs?: number;
+  /** Recordings shorter than this are not sent (a tap carries no sentence). Absent means no minimum. */
+  minimumDurationMs?: number;
   onMaximumDuration?: () => void;
   now?: () => number;
   isUserActivationActive?: () => boolean;
@@ -144,6 +147,9 @@ export const createManualVoiceRecorder = (
           } else if (audio.size === 0) {
             dependencies.diagnostics?.fail("VOICE_CAPTURE_EMPTY_RECORDING");
             dependencies.onUnavailable(VOICE_CAPTURE_FAILURES.messageFor("VOICE_CAPTURE_EMPTY_RECORDING"));
+          } else if (dependencies.minimumDurationMs !== undefined && durationMs < dependencies.minimumDurationMs) {
+            dependencies.diagnostics?.fail("VOICE_TRANSCRIPT_EMPTY");
+            dependencies.onUnavailable(VOICE_TOO_SHORT_RECORDING_MESSAGE);
           } else if (audio.size > VOICE_MAX_AUDIO_BYTES || durationMs > VOICE_MAX_RECORDING_DURATION_MS) {
             dependencies.onUnavailable("La grabación es demasiado larga para transcribirla.");
           } else {

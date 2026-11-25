@@ -1,6 +1,10 @@
 /**
- * Main-only background operation: a tray icon with a two-item Spanish menu, close-to-tray, and a
- * single-instance lock. It never opens the microphone and owns no audio, shortcut, or IPC logic.
+ * Main-only application lifecycle: a tray icon with a Spanish menu, one quit path and a single-instance lock.
+ *
+ * Policy: minimizing the window keeps Ares running in the background (tray, global shortcut, reminders);
+ * closing the window (the X button, Alt+F4, the taskbar) quits the application completely. The close event is
+ * never intercepted. Every way out (window close, tray "Salir", before-quit, Windows session end) goes through
+ * one idempotent shutdown. It never opens the microphone and owns no audio, shortcut, or IPC logic.
  */
 export const TRAY_LABELS = Object.freeze({
   open: "Abrir Ares",
@@ -24,13 +28,10 @@ export type ManagedWindow = {
   restore: () => void;
   show: () => void;
   focus: () => void;
-  hide: () => void;
   on: (event: "close" | "session-end", listener: (event: CloseEventLike) => void) => unknown;
 };
 
 export type ManagedTray = {
-  /** Windows only; absent or failing balloons degrade silently. */
-  displayBalloon?: (options: { title: string; content: string }) => void;
   setToolTip: (tooltip: string) => void;
   setContextMenu: (menu: unknown) => void;
   on: (event: "click", listener: () => void) => unknown;
@@ -59,6 +60,12 @@ export type BackgroundLifecycleDependencies = {
   getShortcutLabel?: () => string | undefined;
   /** Optional theme submenu: the current preference and how to choose another. Absent means no submenu. */
   theme?: { current: () => "system" | "light" | "dark"; choose: (preference: "system" | "light" | "dark") => void };
+  /**
+   * Main-owned cleanup that runs once, in order, at the start of every shutdown and before the tray is destroyed
+   * (for example unregistering the global shortcut). Each step must be synchronous; a failing step is logged and
+   * never stops the next one.
+   */
+  shutdownSteps?: ReadonlyArray<() => void>;
 };
 
 export type BackgroundLifecycle = {
@@ -66,11 +73,12 @@ export type BackgroundLifecycle = {
   start: () => boolean;
   /** Creates the tray; call once after the application is ready. */
   createTray: () => void;
-  /** Hides the window to the tray on close unless the application is really quitting. */
+  /** Makes closing the window quit the application; the close event is never prevented. */
   attachWindow: (window: ManagedWindow) => void;
   showMainWindow: () => void;
   /** Rebuilds the tray menu and tooltip, for example after the shortcut changes. */
   refreshTray: () => void;
+  /** The one quit path: runs the shutdown once, then asks Electron to quit. Safe to call repeatedly. */
   quit: () => void;
   isQuitting: () => boolean;
   isTrayAvailable: () => boolean;
@@ -81,7 +89,8 @@ export const createBackgroundLifecycle = (dependencies: BackgroundLifecycleDepen
   let quitting = false;
   let tray: ManagedTray | undefined;
   let started = false;
-  let hideNoticeShown = false;
+  let shutdownStarted = false;
+  let quitRequested = false;
 
   const shortcutLabel = (): string | undefined => {
     try {
@@ -91,8 +100,40 @@ export const createBackgroundLifecycle = (dependencies: BackgroundLifecycleDepen
     }
   };
 
-  const quit = (): void => {
+  const dispose = (): void => {
+    const current = tray;
+    tray = undefined;
+    if (!current) return;
+    try {
+      current.destroy();
+    } catch {
+      dependencies.logError("Tray cleanup failed.");
+    }
+  };
+
+  /**
+   * Idempotent shutdown shared by every way out: marks the application as quitting, runs the injected cleanup
+   * steps in order, then destroys the tray. The asynchronous parts (reminder scheduler, database) are stopped by the
+   * before-quit registration in register-reminder-delivery-lifecycle.ts, which Electron runs after this.
+   */
+  const shutdown = (): void => {
+    if (shutdownStarted) return;
+    shutdownStarted = true;
     quitting = true;
+    for (const step of dependencies.shutdownSteps ?? []) {
+      try {
+        step();
+      } catch {
+        dependencies.logError("Shutdown step failed.");
+      }
+    }
+    dispose();
+  };
+
+  const quit = (): void => {
+    if (quitRequested) return;
+    quitRequested = true;
+    shutdown();
     dependencies.app.quit();
   };
 
@@ -148,17 +189,6 @@ export const createBackgroundLifecycle = (dependencies: BackgroundLifecycleDepen
     }
   }
 
-  const dispose = (): void => {
-    const current = tray;
-    tray = undefined;
-    if (!current) return;
-    try {
-      current.destroy();
-    } catch {
-      dependencies.logError("Tray cleanup failed.");
-    }
-  };
-
 
   return {
     start: () => {
@@ -166,10 +196,8 @@ export const createBackgroundLifecycle = (dependencies: BackgroundLifecycleDepen
       if (!dependencies.app.requestSingleInstanceLock()) return false;
       started = true;
       dependencies.app.on("second-instance", showMainWindow);
-      dependencies.app.on("before-quit", () => {
-        quitting = true;
-        dispose();
-      });
+      // Any quit that did not start here (Windows shutdown, another app.quit()) still runs the same shutdown.
+      dependencies.app.on("before-quit", shutdown);
       return true;
     },
     createTray: () => {
@@ -181,32 +209,16 @@ export const createBackgroundLifecycle = (dependencies: BackgroundLifecycleDepen
         created.on("click", showMainWindow);
         tray = created;
       } catch {
-        // Without a tray, closing the window must keep quitting so the app is never invisible and unreachable.
+        // Without a tray the app still runs; closing the window quits it.
         dependencies.logError("Tray creation failed.");
       }
     },
     refreshTray,
     attachWindow: (window) => {
-      window.on("close", (event) => {
-        if (quitting || !tray) return;
-        event.preventDefault();
-        window.hide();
-        // One non-blocking notice per session, so closing never looks like quitting.
-        if (hideNoticeShown) return;
-        hideNoticeShown = true;
-        try {
-          const label = shortcutLabel();
-          tray.displayBalloon?.({
-            title: TRAY_LABELS.tooltip,
-            content: label ? `Ares sigue activo en la bandeja. Atajo: ${label}.` : "Ares sigue activo en la bandeja."
-          });
-        } catch {
-          // Unsupported or disabled notifications degrade silently.
-        }
-      });
-      window.on("session-end", () => {
-        quitting = true;
-      });
+      // Closing the window quits the app. The event is not prevented, so the window is destroyed normally.
+      window.on("close", () => quit());
+      // Windows logoff or shutdown: run the synchronous shutdown now; the system is ending the session anyway.
+      window.on("session-end", () => shutdown());
     },
     showMainWindow,
     quit,

@@ -196,7 +196,7 @@ describe("packaged environment loading", () => {
       expect(source, file).toContain("loadDevelopmentEnvironment()");
     }
     const main = readSource("src/main/main.ts");
-    expect(main).toContain("markPackagedRuntime(app.isPackaged);");
-    expect(main.indexOf("markPackagedRuntime(app.isPackaged)")).toBeLessThan(main.indexOf("registerActionIpcHandlers("));
+    expect(main).toContain("markPackagedRuntime(app.isPackaged, app.getPath(\"userData\"));");
+    expect(main.indexOf("markPackagedRuntime(app.isPackaged,")).toBeLessThan(main.indexOf("registerActionIpcHandlers("));
   });
 });

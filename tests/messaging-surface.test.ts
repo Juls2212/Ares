@@ -135,8 +135,9 @@ describe("main process wiring", () => {
     expect(main).toContain("configureContactFormSender(");
     expect(main).toContain("mainWindow.webContents.send(IPC_CHANNELS.messaging.contactFormRequested, request)");
     expect(main.match(/webContents\.send\(/gu)?.length).toBe(1);
-    const quit = main.slice(main.indexOf('app.once("before-quit"'));
-    expect(quit.slice(0, 200)).toContain("shutdownMessaging()");
+    // The messaging state is cleared by the one quit path: a shutdown step of the lifecycle, run on every way out.
+    const steps = main.slice(main.indexOf("shutdownSteps: ["));
+    expect(steps.slice(0, 200)).toContain("() => shutdownMessaging()");
     expect(main).not.toMatch(/openExternal|wa\.me|whatsapp:/u);
   });
 

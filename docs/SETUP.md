@@ -17,6 +17,23 @@ Copy `.env.example` to `.env` and fill in the values. `.env` is not committed. O
 
 None of them is exposed to Vite, the preload or the renderer.
 
+### Transcription model: cost and accuracy
+
+When `OPENAI_TRANSCRIPTION_MODEL` is unset or blank, Ares uses `gpt-4o-transcribe`, the full-size speech-to-text model. The language is always sent as Spanish (`es`) and no recognition hint (`prompt`) is sent, so the model is not biased toward invented words. The environment variable overrides the model.
+
+| Model | Accuracy | Cost and speed |
+| --- | --- | --- |
+| `gpt-4o-transcribe` (default) | Best with names, letters and short commands, and the least likely to return another language | Higher cost per minute, slightly slower |
+| `gpt-4o-mini-transcribe` | Good for clear speech, more mistakes on names and noise | Lower cost per minute, faster |
+
+Spoken commands are a few seconds long, so the cost difference per command is small; accuracy is the better trade for a voice-first assistant.
+
+Besides the model, the capture and a local check protect the result:
+
+- The microphone is requested as mono with echo cancellation, noise suppression and automatic gain control, at 64 kbit/s Opus. Recordings shorter than 0.4 s are not sent; the longest stays 30 s (60 s in Main).
+- Before a transcription reaches the interpreter, a local pure function (`src/shared/transcript-guard.ts`, no network and no language-detection service) rejects empty text, text without real words or only filler ("eh", "mmm"), text mostly in a non-Latin script, known silence hallucinations ("Subtítulos realizados por la comunidad de Amara.org") and an obviously English sentence. Ares then asks the person, in Spanish, to repeat with a short natural sentence, with a different example each time. Nothing is sent to the interpreter.
+- Each transcription writes one diagnostic line to the Main log, without the text: `transcribe model=<name> lang=es durationMs=<n> bytes=<n> outcome=<code>`, where the outcome is `TRANSCRIPT_OK`, `TRANSCRIPT_EMPTY`, `TRANSCRIPT_TOO_SHORT`, `TRANSCRIPT_REJECTED_LANGUAGE`, `TRANSCRIPT_TOO_LONG`, `PROVIDER_FAILED`, `PROVIDER_TIMEOUT` or `CONFIGURATION_UNAVAILABLE`.
+
 ### Optional ElevenLabs voice
 
 Ares speaks with OpenAI by default. To use ElevenLabs, set `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` in `.env`. Choose a voice in the ElevenLabs voice library that lists Spanish (filter by language) and copy its voice id; the model is the low-latency `eleven_flash_v2_5` with Spanish forced. The free tier has a small monthly character quota; when it runs out (or the key or voice is wrong, or the service is down) the same sentence is spoken by the OpenAI voice, so Ares is never silent. The log shows `Speech provider used [ELEVENLABS].` on success or `Speech provider fallback to OpenAI [CODE].` on fallback.

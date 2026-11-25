@@ -1,6 +1,10 @@
 import { app, BrowserWindow, globalShortcut, Menu, nativeImage, nativeTheme, session, Tray } from "electron";
 import path from "node:path";
+import { APP_USER_MODEL_ID } from "./app-identity";
+import { handleSquirrelStartup } from "./squirrel-startup";
 import { markPackagedRuntime } from "./config/development-environment";
+import { prepareDatabase } from "./database/database-client";
+import { configureRuntimeLocations } from "./database/runtime-locations";
 import { registerActionIpcHandlers } from "./ipc/register-action-ipc";
 import { registerAssistantIpcHandlers } from "./ipc/register-assistant-ipc";
 import { registerSettingsIpcHandlers } from "./ipc/register-settings-ipc";
@@ -31,8 +35,21 @@ import {
   type ManagedWindow
 } from "./background/background-lifecycle";
 
+// A Squirrel install/update/uninstall launch only creates or removes shortcuts through Update.exe and quits; it must
+// happen before any window or service exists (see squirrel-startup.ts for why this is not a launch capability).
+const squirrelHandled = handleSquirrelStartup(() => app.quit());
+// Same string as the Squirrel shortcuts, so the taskbar button and notifications belong to this app (app-identity.ts).
+if (process.platform === "win32") app.setAppUserModelId(APP_USER_MODEL_ID);
+
 // Before any configuration read: a packaged app reads settings only from the process environment.
-markPackagedRuntime(app.isPackaged);
+markPackagedRuntime(app.isPackaged, app.getPath("userData"));
+// Where the embedded database keeps its data (userData) and where its shipped files live (resources, or the project in development).
+configureRuntimeLocations({
+  isPackaged: app.isPackaged,
+  userDataPath: app.getPath("userData"),
+  resourcesPath: process.resourcesPath,
+  appPath: app.getAppPath()
+});
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -73,14 +90,16 @@ const toManagedWindow = (window: BrowserWindow): ManagedWindow => ({
   restore: () => window.restore(),
   show: () => window.show(),
   focus: () => window.focus(),
-  hide: () => window.hide(),
   on: (event, listener) => {
     if (event === "close") window.on("close", (closeEvent) => listener(closeEvent));
     else window.on("session-end", (sessionEvent) => listener(sessionEvent));
   }
 });
 
-/** Tray, close-to-tray and the single-instance lock. It never starts audio capture. */
+/**
+ * Tray, the one quit path and the single-instance lock. Minimizing keeps Ares running in the background; closing the
+ * window quits completely (see background-lifecycle.ts). It never starts audio capture.
+ */
 const backgroundLifecycle = createBackgroundLifecycle({
   app: {
     requestSingleInstanceLock: () => app.requestSingleInstanceLock(),
@@ -98,8 +117,7 @@ const backgroundLifecycle = createBackgroundLifecycle({
       setToolTip: (tooltip) => tray.setToolTip(tooltip),
       setContextMenu: (menu) => tray.setContextMenu(menu as Electron.Menu),
       on: (event, listener) => tray.on(event, listener),
-      destroy: () => tray.destroy(),
-      displayBalloon: (options) => tray.displayBalloon(options)
+      destroy: () => tray.destroy()
     };
   },
   getShortcutLabel: () => {
@@ -111,11 +129,20 @@ const backgroundLifecycle = createBackgroundLifecycle({
       items.map((item) => ("type" in item ? { type: "separator" as const } : "submenu" in item ? { label: item.label, submenu: item.submenu } : { label: item.label, click: item.click }))
     ),
   theme: { current: () => themePreferenceService.get(), choose: (preference) => { void themePreferenceService.set(preference); } },
-  logError: (message) => console.error(message)
+  logError: (message) => console.error(message),
+  // Synchronous Main cleanup, in order, before the tray is destroyed and Electron quits. The reminder scheduler and the
+  // database are stopped afterwards by registerReminderDeliveryShutdown (a before-quit hook with a bounded wait).
+  shutdownSteps: [
+    () => globalVoiceShortcutLifecycle.stop(),
+    () => shutdownMessaging(),
+    () => shutdownSpotify()
+  ]
 });
 
-const isPrimaryInstance = backgroundLifecycle.start();
-if (!isPrimaryInstance) app.quit();
+// A second launch asks the running instance to show its window (the existing show path) and quits.
+// A Squirrel event launch never takes the lock and quits by itself once Update.exe has finished.
+const isPrimaryInstance = !squirrelHandled && backgroundLifecycle.start();
+if (!isPrimaryInstance && !squirrelHandled) app.quit();
 
 const configureSessionSecurity = (): void => {
   const isTrustedRendererRequest = (
@@ -233,6 +260,8 @@ const createMainWindow = async (): Promise<void> => {
 
 app.whenReady().then(async () => {
   if (!isPrimaryInstance) return;
+  // The embedded database (PGlite) must be open and migrated before any service reads it; PostgreSQL needs nothing here.
+  await prepareDatabase();
   configureSessionSecurity();
   registerSystemIpcHandlers();
   registerActionIpcHandlers();
@@ -272,15 +301,8 @@ app.whenReady().then(async () => {
   });
 });
 
-app.once("before-quit", () => {
-  shutdownMessaging();
-  shutdownSpotify();
-  globalVoiceShortcutLifecycle.stop();
-});
 
-// The tray keeps Ares running after the window is hidden; without a tray the last close still quits.
+// Closing the last window quits the app through the one quit path; only minimizing keeps it running.
 app.on("window-all-closed", () => {
-  if (backgroundLifecycle.isQuitting() || (!backgroundLifecycle.isTrayAvailable() && process.platform !== "darwin")) {
-    app.quit();
-  }
+  backgroundLifecycle.quit();
 });

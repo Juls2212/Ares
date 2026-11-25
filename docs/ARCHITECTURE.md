@@ -18,7 +18,7 @@ The renderer is untrusted UI. It can call only the named methods of `window.ares
 | `src/main/assistant` | Interpreter, OpenAI structured-output provider, deterministic phrase parsers, the offline local brain and its fuzzy matcher, context store, safety checks. |
 | `src/main/planner`, `reminders`, `events` | Planner services and repositories, reminder and event notification delivery. |
 | `src/main/applications`, `files`, `messaging`, `spotify`, `weather` | The services each domain executor uses. |
-| `src/main/voice`, `settings`, `background`, `system`, `config` | Transcription and speech, voice preferences, tray and close-to-tray, system status, environment reading. |
+| `src/main/voice`, `settings`, `background`, `system`, `config` | Transcription and speech, voice preferences, tray and the quit-on-close policy, system status, environment reading. |
 | `src/main/database` | Drizzle client and schema (`schema/`). Migrations are in `drizzle/`. |
 
 ## The 14 IPC channels
@@ -71,6 +71,14 @@ Ares stays useful without the OpenAI key and answers common commands faster, thr
 **Constants.** `LOCAL_FIRST_ENABLED` (routing), `MAX_LOCAL_INPUT_LENGTH` = 200 characters (longer text is never a local command), `ASSISTANT_INSTRUCTION_MAX_LENGTH` = 2000 (the limit of a typed or transcribed instruction), `CPU_SAMPLE_INTERVAL_MS` = 300 (computer information), and the advice thresholds `SYSTEM_INFO_THRESHOLDS`.
 
 **Computer information.** The `SYSTEM_INFO` domain has one direct, risk 1 action, `GET_SYSTEM_INFO`, with the closed input `{ topic: "disk" | "memory" | "cpu" | "uptime" | "summary" }`. Main measures it with `os.totalmem`, `os.freemem`, two `os.cpus` samples at least 300 ms apart (an aggregate, no per-core detail), `os.uptime` and `fs.statfs` on the system drive (the path never leaves Main). Only rounded aggregates are returned: gigabytes with one decimal, whole percentages, hours or days. A deterministic advice layer adds a warning when the disk is under 10 % free, memory is over 90 % in use or the processor is over 90 % busy. History keeps the fixed sentence "Se consultó información del equipo."; the numbers exist only in the spoken and on-screen answer. There is no consent switch for it: it is gated like the other direct domains, by its approval class and the capability registry. Battery is not included: it can only be read in the renderer and passing it to Main would need a new IPC channel.
+
+## Window lifecycle: close quits, minimize keeps running
+
+- **Minimize** (the Windows minimize button, the taskbar) only minimizes. Ares keeps running in the background exactly as before: tray icon, global voice shortcut, reminder scheduler and notifications. The tray "Abrir Ares" entry or a click on the tray icon restores the window.
+- **Close** (the X button of the title bar, Alt+F4, closing from the taskbar) quits Ares completely. The `close` event is never intercepted or prevented. The tray "Salir" entry quits through the same path.
+- **One quit path.** `createBackgroundLifecycle` (`src/main/background/background-lifecycle.ts`) owns one idempotent shutdown, shared by the window close, the tray "Salir" entry, `before-quit` (any other quit, including `window-all-closed`) and the window `session-end` event (Windows logoff or shutdown). A second call does nothing. In order: (1) the synchronous Main cleanup steps given by `main.ts` (unregister the global shortcut, clear the messaging state, stop the Spotify loopback), (2) destroy the tray, (3) `app.quit()`. Electron then runs the `before-quit` hook of `registerReminderDeliveryShutdown`, which waits up to 5 seconds for the scheduler's in-flight tick, closes the database (the pg pool or PGlite) and quits again. The bounded wait keeps shutdown from hanging.
+- **Edge cases.** The renderer is destroyed with the window, which ends any recording, playback or speech and any theme transition. A turn still running in Main dies with the process. A pending confirmation is only an in-memory proposal that executes when the trusted window confirms it over IPC, so it is simply abandoned and nothing is executed. A Squirrel first run is a normal start, so closing it quits like any other. The single-instance lock is unchanged: a second launch focuses and restores the running window and exits.
+- Development (`npm start`) follows the same policy.
 
 ## Window and process security
 

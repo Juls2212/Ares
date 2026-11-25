@@ -43,7 +43,8 @@ const ALLOWLIST: Record<string, { pattern: RegExp; allowed: Entry[] }> = {
     pattern: /from "node:child_process"|require\("child_process"\)/u,
     allowed: [
       { file: "src/main/applications/application-launcher.ts", purpose: "launches a registered application executable without a shell" },
-      { file: "src/main/applications/catalog-application-adapter.ts", purpose: "launches a catalog application target without a shell" }
+      { file: "src/main/applications/catalog-application-adapter.ts", purpose: "launches a catalog application target without a shell" },
+      { file: "src/main/squirrel-startup.ts", purpose: "at install, update and uninstall only: runs the sibling Update.exe with fixed arguments to create or remove shortcuts; unreachable from IPC, the renderer or the model" }
     ]
   },
   "fetch(": {
@@ -74,7 +75,9 @@ const ALLOWLIST: Record<string, { pattern: RegExp; allowed: Entry[] }> = {
     allowed: [
       { file: "src/main/assistant/assistant-interpreter.ts", purpose: "NODE_ENV check for a development-only diagnostic" },
       { file: "src/main/config/database-environment.ts", purpose: "reads the database settings in Main" },
+      { file: "src/main/config/development-environment.ts", purpose: "applies the user-level ares.env names to the process environment in Main, never over a value already set" },
       { file: "src/main/config/openai-environment.ts", purpose: "reads the OpenAI and the optional ElevenLabs speech settings in Main" },
+      { file: "src/main/database/database-driver.ts", purpose: "selects PostgreSQL or the embedded database from DATABASE_URL in Main" },
       { file: "src/main/spotify/spotify-config.ts", purpose: "reads the public Spotify client id in Main" }
     ]
   },

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   TRAY_LABELS,
@@ -22,7 +24,6 @@ const createWindow = (overrides: Partial<{ minimized: boolean; visible: boolean;
     restore: vi.fn(() => { state.minimized = false; }),
     show: vi.fn(() => { state.visible = true; }),
     focus: vi.fn(),
-    hide: vi.fn(() => { state.visible = false; }),
     on: (event, listener) => { listeners.set(event, listener); }
   };
   const close = () => {
@@ -33,18 +34,20 @@ const createWindow = (overrides: Partial<{ minimized: boolean; visible: boolean;
   return { window, close, emit: (name: string) => listeners.get(name)?.({ preventDefault: vi.fn() }), state };
 };
 
-const createHarness = (options: { lock?: boolean; trayFails?: boolean; window?: ManagedWindow } = {}) => {
+const createHarness = (options: { lock?: boolean; trayFails?: boolean; window?: ManagedWindow; steps?: Array<() => void> } = {}) => {
   const appListeners = new Map<string, () => void>();
+  /** Order of the shutdown-relevant calls, so tests can assert the sequence. */
+  const calls: string[] = [];
   const tray = {
     setToolTip: vi.fn(),
     setContextMenu: vi.fn(),
     on: vi.fn(),
-    destroy: vi.fn()
+    destroy: vi.fn(() => { calls.push("tray.destroy"); })
   } satisfies ManagedTray;
   const menus: TrayMenuItem[][] = [];
   const app = {
     requestSingleInstanceLock: vi.fn(() => options.lock ?? true),
-    quit: vi.fn(),
+    quit: vi.fn(() => { calls.push("app.quit"); }),
     on: vi.fn((event: "second-instance" | "before-quit", listener: () => void) => { appListeners.set(event, listener); })
   };
   const createMainWindow = vi.fn(async () => undefined);
@@ -58,44 +61,21 @@ const createHarness = (options: { lock?: boolean; trayFails?: boolean; window?: 
       return tray;
     },
     buildMenu: (items) => { menus.push(items); return { menu: items }; },
-    logError
+    logError,
+    shutdownSteps: options.steps
   });
-  return { lifecycle, app, tray, menus, appListeners, createMainWindow, logError };
-};
-
-const createSimpleWindow = () => {
-  const listeners = new Map<string, CloseListener>();
-  const state = { visible: true };
-  const window: ManagedWindow = {
-    isDestroyed: () => false,
-    isMinimized: () => false,
-    isVisible: () => state.visible,
-    restore: vi.fn(),
-    show: vi.fn(),
-    focus: vi.fn(),
-    hide: vi.fn(() => { state.visible = false; }),
-    on: (event, listener) => { listeners.set(event, listener); }
-  };
-  const close = () => {
-    const event = { preventDefault: vi.fn() };
-    listeners.get("close")?.(event);
-    return event;
-  };
-  return { window, close };
+  return { lifecycle, app, tray, menus, appListeners, createMainWindow, logError, calls };
 };
 
 const createLabelledHarness = (
   label: { current: string | undefined },
-  options: { balloon?: "ok" | "throws" | "absent"; window?: ManagedWindow } = {}
+  options: { window?: ManagedWindow } = {}
 ) => {
   const tray: ManagedTray = {
     setToolTip: vi.fn(),
     setContextMenu: vi.fn(),
     on: vi.fn(),
-    destroy: vi.fn(),
-    ...(options.balloon === "absent" ? {} : {
-      displayBalloon: vi.fn(() => { if (options.balloon === "throws") throw new Error("private C:\\detail"); })
-    })
+    destroy: vi.fn()
   };
   const menus: TrayMenuItem[][] = [];
   const lifecycle = createBackgroundLifecycle({
@@ -170,71 +150,138 @@ describe("tray", () => {
     expect(JSON.stringify([first.logError.mock.calls, second.logError.mock.calls])).not.toMatch(/private|Users/);
   });
 
-  it("falls back to normal close behavior when the tray cannot be created", () => {
+  it("still quits on close when the tray cannot be created", () => {
     const harness = createWindow();
-    const { lifecycle, logError } = createHarness({ trayFails: true });
+    const { lifecycle, logError, app } = createHarness({ trayFails: true });
     lifecycle.createTray();
     lifecycle.attachWindow(harness.window);
     const event = harness.close();
     expect(lifecycle.isTrayAvailable()).toBe(false);
     expect(event.preventDefault).not.toHaveBeenCalled();
-    expect(harness.window.hide).not.toHaveBeenCalled();
+    expect(app.quit).toHaveBeenCalledOnce();
     expect(logError).toHaveBeenCalledWith("Tray creation failed.");
     expect(JSON.stringify(logError.mock.calls)).not.toMatch(/private|Users/);
   });
 });
 
-describe("close to tray and quitting", () => {
-  it("hides the window instead of closing it, keeping the application running", () => {
-    const harness = createWindow();
-    const { lifecycle, app } = createHarness();
+describe("close quits the application, minimize keeps it running", () => {
+  const attach = (options: Parameters<typeof createHarness>[0] = {}) => {
+    const window = createWindow();
+    const harness = createHarness(options);
+    harness.lifecycle.start();
+    harness.lifecycle.createTray();
+    harness.lifecycle.attachWindow(window.window);
+    return { ...harness, window };
+  };
+
+  it("quits the application when the window is closed, without intercepting the close event", () => {
+    const { window, app, tray, lifecycle } = attach();
+    const event = window.close();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(app.quit).toHaveBeenCalledOnce();
+    expect(tray.destroy).toHaveBeenCalledOnce();
+    expect(lifecycle.isQuitting()).toBe(true);
+  });
+
+  it("runs the shutdown steps in order, then destroys the tray, then quits, all exactly once", () => {
+    const order: string[] = [];
+    const steps = [() => order.push("shortcut"), () => order.push("messaging"), () => order.push("spotify")];
+    const { window, calls } = attach({ steps });
+    window.close();
+    expect(order).toEqual(["shortcut", "messaging", "spotify"]);
+    expect(calls).toEqual(["tray.destroy", "app.quit"]);
+  });
+
+  it("keeps the steps before the tray: the full sequence is steps, tray, quit", () => {
+    const sequence: string[] = [];
+    const harness = createHarness({ steps: [() => sequence.push("step")] });
+    harness.tray.destroy.mockImplementation(() => { sequence.push("tray"); });
+    harness.app.quit.mockImplementation(() => { sequence.push("quit"); });
+    harness.lifecycle.createTray();
+    harness.lifecycle.quit();
+    expect(sequence).toEqual(["step", "tray", "quit"]);
+  });
+
+  it("is idempotent: closing twice, closing after the tray quit, or quitting twice runs everything once", () => {
+    const step = vi.fn();
+    const { window, app, tray, lifecycle, menus } = attach({ steps: [step] });
+    const quit = menus[0]?.find((item) => "label" in item && item.label === "Salir") as { click: () => void };
+    window.close();
+    window.close();
+    quit.click();
+    lifecycle.quit();
+    expect(step).toHaveBeenCalledOnce();
+    expect(tray.destroy).toHaveBeenCalledOnce();
+    expect(app.quit).toHaveBeenCalledOnce();
+  });
+
+  it("quits from the tray «Salir» entry through the very same path", () => {
+    const step = vi.fn();
+    const { app, tray, menus, window } = attach({ steps: [step] });
+    const quit = menus[0]?.find((item) => "label" in item && item.label === "Salir") as { click: () => void };
+    quit.click();
+    expect(step).toHaveBeenCalledOnce();
+    expect(tray.destroy).toHaveBeenCalledOnce();
+    expect(app.quit).toHaveBeenCalledOnce();
+    expect(window.close().preventDefault).not.toHaveBeenCalled();
+    expect(app.quit).toHaveBeenCalledOnce();
+  });
+
+  it("does nothing on minimize: the app, the tray and the services keep running", () => {
+    const step = vi.fn();
+    const { window, app, tray, lifecycle } = attach({ steps: [step] });
+    expect(window.emit("minimize")).toBeUndefined();
+    expect(window.emit("hide")).toBeUndefined();
+    expect(app.quit).not.toHaveBeenCalled();
+    expect(step).not.toHaveBeenCalled();
+    expect(tray.destroy).not.toHaveBeenCalled();
+    expect(lifecycle.isTrayAvailable()).toBe(true);
+    expect(lifecycle.isQuitting()).toBe(false);
+  });
+
+  it("restores a minimized or hidden window from the tray «Abrir Ares» entry and from a tray click", () => {
+    const window = createWindow({ minimized: true, visible: false });
+    const { lifecycle, menus, tray, app } = createHarness({ window: window.window });
     lifecycle.createTray();
-    lifecycle.attachWindow(harness.window);
-    const event = harness.close();
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(harness.window.hide).toHaveBeenCalledOnce();
+    const open = menus[0]?.find((item) => "label" in item && item.label === "Abrir Ares") as { click: () => void };
+    open.click();
+    expect(window.window.restore).toHaveBeenCalledOnce();
+    expect(window.window.show).toHaveBeenCalledOnce();
+    expect(window.window.focus).toHaveBeenCalledOnce();
+    expect((tray.on.mock.calls.find(([event]) => event === "click") ?? [])[1]).toBeTypeOf("function");
     expect(app.quit).not.toHaveBeenCalled();
   });
 
-  it("quits only from the tray menu, after which closing is no longer intercepted", () => {
-    const harness = createWindow();
-    const { lifecycle, app, menus } = createHarness();
-    lifecycle.createTray();
-    lifecycle.attachWindow(harness.window);
-    const quit = menus[0]?.find((item) => "label" in item && item.label === "Salir") as { click: () => void };
-    quit.click();
-    expect(lifecycle.isQuitting()).toBe(true);
+  it("runs the same shutdown once when Electron quits for another reason (before-quit)", () => {
+    const step = vi.fn();
+    const { appListeners, tray, app, window } = attach({ steps: [step] });
+    appListeners.get("before-quit")?.();
+    appListeners.get("before-quit")?.();
+    expect(step).toHaveBeenCalledOnce();
+    expect(tray.destroy).toHaveBeenCalledOnce();
+    expect(window.close().preventDefault).not.toHaveBeenCalled();
+    expect(step).toHaveBeenCalledOnce();
     expect(app.quit).toHaveBeenCalledOnce();
-    const event = harness.close();
-    expect(event.preventDefault).not.toHaveBeenCalled();
-    expect(harness.window.hide).not.toHaveBeenCalled();
   });
 
-  it("stops intercepting close on application quit signals and on session end", () => {
-    const viaBeforeQuit = createWindow();
-    const first = createHarness();
-    first.lifecycle.start();
-    first.lifecycle.createTray();
-    first.lifecycle.attachWindow(viaBeforeQuit.window);
-    first.appListeners.get("before-quit")?.();
-    expect(viaBeforeQuit.close().preventDefault).not.toHaveBeenCalled();
-    expect(first.tray.destroy).toHaveBeenCalledOnce();
-
-    const viaSession = createWindow();
-    const second = createHarness();
-    second.lifecycle.createTray();
-    second.lifecycle.attachWindow(viaSession.window);
-    viaSession.emit("session-end");
-    expect(viaSession.close().preventDefault).not.toHaveBeenCalled();
+  it("runs the synchronous shutdown on Windows session end without waiting for anything", () => {
+    const step = vi.fn();
+    const { window, tray, lifecycle } = attach({ steps: [step] });
+    window.emit("session-end");
+    expect(step).toHaveBeenCalledOnce();
+    expect(tray.destroy).toHaveBeenCalledOnce();
+    expect(lifecycle.isQuitting()).toBe(true);
   });
 
-  it("does not hide on minimize: only the close event is intercepted", () => {
-    const harness = createWindow();
-    const { lifecycle } = createHarness();
-    lifecycle.createTray();
-    lifecycle.attachWindow(harness.window);
-    expect(harness.emit("minimize")).toBeUndefined();
-    expect(harness.window.hide).not.toHaveBeenCalled();
+  it("logs a failing step with a fixed message, still runs the next step and still quits", () => {
+    const next = vi.fn();
+    const { window, logError, app, tray } = attach({ steps: [() => { throw new Error("private C:\\Users\\detail"); }, next] });
+    window.close();
+    expect(next).toHaveBeenCalledOnce();
+    expect(tray.destroy).toHaveBeenCalledOnce();
+    expect(app.quit).toHaveBeenCalledOnce();
+    expect(logError).toHaveBeenCalledWith("Shutdown step failed.");
+    expect(JSON.stringify(logError.mock.calls)).not.toMatch(/private|Users/);
   });
 
   it("cleans the tray up exactly once and tolerates a failing destroy", () => {
@@ -246,6 +293,11 @@ describe("close to tray and quitting", () => {
     expect(tray.destroy).toHaveBeenCalledOnce();
     expect(logError).toHaveBeenCalledWith("Tray cleanup failed.");
     expect(lifecycle.isTrayAvailable()).toBe(false);
+  });
+
+  it("no longer hides the window or shows a hide-to-tray notice", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/main/background/background-lifecycle.ts"), "utf8");
+    expect(source).not.toMatch(/preventDefault\(|\.hide\(|displayBalloon|sigue activo/u);
   });
 });
 
@@ -309,58 +361,5 @@ describe("tray label and tooltip", () => {
     expect(labelsOf(menus.at(-1))?.[0]).toBe("Abrir Ares");
     vi.mocked(tray.setContextMenu).mockImplementationOnce(() => { throw new Error("private"); });
     expect(() => lifecycle.refreshTray()).not.toThrow();
-  });
-});
-
-describe("first hide-to-tray notice", () => {
-  it("is shown on the first hide only, naming the shortcut, while every close still hides", () => {
-    const harness = createSimpleWindow();
-    const { lifecycle, tray } = createLabelledHarness({ current: "Ctrl+Alt+Space" }, { window: harness.window });
-    lifecycle.createTray();
-    lifecycle.attachWindow(harness.window);
-    harness.close();
-    harness.close();
-    harness.close();
-    expect(harness.window.hide).toHaveBeenCalledTimes(3);
-    expect(tray.displayBalloon).toHaveBeenCalledOnce();
-    expect(tray.displayBalloon).toHaveBeenCalledWith({
-      title: "Ares",
-      content: "Ares sigue activo en la bandeja. Atajo: Ctrl+Alt+Space."
-    });
-  });
-
-  it("omits the shortcut when none is registered", () => {
-    const harness = createSimpleWindow();
-    const { lifecycle, tray } = createLabelledHarness({ current: undefined }, { window: harness.window });
-    lifecycle.createTray();
-    lifecycle.attachWindow(harness.window);
-    harness.close();
-    expect(tray.displayBalloon).toHaveBeenCalledWith({ title: "Ares", content: "Ares sigue activo en la bandeja." });
-  });
-
-  it.each(["throws", "absent"] as const)("degrades silently when the notice %s", (balloon) => {
-    const harness = createSimpleWindow();
-    const { lifecycle } = createLabelledHarness({ current: "Ctrl+Alt+Space" }, { window: harness.window, balloon });
-    lifecycle.createTray();
-    lifecycle.attachWindow(harness.window);
-    const event = harness.close();
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(harness.window.hide).toHaveBeenCalledOnce();
-  });
-
-  it("is not shown when quitting for real or when there is no tray", () => {
-    const quitting = createSimpleWindow();
-    const first = createLabelledHarness({ current: "Ctrl+Alt+Space" }, { window: quitting.window });
-    first.lifecycle.createTray();
-    first.lifecycle.attachWindow(quitting.window);
-    first.lifecycle.quit();
-    quitting.close();
-    expect(first.tray.displayBalloon).not.toHaveBeenCalled();
-
-    const noTray = createSimpleWindow();
-    const second = createLabelledHarness({ current: "Ctrl+Alt+Space" }, { window: noTray.window });
-    second.lifecycle.attachWindow(noTray.window);
-    noTray.close();
-    expect(second.tray.displayBalloon).not.toHaveBeenCalled();
   });
 });

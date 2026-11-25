@@ -9,6 +9,7 @@ import {
   type VoiceTranscriptionInput
 } from "../../shared/voice-contracts";
 import { VOICE_CAPTURE_FAILURES, failureCodeForTranscription, formatVoiceDiagnostic } from "../../shared/voice-diagnostics";
+import { evaluateTranscript, formatTranscribeLine, repeatRequestMessage, type TranscribeOutcome } from "../../shared/transcript-guard";
 import {
   getOpenAiTranscriptionConfiguration,
   type OpenAiTranscriptionConfiguration
@@ -113,6 +114,8 @@ export const createVoiceTranscriptionService = (
     }
   };
   let inFlight = false;
+  /** Cycles the example in the request to repeat, so two rejections in a row do not read the same. */
+  let rejections = 0;
 
   return {
     async transcribe(input): Promise<VoiceOperationResult<VoiceTranscriptionData>> {
@@ -124,9 +127,21 @@ export const createVoiceTranscriptionService = (
       const facts = { mime: validated.mimeType, bytes: validated.audio.byteLength, durationMs: validated.durationMs };
       if (inFlight) return failure(VOICE_ERROR_CODES.busy, providerMessage(VOICE_ERROR_CODES.busy));
       let provider: OpenAiTranscriptionProvider;
+      let model: string | undefined;
+      /** One privacy-safe line per transcription: model, fixed language, bounded numbers and a closed outcome. */
+      const transcribeLine = (outcome: TranscribeOutcome): void => {
+        try {
+          dependencies.logInfo(formatTranscribeLine({ model, durationMs: validated.durationMs, bytes: validated.audio.byteLength, outcome }));
+        } catch {
+          // Diagnostics must never affect transcription.
+        }
+      };
       try {
-        provider = dependencies.createProvider(dependencies.getConfiguration());
+        const configuration = dependencies.getConfiguration();
+        model = configuration.transcriptionModel;
+        provider = dependencies.createProvider(configuration);
       } catch {
+        transcribeLine("CONFIGURATION_UNAVAILABLE");
         dependencies.logError(`Voice transcription failed [${VOICE_ERROR_CODES.configuration}].`);
         return failure(VOICE_ERROR_CODES.configuration, providerMessage(VOICE_ERROR_CODES.configuration));
       }
@@ -140,19 +155,33 @@ export const createVoiceTranscriptionService = (
       try {
         const text = (await Promise.race([provider.transcribe({ ...validated, signal: controller.signal }), timeout])).trim();
         if (!text) {
+          transcribeLine("TRANSCRIPT_EMPTY");
           dependencies.logError(`Voice transcription failed [${VOICE_ERROR_CODES.transcriptEmpty}].`);
           diagnostic({ stage: "transcription_started", ...facts, failure: "VOICE_TRANSCRIPT_EMPTY" });
           return failure(VOICE_ERROR_CODES.transcriptEmpty, providerMessage(VOICE_ERROR_CODES.transcriptEmpty));
         }
         if (text.length > maximumTranscriptLength) {
+          transcribeLine("TRANSCRIPT_TOO_LONG");
           dependencies.logError(`Voice transcription failed [${VOICE_ERROR_CODES.provider}].`);
           diagnostic({ stage: "transcription_started", ...facts, failure: "VOICE_TRANSCRIPTION_FAILED" });
           return failure(VOICE_ERROR_CODES.provider, providerMessage(VOICE_ERROR_CODES.provider));
         }
+        // Local guard: text that cannot be a Spanish command never reaches the interpreter; the person is asked to repeat.
+        const verdict = evaluateTranscript(text);
+        if (verdict !== "TRANSCRIPT_OK") {
+          transcribeLine(verdict);
+          const code = verdict === "TRANSCRIPT_REJECTED_LANGUAGE" ? VOICE_ERROR_CODES.transcriptLanguage : verdict === "TRANSCRIPT_TOO_SHORT" ? VOICE_ERROR_CODES.transcriptTooShort : VOICE_ERROR_CODES.transcriptEmpty;
+          dependencies.logError(`Voice transcription failed [${code}].`);
+          diagnostic({ stage: "transcription_started", ...facts, failure: "VOICE_TRANSCRIPT_EMPTY" });
+          rejections += 1;
+          return failure(code, repeatRequestMessage(verdict, rejections));
+        }
+        transcribeLine("TRANSCRIPT_OK");
         diagnostic({ stage: "transcription_done", ...facts });
         return { ok: true, data: { text } };
       } catch (error) {
         const code = controller.signal.aborted ? VOICE_ERROR_CODES.timeout : errorCode(error);
+        transcribeLine(code === VOICE_ERROR_CODES.timeout ? "PROVIDER_TIMEOUT" : "PROVIDER_FAILED");
         dependencies.logError(`Voice transcription failed [${code}].`);
         diagnostic({ stage: "transcription_started", ...facts, failure: failureCodeForTranscription(code) });
         return failure(code, providerMessage(code));

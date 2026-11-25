@@ -31,6 +31,7 @@ import { orbAmplitudeSource } from "../features/voice/orb-amplitude";
 import { LIVE_RECORDING_LIMIT_MS } from "../features/voice/recording-limits";
 import { createVoiceTranscriptSubmission } from "../features/voice/voice-transcript-submission";
 import { VOICE_ERROR_CODES, type VoiceMimeType } from "../../shared/voice-contracts";
+import { VOICE_AUDIO_BITS_PER_SECOND, VOICE_AUDIO_CONSTRAINTS, VOICE_MIN_RECORDING_MS } from "../../shared/voice-capture";
 import { type DraftActionState } from "../features/assistant/interpretation-result";
 import type { ContactFormRequest } from "../../shared/messaging-contracts";
 import { ContactFormDialog, type ContactFormValues } from "../features/messaging/contact-form-dialog";
@@ -254,8 +255,10 @@ export const App = () => {
     });
     speechEndDetector.current = detector;
     voiceRecorder.current = createManualVoiceRecorder({
-      getUserMedia: () => browserMedia.getUserMedia({ audio: true }),
-      createRecorder: (stream, mimeType) => new MediaRecorder(stream as MediaStream, { mimeType }),
+      // Mono, with echo cancellation, noise suppression and automatic gain control, for a clean single channel.
+      getUserMedia: () => browserMedia.getUserMedia({ audio: VOICE_AUDIO_CONSTRAINTS }),
+      createRecorder: (stream, mimeType) => new MediaRecorder(stream as MediaStream, { mimeType, audioBitsPerSecond: VOICE_AUDIO_BITS_PER_SECOND }),
+      minimumDurationMs: VOICE_MIN_RECORDING_MS,
       isMimeTypeSupported: MediaRecorder.isTypeSupported,
       createBlob: (parts, options) => new Blob(parts, options),
       setTimer: (callback, delay) => setTimeout(callback, delay), clearTimer: (timer) => clearTimeout(timer),

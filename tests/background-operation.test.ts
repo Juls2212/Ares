@@ -28,7 +28,6 @@ const createWindow = (overrides: Partial<{ minimized: boolean; visible: boolean;
     restore: vi.fn(() => { state.minimized = false; }),
     show: vi.fn(() => { state.visible = true; }),
     focus: vi.fn(),
-    hide: vi.fn(() => { state.visible = false; }),
     on: (event, listener) => { listeners.set(event, listener); }
   };
   const close = () => {

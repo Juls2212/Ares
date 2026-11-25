@@ -40,8 +40,14 @@ const createClientDependencies = (pool: Pool) => {
   const getDatabaseUrl = vi.fn(() => developmentDatabaseUrl);
   const logError = vi.fn();
 
+  // These tests cover the pg (PostgreSQL) driver; driver selection itself is tested in embedded-database.test.ts.
+  const selectDriver = vi.fn(() => "POSTGRES" as const);
+  const logInfo = vi.fn();
+
   return {
     database,
+    selectDriver,
+    logInfo,
     createPool,
     createDatabase,
     getDatabaseUrl,

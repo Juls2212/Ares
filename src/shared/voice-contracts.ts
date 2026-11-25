@@ -31,6 +31,8 @@ export const VOICE_ERROR_CODES = {
   rateLimited: "VOICE_RATE_LIMITED",
   provider: "VOICE_PROVIDER_UNAVAILABLE",
   transcriptEmpty: "VOICE_TRANSCRIPT_EMPTY",
+  transcriptTooShort: "VOICE_TRANSCRIPT_TOO_SHORT",
+  transcriptLanguage: "VOICE_TRANSCRIPT_REJECTED_LANGUAGE",
   timeout: "VOICE_TRANSCRIPTION_TIMEOUT",
   busy: "VOICE_TRANSCRIPTION_BUSY",
   ipcUnavailable: "VOICE_IPC_UNAVAILABLE"

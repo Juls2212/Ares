@@ -98,7 +98,7 @@ export const failureCodeForCaptureError = (name: unknown, microphone: Microphone
 /** Maps a transcription error code from Main to the closed voice failure; unknown codes are a plain transcription failure. */
 export const failureCodeForTranscription = (code: unknown): VoiceFailureCode => {
   if (code === VOICE_ERROR_CODES.audioEmpty) return "VOICE_CAPTURE_EMPTY_RECORDING";
-  if (code === VOICE_ERROR_CODES.transcriptEmpty) return "VOICE_TRANSCRIPT_EMPTY";
+  if (code === VOICE_ERROR_CODES.transcriptEmpty || code === VOICE_ERROR_CODES.transcriptTooShort || code === VOICE_ERROR_CODES.transcriptLanguage) return "VOICE_TRANSCRIPT_EMPTY";
   return "VOICE_TRANSCRIPTION_FAILED";
 };
 
